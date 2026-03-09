@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Option 03 Slate Grid</title>
+    <link rel="stylesheet" href="./shared.css" />
+  </head>
+  <body class="theme-slate">
+    <div class="page">
+      <div class="app-shell fade-up">
+        <header class="topbar glass fade-up delay-1">
+          <div class="brand">
+            <strong>Redou / Slate Grid</strong>
+            <span>Sharper and more structured for users who prefer denser information.</span>
+          </div>
+          <div class="searchbar">Filter by tag, chunk, figure, note category, OCR confidence...</div>
+          <div class="toolbar">
+            <div class="btn">Compact Mode</div>
+            <div class="btn">Show Chunks</div>
+            <div class="btn">Detach Figures</div>
+          </div>
+        </header>
+
+        <div class="workspace">
+          <aside class="sidebar glass fade-up delay-1">
+            <span class="eyebrow">Filters</span>
+            <div class="list">
+              <div class="paper-item"><strong>Reading status</strong><small>Unread, reading, read, important</small></div>
+              <div class="paper-item"><strong>Highlight categories</strong><small>Result, revisit, method, limitation</small></div>
+              <div class="paper-item"><strong>File health</strong><small>OCR complete, vectors ready, backup synced</small></div>
+            </div>
+          </aside>
+
+          <main class="main-column">
+            <section class="hero glass fade-up delay-2">
+              <div class="hero-grid">
+                <div>
+                  <span class="eyebrow">Structured workspace</span>
+                  <h1 class="headline">A cleaner grid for users who think in lists, states, and queues.</h1>
+                  <p class="subline">
+                    This version is less romantic and more operational. It still stays neutral and quiet, but the card structure is more explicit and easier to scan at high volume.
+                  </p>
+                </div>
+                <div class="mini-panel">
+                  <strong>Pipeline status</strong>
+                  <div class="stat-line"><span>OCR</span><span class="muted">done</span></div>
+                  <div class="stat-line"><span>Chunks</span><span class="muted">142 stored</span></div>
+                  <div class="stat-line"><span>Vectors</span><span class="muted">ready</span></div>
+                  <div class="stat-line"><span>Summary</span><span class="muted">generated</span></div>
+                </div>
+              </div>
+
+              <div class="summary-grid">
+                <div class="metric-card"><strong>Objective</strong><div class="tiny muted">Explain how a layered bed changes contaminant propagation.</div></div>
+                <div class="metric-card"><strong>Method</strong><div class="tiny muted">Comparative packed bed experiments under matched cycle conditions.</div></div>
+                <div class="metric-card"><strong>Limitation</strong><div class="tiny muted">Results are sensitive to feed composition and cycle design.</div></div>
+              </div>
+            </section>
+
+            <section class="content-grid fade-up delay-3">
+              <article class="reader glass">
+                <div class="reader-head">
+                  <strong>Chunk-aware reader</strong>
+                  <div class="chip">Chunk 38 / Results</div>
+                </div>
+                <div class="page-sheet">
+                  <p>Chunk boundaries and paragraph annotations should feel visible but not noisy. The reader can show provenance without turning into a developer tool.</p>
+                  <p><span class="highlight-1">Here the highlighted sentence becomes a category-bearing annotation</span> that can later drive filtered retrieval.</p>
+                  <p><span class="highlight-2">This line is marked as revisit later</span> because it may conflict with a result from another paper in the same library.</p>
+                </div>
+              </article>
+
+              <div class="stack">
+                <section class="panel glass">
+                  <div class="panel-head">
+                    <strong>Queue summary</strong>
+                    <span class="muted tiny">operational view</span>
+                  </div>
+                  <div class="note-card">
+                    <strong>Trash</strong>
+                    <div class="tiny muted">3 papers recoverable before permanent removal.</div>
+                  </div>
+                  <div class="note-card">
+                    <strong>Backup</strong>
+                    <div class="tiny muted">Portable workspace package refreshed every 30 minutes.</div>
+                  </div>
+                </section>
+
+                <section class="panel glass">
+                  <div class="panel-head">
+                    <strong>Figure links</strong>
+                    <span class="muted tiny">chunk relations</span>
+                  </div>
+                  <div class="figure-card">
+                    <strong>Figure 4</strong>
+                    <div class="tiny muted">linked to chunks 38, 39, 41</div>
+                  </div>
+                </section>
+              </div>
+            </section>
+          </main>
+
+          <aside class="inspector glass fade-up delay-2">
+            <span class="eyebrow">Inspector</span>
+            <div class="list">
+              <div class="note-card">
+                <strong>Selected chunk metadata</strong>
+                <div class="tiny muted">Results / page 7 / confidence 0.93 / figure link present.</div>
+              </div>
+              <div class="note-card">
+                <strong>Active note</strong>
+                <div class="tiny muted">Cross-check with the paper from Lee 2024 before using this claim.</div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <footer class="status-bar glass">
+          <span>UI preset: compact analyst</span>
+          <span>Good candidate if you expect heavy daily use</span>
+        </footer>
+      </div>
+    </div>
+  </body>
+</html>

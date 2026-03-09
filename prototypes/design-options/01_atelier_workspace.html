@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Option 01 Atelier Workspace</title>
+    <link rel="stylesheet" href="./shared.css" />
+  </head>
+  <body>
+    <div class="page">
+      <div class="app-shell fade-up">
+        <header class="topbar glass fade-up delay-1">
+          <div class="brand">
+            <strong>Redou / Atelier Workspace</strong>
+            <span>Balanced default for library, reader, notes, and figures.</span>
+          </div>
+          <div class="searchbar">Find pressure swing adsorption, figure notes, highlighted results...</div>
+          <div class="toolbar">
+            <div class="btn">Import PDF</div>
+            <div class="btn">Detach Notes</div>
+            <div class="btn">Reader Focus</div>
+          </div>
+        </header>
+
+        <div class="workspace">
+          <aside class="sidebar glass fade-up delay-1">
+            <span class="eyebrow">Library</span>
+            <div class="list">
+              <div class="paper-item"><strong>Recent Papers</strong><small>18 added this week</small></div>
+              <div class="paper-item"><strong>Important</strong><small>9 core references</small></div>
+              <div class="paper-item"><strong>Revisit</strong><small>12 flagged for review</small></div>
+              <div class="paper-item"><strong>Tag Clusters</strong><small>PSA, CO2, zeolite, recovery</small></div>
+            </div>
+          </aside>
+
+          <main class="main-column">
+            <section class="hero glass fade-up delay-2">
+              <div class="hero-grid">
+                <div>
+                  <span class="eyebrow">Paper overview</span>
+                  <h1 class="headline">Layered adsorbent beds protect zeolite from CO2 propagation.</h1>
+                  <p class="subline">
+                    The overview should feel editorial rather than dashboard-heavy. Metadata stays visible, but the main focus is on what the paper says and what the user marked as meaningful.
+                  </p>
+                </div>
+                <div class="mini-panel">
+                  <strong>Current mode</strong>
+                  <div class="stat-line"><span>Layout</span><span class="muted">3-panel</span></div>
+                  <div class="stat-line"><span>Reader</span><span class="muted">Docked</span></div>
+                  <div class="stat-line"><span>Notes</span><span class="muted">Docked</span></div>
+                  <div class="stat-line"><span>Backup</span><span class="muted">29 min refresh</span></div>
+                </div>
+              </div>
+
+              <div class="summary-grid">
+                <div class="metric-card"><strong>One-line summary</strong><div class="tiny muted">Layered beds reduce CO2 breakthrough into the zeolite polishing section.</div></div>
+                <div class="metric-card"><strong>Key result</strong><div class="tiny muted">Protection of downstream zeolite improved purity stability during long cycles.</div></div>
+                <div class="metric-card"><strong>My note</strong><div class="tiny muted">Strong candidate for the intro slide on bed architecture rationale.</div></div>
+              </div>
+            </section>
+
+            <section class="content-grid fade-up delay-3">
+              <article class="reader glass">
+                <div class="reader-head">
+                  <strong>PDF Reader / Page 07</strong>
+                  <div class="chip">Highlights linked to notes</div>
+                </div>
+                <div class="page-sheet">
+                  <p>The layered bed configuration delayed the onset of carbon dioxide penetration into the zeolite layer. <span class="highlight-1">This protection effect increased hydrogen purity stability</span> during the adsorption step.</p>
+                  <p>The authors also observed that <span class="highlight-2">recovery decreased at higher adsorption pressure</span>, suggesting a trade-off that depends on cycle timing and feed composition.</p>
+                  <p>Figure 4 connects the proposed barrier mechanism with the breakthrough shape. <span class="highlight-3">This paragraph is a good place for a method-related note.</span></p>
+                </div>
+              </article>
+
+              <div class="stack">
+                <section class="panel glass">
+                  <div class="panel-head">
+                    <strong>Figures</strong>
+                    <span class="muted tiny">2 key candidates</span>
+                  </div>
+                  <div class="figure-card">
+                    <strong>Figure 4</strong>
+                    <div class="tiny muted">Breakthrough comparison for layered vs. conventional bed.</div>
+                  </div>
+                  <div class="figure-card">
+                    <strong>Figure 6</strong>
+                    <div class="tiny muted">Purity and recovery under pressure variations.</div>
+                  </div>
+                </section>
+
+                <section class="panel glass">
+                  <div class="panel-head">
+                    <strong>Highlights</strong>
+                    <span class="muted tiny">Meaning-based categories</span>
+                  </div>
+                  <div class="note-card">
+                    <strong>Important result</strong>
+                    <div class="tiny muted">Yellow is only the visual layer. The saved meaning is the category itself.</div>
+                  </div>
+                  <div class="note-card">
+                    <strong>Revisit later</strong>
+                    <div class="tiny muted">Pressure-related trade-off needs direct comparison with my own cycle data.</div>
+                  </div>
+                </section>
+              </div>
+            </section>
+          </main>
+
+          <aside class="inspector glass fade-up delay-2">
+            <span class="eyebrow">Inspector</span>
+            <div class="list">
+              <div class="note-card">
+                <strong>Note linked to paragraph</strong>
+                <div class="tiny muted">Use this as the bridge between background explanation and process design slide.</div>
+              </div>
+              <div class="note-card">
+                <strong>Metadata</strong>
+                <div class="tiny muted">DOI, year, journal, file path, OCR status, vector status.</div>
+              </div>
+              <div class="note-card">
+                <strong>Panel controls</strong>
+                <div class="tiny muted">Hide sidebar, detach notes, open reader in a separate window.</div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <footer class="status-bar glass">
+          <span>Import queue quiet</span>
+          <span>Embeddings ready, summary generated, backup scheduled</span>
+        </footer>
+      </div>
+    </div>
+  </body>
+</html>

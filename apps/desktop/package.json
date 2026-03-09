@@ -1,0 +1,26 @@
+{
+  "name": "redou-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Desktop shell for Redou research support application",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "start:electron": "electron electron/main.mjs"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "electron": "^35.0.0",
+    "typescript": "^5.8.0",
+    "vite": "^6.2.0"
+  }
+}

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Option 02 Editorial Reader</title>
+    <link rel="stylesheet" href="./shared.css" />
+  </head>
+  <body class="theme-editorial">
+    <div class="page">
+      <div class="app-shell fade-up">
+        <header class="topbar glass fade-up delay-1">
+          <div class="brand">
+            <strong>Redou / Editorial Reader</strong>
+            <span>Reader-first, slower, calmer, more like marked research paper.</span>
+          </div>
+          <div class="searchbar">Search notes, quoted paragraphs, figure captions, claims...</div>
+          <div class="toolbar">
+            <div class="btn">Hide Library</div>
+            <div class="btn">Detach PDF</div>
+          </div>
+        </header>
+
+        <div class="workspace">
+          <aside class="sidebar glass fade-up delay-1">
+            <span class="eyebrow">Current paper</span>
+            <div class="list">
+              <div class="paper-item"><strong>Overview</strong><small>Summary, method, result, limitation</small></div>
+              <div class="paper-item"><strong>Reader</strong><small>Open with annotations</small></div>
+              <div class="paper-item"><strong>Notes</strong><small>11 paragraph notes</small></div>
+              <div class="paper-item"><strong>Figures</strong><small>6 detected, 2 starred</small></div>
+            </div>
+          </aside>
+
+          <main class="main-column">
+            <section class="hero glass fade-up delay-2">
+              <span class="eyebrow">Editorial rhythm</span>
+              <h1 class="headline">A quieter surface that makes long-form reading feel more serious.</h1>
+              <p class="subline">
+                This version pushes the paper itself to the center. Metadata and controls are still present, but the visual hierarchy behaves more like an annotated manuscript than a dashboard.
+              </p>
+            </section>
+
+            <section class="content-grid fade-up delay-3">
+              <article class="reader glass">
+                <div class="reader-head">
+                  <strong>Annotated paper / Page 05</strong>
+                  <div class="chip">Reading focus mode</div>
+                </div>
+                <div class="page-sheet">
+                  <p>The adsorption section was packed with a layered arrangement to suppress the early movement of carbon dioxide toward the polishing layer.</p>
+                  <p><span class="highlight-1">The most important contribution is not only purity improvement, but the explanation of why the upstream material acts as a temporal barrier.</span></p>
+                  <p><span class="highlight-3">That interpretation is exactly where user notes become more valuable than raw highlighting.</span> The design should make those notes feel close to the paragraph rather than hidden elsewhere.</p>
+                </div>
+              </article>
+
+              <div class="stack">
+                <section class="panel glass">
+                  <div class="panel-head">
+                    <strong>Margin notes</strong>
+                    <span class="muted tiny">paper-linked commentary</span>
+                  </div>
+                  <div class="note-card">
+                    <strong>Relevance</strong>
+                    <div class="tiny muted">Use this paragraph to justify layered bed use before the results section in the presentation.</div>
+                  </div>
+                  <div class="note-card">
+                    <strong>Question</strong>
+                    <div class="tiny muted">Need to check whether the protection effect persists at different CO2 fractions.</div>
+                  </div>
+                </section>
+
+                <section class="panel glass">
+                  <div class="panel-head">
+                    <strong>Quick summary</strong>
+                    <span class="muted tiny">LLM + user correction</span>
+                  </div>
+                  <div class="metric-card">
+                    <strong>Main result</strong>
+                    <div class="tiny muted">The layered section delays contaminant reach and stabilizes downstream separation performance.</div>
+                  </div>
+                </section>
+              </div>
+            </section>
+          </main>
+
+          <aside class="inspector glass fade-up delay-2">
+            <span class="eyebrow">Right rail</span>
+            <div class="list">
+              <div class="note-card">
+                <strong>Highlight categories</strong>
+                <div class="tiny muted">Important result, revisit later, method reference, presentation candidate.</div>
+              </div>
+              <div class="note-card">
+                <strong>Detected figures</strong>
+                <div class="tiny muted">Figure 2 schematic, Figure 4 breakthrough comparison.</div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <footer class="status-bar glass">
+          <span>OCR passed, section parsing stable</span>
+          <span>Summary queued after vectors complete</span>
+        </footer>
+      </div>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Option 04 Detached Workspace</title>
+    <link rel="stylesheet" href="./shared.css" />
+  </head>
+  <body class="theme-detached">
+    <div class="page">
+      <div class="app-shell fade-up">
+        <header class="topbar glass fade-up delay-1">
+          <div class="brand">
+            <strong>Redou / Detached Workspace</strong>
+            <span>Shows detached note windows as a first-class interaction, not an afterthought.</span>
+          </div>
+          <div class="searchbar">Focus on the reader, pull notes or figures into separate floating windows when needed.</div>
+          <div class="toolbar">
+            <div class="btn">Detach Notes</div>
+            <div class="btn">Detach PDF</div>
+            <div class="btn">Restore Layout</div>
+          </div>
+        </header>
+
+        <div class="workspace">
+          <aside class="sidebar glass fade-up delay-1">
+            <span class="eyebrow">Workspace presets</span>
+            <div class="list">
+              <div class="paper-item"><strong>Research mode</strong><small>3-panel with inspector</small></div>
+              <div class="paper-item"><strong>Reader focus</strong><small>Main view only</small></div>
+              <div class="paper-item"><strong>Notes desk</strong><small>Reader + detached notes</small></div>
+              <div class="paper-item"><strong>Figure review</strong><small>Main + figures panel</small></div>
+            </div>
+          </aside>
+
+          <main class="main-column">
+            <section class="hero glass fade-up delay-2">
+              <div class="hero-grid">
+                <div>
+                  <span class="eyebrow">Floating tools</span>
+                  <h1 class="headline">A design direction that treats detachable panels as part of the visual language.</h1>
+                  <p class="subline">
+                    Instead of forcing everything into one rectangle, this version makes it feel natural to pull notes out into a second surface while keeping the main paper centered.
+                  </p>
+                </div>
+                <div class="mini-panel">
+                  <strong>Detached state</strong>
+                  <div class="stat-line"><span>PDF</span><span class="muted">Docked</span></div>
+                  <div class="stat-line"><span>Notes</span><span class="muted">Detached</span></div>
+                  <div class="stat-line"><span>Figures</span><span class="muted">Docked</span></div>
+                </div>
+              </div>
+
+              <div class="summary-grid">
+                <div class="metric-card"><strong>Use case</strong><div class="tiny muted">Read on one monitor and keep note capture floating on another.</div></div>
+                <div class="metric-card"><strong>Best for</strong><div class="tiny muted">Users who annotate heavily while reading.</div></div>
+                <div class="metric-card"><strong>Risk</strong><div class="tiny muted">More window management complexity than the default view.</div></div>
+              </div>
+            </section>
+
+            <section class="content-grid fade-up delay-3">
+              <article class="reader glass">
+                <div class="reader-head">
+                  <strong>PDF Reader / Focus layout</strong>
+                  <div class="chip">Notes detached</div>
+                </div>
+                <div class="page-sheet">
+                  <p>The page area becomes calmer when the note-taking surface is no longer competing on the same vertical slice.</p>
+                  <p><span class="highlight-1">This makes sense for a product where paragraph-linked notes are central to later retrieval.</span></p>
+                  <p><span class="highlight-3">The detached window should still feel visually related to the main workspace.</span> Same materials, same glass, same neutral tone.</p>
+                </div>
+              </article>
+
+              <div class="stack">
+                <section class="panel glass">
+                  <div class="panel-head">
+                    <strong>Figures</strong>
+                    <span class="muted tiny">dockable</span>
+                  </div>
+                  <div class="figure-card">
+                    <strong>Figure 2 schematic</strong>
+                    <div class="tiny muted">Marked as presentation candidate.</div>
+                  </div>
+                  <div class="figure-card">
+                    <strong>Figure 4 curve</strong>
+                    <div class="tiny muted">Linked to highlighted result paragraph.</div>
+                  </div>
+                </section>
+
+                <section class="panel glass">
+                  <div class="panel-head">
+                    <strong>Layout state</strong>
+                    <span class="muted tiny">persisted</span>
+                  </div>
+                  <div class="note-card">
+                    <strong>Saved workspace</strong>
+                    <div class="tiny muted">Panel visibility, detached state, and active tab should restore after relaunch.</div>
+                  </div>
+                </section>
+              </div>
+            </section>
+          </main>
+
+          <aside class="inspector glass fade-up delay-2">
+            <span class="eyebrow">Docked rail</span>
+            <div class="list">
+              <div class="note-card">
+                <strong>Metadata</strong>
+                <div class="tiny muted">DOI, journal, OCR confidence, vector status, backup timestamp.</div>
+              </div>
+              <div class="note-card">
+                <strong>Reader tools</strong>
+                <div class="tiny muted">Hide left panel, detach figures, toggle note categories.</div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <footer class="status-bar glass">
+          <span>Window mode: notes detached</span>
+          <span>Most distinctive option if detachable panels are a headline feature</span>
+        </footer>
+      </div>
+
+      <div class="floating-window fade-up delay-3">
+        <div class="panel-head">
+          <strong>Detached Notes</strong>
+          <span class="muted tiny">paragraph-linked</span>
+        </div>
+        <div class="list">
+          <div class="note-card">
+            <strong>Important result</strong>
+            <div class="tiny muted">Use this exact paragraph when explaining the barrier role of the first adsorbent layer.</div>
+          </div>
+          <div class="note-card">
+            <strong>Question</strong>
+            <div class="tiny muted">Need to verify whether this claim still holds under shorter cycle times.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
