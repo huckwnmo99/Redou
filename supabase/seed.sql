@@ -1,0 +1,10 @@
+-- Redou Seed Data
+-- Intentionally empty.
+--
+-- The project now boots without a demo account, sample papers, folders, notes,
+-- or highlight presets. Create the first account from the auth screen, and the
+-- frontend auth bootstrap will prepare the workspace profile plus default
+-- highlight presets for that real user.
+--
+-- If an older local database still contains demo data, run:
+--   supabase db reset

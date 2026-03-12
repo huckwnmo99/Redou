@@ -1,0 +1,102 @@
+﻿@import "tailwindcss";
+
+@layer base {
+  :root {
+    --color-bg-base: #eef2f6;
+    --color-bg-surface: #f8fafc;
+    --color-bg-panel: #f1f5f9;
+    --color-bg-elevated: #ffffff;
+    --color-bg-hover: #e8eef6;
+    --color-border: #d0d8e4;
+    --color-border-subtle: #e3e8f0;
+    --color-text-primary: #172033;
+    --color-text-secondary: #52627c;
+    --color-text-muted: #8a96a9;
+    --color-accent: #2563eb;
+    --color-accent-hover: #1d4ed8;
+    --color-accent-subtle: rgba(37, 99, 235, 0.12);
+    --color-success: #0f766e;
+    --color-warning: #c0841a;
+    --color-danger: #dc2626;
+    --color-tag-bg: #eef4ff;
+    --color-tag-text: #4f6285;
+    --radius-xs: 3px;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 18px;
+    --sidebar-width: 224px;
+    --topbar-height: 52px;
+    --inspector-width: 320px;
+    --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+    --shadow-sm: 0 8px 20px rgba(15, 23, 42, 0.05);
+    --shadow-md: 0 18px 38px rgba(15, 23, 42, 0.08);
+    --shadow-lg: 0 28px 54px rgba(15, 23, 42, 0.1);
+    --transition-fast: 120ms ease;
+    --transition-base: 180ms ease;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background:
+      radial-gradient(circle at top left, rgba(255, 255, 255, 0.9), transparent 34%),
+      linear-gradient(180deg, #f8fafc 0%, var(--color-bg-base) 100%);
+    color: var(--color-text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--color-accent-subtle);
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #c3ccda;
+    border-radius: 99px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #9aa8bd;
+  }
+}
+
+@theme inline {
+  --color-accent: var(--color-accent);
+  --color-surface: var(--color-bg-surface);
+}

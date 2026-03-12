@@ -7,3 +7,8 @@ coverage/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+.env
+.env.local
+.claude/
+.npm-cache/
+.tmp_*

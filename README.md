@@ -1,33 +1,88 @@
-# Redou
+﻿# Redou
 
-Windows 기반 연구자용 논문 정리 및 확장형 연구 지원 앱의 초기 구축 저장소입니다.
+Redou is a Windows-first research workspace for collecting, reading, annotating, and recalling academic papers.
 
-## Repository Structure
+## Current Project Layout
 
+- `frontend`
+  - current renderer baseline
+  - contains the latest UI, auth gate, PDF reader workspace, notes, search, figures, and paper detail flows
 - `apps/desktop`
-  - 실제 데스크톱 앱 코드 시작점
-- `docs/planning`
-  - 제품 정의, 구현 계획, annotation 관련 문서
-- `docs/frontend`
-  - 프론트엔드 옵션 및 구조 문서
-- `docs/database`
-  - 데이터베이스 설계 초안
+  - Electron shell, preload, IPC handlers, background worker, backup/file/database bridges
+  - still contains the legacy mock renderer source under `apps/desktop/src`
+- `supabase`
+  - local Supabase config, schema migration, and seed setup
+- `docs`
+  - planning, frontend architecture, and database design docs
 - `prototypes`
-  - 디자인 시안과 HTML 프로토타입
+  - design references and HTML prototypes
 
-## Current Build Direction
+## Most Reliable Run Path
 
-- 앱 타입: `Electron + React + TypeScript`
-- 선택 디자인 기준: `21_reference_collector`
-- 현재 범위: 카테고리 트리, 라이브러리, 논문 상세, 리더/노트, 검색, 설정의 앱 셸 구축
+This is the current recommended way to run the project from this workspace.
 
-## First Working Area
+1. Start local Supabase.
 
-- 메인 앱 시작점: `apps/desktop`
-- 현재 구현 단계에서는 mock data 기반 UI 셸부터 구축
-- 이후 순서:
-  1. local Supabase 연결
-  2. PDF/OCR ingestion
-  3. annotation persistence
-  4. vector generation + 요약 파이프라인
+```powershell
+supabase start
+supabase status
+```
 
+2. Build the current renderer baseline.
+
+```powershell
+cd frontend
+npm install
+npm run build
+```
+
+3. Install the desktop shell dependencies.
+
+```powershell
+cd ..\apps\desktop
+npm install
+```
+
+4. Launch the Electron app.
+
+```powershell
+npm run start:electron
+```
+
+When the dev renderer at `http://127.0.0.1:4173` is unavailable, Electron now falls back to `frontend/dist/index.html` automatically.
+
+## Optional Dev Renderer Path
+
+If you want Electron to load the live Vite renderer instead of the built `dist` output:
+
+```powershell
+cd frontend
+npm run dev -- --host 127.0.0.1 --port 4173
+```
+
+Then, in another terminal:
+
+```powershell
+cd apps\desktop
+npm run start:electron
+```
+
+Note: in this environment, Vite dev/preview can still be unreliable because `esbuild` may hit `spawn EPERM`. The built-renderer path above is the safer default.
+
+## First Boot
+
+- The project no longer seeds a demo account or sample paper library by default.
+- Create the first local account from the auth screen, or use the Google sign-in entry after configuring the Google provider in local Supabase.
+- If you changed from an older sample-filled setup, run `supabase db reset` to clear the previous demo data and apply the clean seed.
+
+## Verified Status
+
+- `frontend` build passes.
+- local Supabase is running.
+- `apps/desktop` build passes.
+- Electron launches a live `Redou` window from this workspace.
+- the desktop worker can resolve a local `pdfjs-dist` install from `apps/desktop/node_modules`.
+
+## Current Practical Next Step
+
+Walk through the in-window `Add Paper -> import -> extraction -> reader` flow and then continue improving OCR/layout-aware extraction.
