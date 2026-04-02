@@ -155,18 +155,20 @@ function progressDescription(event: DesktopJobProgressEvent) {
 export function toDesktopFileUrl(filePath: string): string {
   const normalized = filePath.replace(/\\/g, "/");
 
+  // Use custom redou-file:// protocol to avoid file:// CORS issues
+  // Must use triple slash (redou-file:///) so drive letter isn't parsed as host
   if (/^[A-Za-z]:\//.test(normalized)) {
     const [drive, ...segments] = normalized.split("/");
-    return `file:///${drive}/${segments.map(encodeURIComponent).join("/")}`;
+    return `redou-file:///${drive}/${segments.map(encodeURIComponent).join("/")}`;
   }
 
   if (normalized.startsWith("//")) {
     const [, , host, ...segments] = normalized.split("/");
-    return `file://${host}/${segments.map(encodeURIComponent).join("/")}`;
+    return `redou-file://${host}/${segments.map(encodeURIComponent).join("/")}`;
   }
 
   const trimmedPath = normalized.startsWith("/") ? normalized.slice(1) : normalized;
-  return `file:///${trimmedPath.split("/").map(encodeURIComponent).join("/")}`;
+  return `redou-file:///${trimmedPath.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 export async function importPdfToLibrary(args: FileImportParams): Promise<FileImportResult> {

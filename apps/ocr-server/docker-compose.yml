@@ -1,0 +1,63 @@
+services:
+  ocr-server:
+    build: .
+    container_name: redou-ocr-server
+    ports:
+      - "8010:8010"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  mineru:
+    image: mineru:latest
+    container_name: redou-mineru
+    ports:
+      - "8001:8000"
+    environment:
+      MINERU_MODEL_SOURCE: local
+    entrypoint: mineru-api
+    command:
+      --host 0.0.0.0
+      --port 8000
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/docs || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  grobid:
+    image: grobid/grobid:0.8.2-crf
+    container_name: redou-grobid
+    ports:
+      - "8070:8070"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8070/api/isalive"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

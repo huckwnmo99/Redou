@@ -1,11 +1,28 @@
-﻿import { FileSearch, FileText, Highlighter, Images, Search, StickyNote } from "lucide-react";
-import type { CSSProperties, ReactNode } from "react";
-import { useMemo } from "react";
+import { Clock, FileSearch, FileText, Highlighter, Images, Search, StickyNote, X } from "lucide-react";
+import type { CSSProperties } from "react";
+import { useRef, useMemo } from "react";
 import { localeText } from "@/lib/locale";
-import { useAllChunks, useAllFigures, useAllNotes, useAllPapers, useFolders, useHighlightPresets, useSearchHighlightEmbeddings, useSemanticChunkSearch } from "@/lib/queries";
+import { LatexText, containsLatex } from "@/components/LatexText";
+import {
+  useAllChunks,
+  useAllFigures,
+  useAllNotes,
+  useAllPapers,
+  useFolders,
+  useHighlightPresets,
+  useSearchHighlightEmbeddings,
+  useSemanticChunkSearch,
+  useSemanticFigureSearch,
+  useSemanticPaperSearch,
+} from "@/lib/queries";
 import { useUIStore } from "@/stores/uiStore";
-import type { HighlightSearchResult } from "@/types/paper";
-import { applySearchScope, buildSearchGroups, getVisibleSearchKinds, semanticResultsToChunks } from "./searchModel";
+import {
+  applySearchScope,
+  buildSearchGroups,
+  buildUnifiedResults,
+  semanticResultsToChunks,
+} from "./searchModel";
+import type { MatchEvidence, UnifiedPaperResult } from "./searchModel";
 
 function buildPageAnchor(paperId: string, pageNumber: number) {
   return {
@@ -16,6 +33,20 @@ function buildPageAnchor(paperId: string, pageNumber: number) {
   };
 }
 
+function formatAuthors(authors: { name: string }[], max = 3) {
+  if (authors.length === 0) return "";
+  if (authors.length <= max) return authors.map((a) => a.name).join(", ");
+  return `${authors[0].name} 외 ${authors.length - 1}명`;
+}
+
+const sourceLabels: Record<MatchEvidence["source"], { en: string; ko: string; icon: typeof FileText }> = {
+  title: { en: "Title", ko: "제목", icon: FileText },
+  content: { en: "Content", ko: "본문", icon: FileSearch },
+  highlight: { en: "Highlight", ko: "하이라이트", icon: Highlighter },
+  note: { en: "Note", ko: "노트", icon: StickyNote },
+  figure: { en: "Figure", ko: "Figure", icon: Images },
+};
+
 export function SearchView() {
   const {
     activeFolderId,
@@ -23,6 +54,8 @@ export function SearchView() {
     searchQuery,
     searchResultKind,
     searchPresetFilter,
+    setSearchQuery,
+    setSearchResultKind,
     setActiveNav,
     setReaderTargetAnchor,
     setSelectedPaperId,
@@ -33,67 +66,66 @@ export function SearchView() {
   const { data: allChunks = [] } = useAllChunks();
   const { data: allFigures = [] } = useAllFigures();
   const { data: folders = [] } = useFolders();
-  const t = (english: string, korean: string) => localeText(locale, english, korean);
-
-  const searchGuides = [
-    {
-      title: t("Search titles and abstracts", "제목과 초록 검색"),
-      description: t("Use paper names, author cues, or venue keywords.", "논문 제목, 저자 힌트, 학술지 키워드로 찾아보세요."),
-    },
-    {
-      title: t("Search extracted text", "추출된 텍스트 검색"),
-      description: t("Method terms, result phrases, or section language also work.", "방법 용어, 결과 문장, 섹션 표현으로도 찾을 수 있습니다."),
-    },
-    {
-      title: t("Search saved notes", "저장된 노트 검색"),
-      description: t("Your own note wording is often the fastest way back to a paper.", "내가 적은 노트 문구가 논문으로 가장 빨리 돌아가는 길일 때가 많습니다."),
-    },
-  ];
+  const { data: presets = [] } = useHighlightPresets();
+  const t = (en: string, ko: string) => localeText(locale, en, ko);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const scopedPapers = useMemo(() => applySearchScope(allPapers, folders, activeFolderId), [allPapers, folders, activeFolderId]);
-  const scopedPaperIds = useMemo(() => new Set(scopedPapers.map((paper) => paper.id)), [scopedPapers]);
-  const scopedNotes = useMemo(() => allNotes.filter((note) => scopedPaperIds.has(note.paperId)), [allNotes, scopedPaperIds]);
-  const scopedChunks = useMemo(() => allChunks.filter((chunk) => scopedPaperIds.has(chunk.paperId)), [allChunks, scopedPaperIds]);
-  const scopedFigures = useMemo(() => allFigures.filter((figure) => scopedPaperIds.has(figure.paperId)), [allFigures, scopedPaperIds]);
+  const scopedPaperIds = useMemo(() => new Set(scopedPapers.map((p) => p.id)), [scopedPapers]);
   const scopedPaperIdArray = useMemo(() => Array.from(scopedPaperIds), [scopedPaperIds]);
-  const { data: semanticResults, isFetching: semanticLoading } = useSemanticChunkSearch(
-    searchQuery,
-    activeFolderId ? scopedPaperIdArray : undefined,
-  );
-  const { data: presets = [] } = useHighlightPresets();
-  const { data: highlightResults, isFetching: highlightLoading } = useSearchHighlightEmbeddings(
-    searchQuery,
-    searchPresetFilter ?? undefined,
-    activeFolderId ? scopedPaperIdArray : undefined,
-  );
-  const presetById = useMemo(() => new Map(presets.map((p) => [p.id, p])), [presets]);
-  const paperById = useMemo(() => new Map(scopedPapers.map((p) => [p.id, p])), [scopedPapers]);
-  const displayedHighlights: HighlightSearchResult[] = highlightResults ?? [];
+  const paperMap = useMemo(() => new Map(scopedPapers.map((p) => [p.id, p])), [scopedPapers]);
+  const presetMap = useMemo(() => new Map(presets.map((p) => [p.id, { name: p.name, colorHex: p.colorHex }])), [presets]);
 
+  // Text search groups
   const groups = useMemo(
     () =>
       buildSearchGroups({
         papers: scopedPapers,
-        chunks: scopedChunks,
-        notes: scopedNotes,
-        figures: scopedFigures,
+        chunks: allChunks.filter((c) => scopedPaperIds.has(c.paperId)),
+        notes: allNotes.filter((n) => scopedPaperIds.has(n.paperId)),
+        figures: allFigures.filter((f) => scopedPaperIds.has(f.paperId)),
         query: searchQuery,
       }),
-    [scopedPapers, scopedChunks, scopedNotes, scopedFigures, searchQuery],
+    [scopedPapers, allChunks, allNotes, allFigures, scopedPaperIds, searchQuery],
   );
 
-  const useSemanticChunks = Boolean(semanticResults && semanticResults.length > 0);
+  // Semantic searches
+  const filterIds = activeFolderId ? scopedPaperIdArray : undefined;
+  const { data: semanticResults } = useSemanticChunkSearch(searchQuery, filterIds);
+  const { data: highlightResults } = useSearchHighlightEmbeddings(searchQuery, searchPresetFilter ?? undefined, filterIds);
+  const { data: semanticPaperResults } = useSemanticPaperSearch(searchQuery, filterIds);
+  const { data: semanticFigureResults } = useSemanticFigureSearch(searchQuery, ["figure", "table", "equation"], filterIds);
+
   const semanticChunks = useMemo(
     () => (semanticResults ? semanticResultsToChunks(semanticResults, scopedPapers) : []),
     [semanticResults, scopedPapers],
   );
-  const displayedChunks = useSemanticChunks ? semanticChunks : groups.chunks;
 
-  const visibleKinds = getVisibleSearchKinds(searchResultKind);
-  const totalVisibleResults = visibleKinds.reduce(
-    (count, kind) =>
-      count + (kind === "chunks" ? displayedChunks.length : kind === "highlights" ? displayedHighlights.length : groups[kind].length),
-    0,
+  // Build unified paper results
+  const unifiedResults = useMemo(
+    () =>
+      searchQuery.trim()
+        ? buildUnifiedResults({
+            paperMap,
+            textMatchPaperIds: new Set(groups.papers.map((p) => p.id)),
+            semanticPapers: semanticPaperResults ?? [],
+            textChunks: groups.chunks,
+            semanticChunks,
+            highlights: highlightResults ?? [],
+            notes: groups.notes,
+            textFigures: groups.figures,
+            semanticFigures: semanticFigureResults ?? [],
+            presetMap,
+            scope: searchResultKind,
+          })
+        : [],
+    [searchQuery, searchResultKind, paperMap, groups, semanticPaperResults, semanticChunks, highlightResults, semanticFigureResults, presetMap],
+  );
+
+  // Recent papers for empty state
+  const recentPapers = useMemo(
+    () => [...scopedPapers].sort((a, b) => b.addedAt.localeCompare(a.addedAt)).slice(0, 6),
+    [scopedPapers],
   );
 
   function openPaper(paperId: string, tab: "overview" | "pdf" | "notes" | "figures" = "overview") {
@@ -102,250 +134,302 @@ export function SearchView() {
     openPaperDetail(tab);
   }
 
-  function openChunk(paperId: string, page?: number) {
-    if (page) {
-      setReaderTargetAnchor(buildPageAnchor(paperId, page));
-      openPaper(paperId, "pdf");
+  function handleCardClick(result: UnifiedPaperResult) {
+    const pageEvidence = result.evidence.find((e) => e.page && (e.source === "content" || e.source === "highlight" || e.source === "figure"));
+    if (pageEvidence?.page) {
+      setReaderTargetAnchor(buildPageAnchor(result.paperId, pageEvidence.page));
+      openPaper(result.paperId, "pdf");
       return;
     }
-
-    openPaper(paperId, "overview");
+    openPaper(result.paperId, "overview");
   }
 
-  function openNote(paperId: string, _noteId: string) {
-    setSelectedPaperId(paperId);
-    openPaperDetail("notes");
-  }
-
-  function openFigure(paperId: string, page?: number) {
-    if (page) {
-      setReaderTargetAnchor(buildPageAnchor(paperId, page));
-      openPaper(paperId, "pdf");
-      return;
-    }
-
-    openPaper(paperId, "figures");
-  }
+  const hasQuery = searchQuery.trim().length > 0;
 
   return (
-    <div style={{ height: "100%", overflow: "auto", padding: "18px 20px 26px" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18 }}>
-        <div>
-          <h2 style={{ fontSize: 20, marginBottom: 4 }}>{t("Search Workspace", "검색 워크스페이스")}</h2>
-          <p style={{ color: "var(--color-text-secondary)", fontSize: 13, lineHeight: 1.6 }}>
-            {t(
-              "Search real papers, extracted chunks, notes, and figure captions while respecting the current folder scope.",
-              "현재 폴더 범위를 유지한 채 실제 논문, 추출된 청크, 노트, Figure 캡션을 검색합니다.",
-            )}
-          </p>
-        </div>
-        <div style={{ padding: "8px 12px", borderRadius: "999px", background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-subtle)", color: "var(--color-text-secondary)", fontSize: 12, fontWeight: 600 }}>
-          {searchQuery.trim() ? t(`${totalVisibleResults} visible results`, `보이는 결과 ${totalVisibleResults}개`) : t("Ready to search", "검색 준비 완료")}
-        </div>
+    <div style={{ height: "100%", overflow: "auto", padding: "24px 20px 26px" }}>
+
+      {/* ── Hero search bar ── */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "0 14px",
+        height: 44,
+        borderRadius: "var(--radius-lg)",
+        background: "var(--color-bg-elevated)",
+        border: `1.5px solid ${hasQuery ? "var(--color-accent)" : "var(--color-border-subtle)"}`,
+        marginBottom: 20,
+        transition: "border-color 0.15s",
+      }}>
+        <Search size={16} style={{ color: hasQuery ? "var(--color-accent)" : "var(--color-text-muted)", flexShrink: 0 }} />
+        <input
+          ref={inputRef}
+          autoFocus
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder={t("Search papers, content, notes, highlights…", "논문, 본문, 노트, 하이라이트 검색…")}
+          style={{
+            flex: 1,
+            background: "transparent",
+            border: "none",
+            outline: "none",
+            color: "var(--color-text-primary)",
+            fontSize: 14,
+          }}
+        />
+        {hasQuery ? (
+          <>
+            <span style={{ fontSize: 12, color: "var(--color-text-muted)", fontWeight: 600, flexShrink: 0 }}>
+              {t(`${unifiedResults.length} results`, `${unifiedResults.length}건`)}
+            </span>
+            <button
+              aria-label={t("Clear search", "검색 지우기")}
+              onClick={() => { setSearchQuery(""); inputRef.current?.focus(); }}
+              style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--color-text-muted)", padding: 2, flexShrink: 0 }}
+            >
+              <X size={14} />
+            </button>
+          </>
+        ) : null}
       </div>
 
-      {!searchQuery.trim() ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 20 }}>
-          {searchGuides.map((guide) => (
-            <div
-              key={guide.title}
+      {/* ── Scope filter chips ── */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+        {([
+          { id: "all", en: "All", ko: "전체" },
+          { id: "title", en: "Title / Abstract", ko: "제목 · 초록" },
+          { id: "content", en: "Content", ko: "본문" },
+          { id: "highlights", en: "Highlights", ko: "하이라이트" },
+          { id: "notes", en: "Notes", ko: "노트" },
+          { id: "figures", en: "Figures", ko: "Figure" },
+          { id: "equations", en: "Tables / Equations", ko: "테이블 · 수식" },
+        ] as const).map((chip) => {
+          const active = searchResultKind === chip.id;
+          return (
+            <button
+              key={chip.id}
+              onClick={() => setSearchResultKind(chip.id)}
               style={{
-                padding: 16,
-                borderRadius: "var(--radius-lg)",
-                background: "var(--color-bg-elevated)",
-                border: "1px solid var(--color-border-subtle)",
-                boxShadow: "var(--shadow-sm)",
+                display: "inline-flex",
+                alignItems: "center",
+                padding: "4px 10px",
+                borderRadius: 999,
+                fontSize: 11.5,
+                fontWeight: active ? 600 : 400,
+                border: active ? "1.5px solid var(--color-accent)" : "1px solid var(--color-border-subtle)",
+                background: active ? "var(--color-accent-subtle)" : "transparent",
+                color: active ? "var(--color-accent)" : "var(--color-text-secondary)",
+                cursor: "pointer",
+                transition: "all 0.12s",
               }}
             >
-              <div style={{ fontSize: 11, color: "var(--color-text-muted)", marginBottom: 8 }}>{t("Search guide", "검색 가이드")}</div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-text-primary)", marginBottom: 6 }}>{guide.title}</div>
-              <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", lineHeight: 1.7 }}>{guide.description}</div>
+              {t(chip.en, chip.ko)}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Empty state: guides + recent papers ── */}
+      {!hasQuery ? (
+        <>
+          {/* Tip cards */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 8, marginBottom: 24 }}>
+            {[
+              { title: t("Titles & abstracts", "제목 · 초록"), desc: t("Paper names, authors, venues", "논문 제목, 저자, 학술지") },
+              { title: t("Full text", "본문 텍스트"), desc: t("Methods, results, sections", "방법, 결과, 섹션 내용") },
+              { title: t("Notes & highlights", "노트 · 하이라이트"), desc: t("Your own annotations", "내가 적은 메모와 형광펜") },
+            ].map((tip) => (
+              <div key={tip.title} style={{
+                padding: "10px 12px",
+                borderRadius: "var(--radius-md)",
+                background: "var(--color-bg-surface)",
+                border: "1px solid var(--color-border-subtle)",
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-primary)", marginBottom: 2 }}>{tip.title}</div>
+                <div style={{ fontSize: 11, color: "var(--color-text-muted)", lineHeight: 1.5 }}>{tip.desc}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Recent papers */}
+          {recentPapers.length > 0 ? (
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, color: "var(--color-text-muted)" }}>
+                <Clock size={13} />
+                <span style={{ fontSize: 11.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  {t("Recent Papers", "최근 논문")}
+                </span>
+              </div>
+              <div style={{ display: "grid", gap: 6 }}>
+                {recentPapers.map((paper) => (
+                  <button
+                    key={paper.id}
+                    onClick={() => openPaper(paper.id, "overview")}
+                    style={recentCardStyle}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {paper.title}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--color-text-muted)", marginTop: 2 }}>
+                        {[formatAuthors(paper.authors, 2), paper.venue, paper.year].filter(Boolean).join(" · ")}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 11, color: "var(--color-text-muted)", flexShrink: 0 }}>
+                      {t("Open", "열기")}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
-          ))}
+          ) : null}
+        </>
+      ) : null}
+
+      {/* ── Search results ── */}
+      {hasQuery && unifiedResults.length === 0 ? (
+        <div style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          minHeight: 180,
+          borderRadius: "var(--radius-lg)",
+          border: "1px dashed var(--color-border)",
+          color: "var(--color-text-muted)",
+        }}>
+          <Search size={24} style={{ opacity: 0.25 }} />
+          <span style={{ fontSize: 13 }}>{t("No results found.", "검색 결과가 없습니다.")}</span>
         </div>
       ) : null}
 
-      <div style={{ display: "grid", gap: 14 }}>
-        {visibleKinds.includes("papers") ? (
-          <section style={sectionStyle}>
-            <SectionTitle icon={<FileText size={14} />} title={t("Papers", "논문")} count={groups.papers.length} />
-            {groups.papers.length > 0 ? (
-              <div style={{ display: "grid", gap: 10 }}>
-                {groups.papers.map((paper) => (
-                  <button key={paper.id} onClick={() => openPaper(paper.id, "overview")} style={resultCardStyle}>
-                    <div style={{ fontSize: 12, color: "var(--color-text-muted)", marginBottom: 6 }}>
-                      {paper.venue} • {paper.year}
-                    </div>
-                    <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>{paper.title}</div>
-                    <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", lineHeight: 1.7 }}>{paper.abstract}</div>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <EmptySearchState message={t("No paper matches for the current scope.", "현재 범위에서 일치하는 논문이 없습니다.")} />
-            )}
-          </section>
-        ) : null}
-
-        {visibleKinds.includes("chunks") ? (
-          <section style={sectionStyle}>
-            <SectionTitle
-              icon={<FileSearch size={14} />}
-              title={useSemanticChunks ? t("Semantic Results", "시맨틱 결과") : t("Chunks", "청크")}
-              count={displayedChunks.length}
-              badge={semanticLoading ? t("Searching...", "검색 중...") : useSemanticChunks ? t("AI", "AI") : undefined}
+      {hasQuery && unifiedResults.length > 0 ? (
+        <div style={{ display: "grid", gap: 8 }}>
+          {unifiedResults.map((result) => (
+            <PaperResultCard
+              key={result.paperId}
+              result={result}
+              locale={locale}
+              onClick={() => handleCardClick(result)}
             />
-            {displayedChunks.length > 0 ? (
-              <div style={{ display: "grid", gap: 10 }}>
-                {displayedChunks.map((chunk) => (
-                  <button key={chunk.id} onClick={() => openChunk(chunk.paperId, chunk.page)} style={resultCardStyle}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
-                      <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{chunk.label}</div>
-                      {chunk.similarity != null ? (
-                        <div style={{
-                          fontSize: 11,
-                          fontWeight: 700,
-                          padding: "2px 8px",
-                          borderRadius: "999px",
-                          background: chunk.similarity > 0.7 ? "rgba(15,118,110,0.12)" : chunk.similarity > 0.5 ? "rgba(37,99,235,0.1)" : "rgba(0,0,0,0.05)",
-                          color: chunk.similarity > 0.7 ? "#0f766e" : chunk.similarity > 0.5 ? "#2563eb" : "var(--color-text-muted)",
-                        }}>
-                          {Math.round(chunk.similarity * 100)}%
-                        </div>
-                      ) : null}
-                    </div>
-                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>{chunk.title}</div>
-                    <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", lineHeight: 1.7 }}>{chunk.snippet}</div>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <EmptySearchState message={t("No extracted chunk matches for the current search.", "현재 검색어와 일치하는 추출 청크가 없습니다.")} />
-            )}
-          </section>
-        ) : null}
-
-        {visibleKinds.includes("highlights") ? (
-          <section style={sectionStyle}>
-            <SectionTitle
-              icon={<Highlighter size={14} />}
-              title={t("Highlights", "하이라이트")}
-              count={displayedHighlights.length}
-              badge={highlightLoading ? t("Searching...", "검색 중...") : displayedHighlights.length > 0 ? t("AI", "AI") : undefined}
-            />
-            {displayedHighlights.length > 0 ? (
-              <div style={{ display: "grid", gap: 10 }}>
-                {displayedHighlights.map((hl) => {
-                  const preset = presetById.get(hl.presetId);
-                  const paper = paperById.get(hl.paperId);
-                  return (
-                    <button key={hl.id} onClick={() => openPaper(hl.paperId, "pdf")} style={resultCardStyle}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          {preset ? (
-                            <span style={{
-                              display: "inline-flex", alignItems: "center", gap: 4,
-                              fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999,
-                              background: `${preset.colorHex}18`, color: preset.colorHex,
-                              border: `1px solid ${preset.colorHex}40`,
-                            }}>
-                              <span style={{ width: 6, height: 6, borderRadius: "50%", background: preset.colorHex }} />
-                              {preset.name}
-                            </span>
-                          ) : null}
-                          <span style={{ fontSize: 12, color: "var(--color-text-muted)" }}>
-                            {paper?.title ?? "Untitled"}
-                          </span>
-                        </div>
-                        <div style={{
-                          fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999,
-                          background: hl.similarity > 0.7 ? "rgba(15,118,110,0.12)" : hl.similarity > 0.5 ? "rgba(37,99,235,0.1)" : "rgba(0,0,0,0.05)",
-                          color: hl.similarity > 0.7 ? "#0f766e" : hl.similarity > 0.5 ? "#2563eb" : "var(--color-text-muted)",
-                        }}>
-                          {Math.round(hl.similarity * 100)}%
-                        </div>
-                      </div>
-                      <div style={{
-                        fontSize: 13, lineHeight: 1.7, marginBottom: hl.noteText ? 6 : 0,
-                        borderLeft: preset ? `3px solid ${preset.colorHex}` : "3px solid var(--color-border)",
-                        paddingLeft: 10, color: "var(--color-text-primary)",
-                      }}>
-                        {hl.textContent}
-                      </div>
-                      {hl.noteText ? (
-                        <div style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.6, fontStyle: "italic", paddingLeft: 13 }}>
-                          {hl.noteText}
-                        </div>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <EmptySearchState message={t("No highlight matches for the current search.", "현재 검색어와 일치하는 하이라이트가 없습니다.")} />
-            )}
-          </section>
-        ) : null}
-
-        {visibleKinds.includes("notes") ? (
-          <section style={sectionStyle}>
-            <SectionTitle icon={<StickyNote size={14} />} title={t("Notes", "노트")} count={groups.notes.length} />
-            {groups.notes.length > 0 ? (
-              <div style={{ display: "grid", gap: 10 }}>
-                {groups.notes.map((note) => (
-                  <button key={note.id} onClick={() => openNote(note.paperId, note.noteId)} style={resultCardStyle}>
-                    <div style={{ fontSize: 12, color: "var(--color-text-muted)", marginBottom: 6 }}>{note.countLabel}</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>{note.title}</div>
-                    <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", lineHeight: 1.7 }}>{note.body}</div>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <EmptySearchState message={t("No note matches for the current search.", "현재 검색어와 일치하는 노트가 없습니다.")} />
-            )}
-          </section>
-        ) : null}
-
-        {visibleKinds.includes("figures") ? (
-          <section style={sectionStyle}>
-            <SectionTitle icon={<Images size={14} />} title={t("Figures", "Figure")} count={groups.figures.length} />
-            {groups.figures.length > 0 ? (
-              <div style={{ display: "grid", gap: 10 }}>
-                {groups.figures.map((figure) => (
-                  <button key={figure.id} onClick={() => openFigure(figure.paperId, figure.page)} style={resultCardStyle}>
-                    <div style={{ display: "grid", gridTemplateColumns: "96px minmax(0, 1fr)", gap: 12, alignItems: "center" }}>
-                      <div style={{ height: 84, borderRadius: "var(--radius-md)", background: "linear-gradient(135deg, rgba(37,99,235,0.12), rgba(15,118,110,0.14))", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <Images size={24} style={{ color: "var(--color-accent)", opacity: 0.7 }} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 12, color: "var(--color-text-muted)", marginBottom: 6 }}>{figure.countLabel}</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>{figure.title}</div>
-                        <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", lineHeight: 1.7 }}>{figure.body}</div>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <EmptySearchState message={t("No figure caption matches for the current search.", "현재 검색어와 일치하는 Figure 캡션이 없습니다.")} />
-            )}
-          </section>
-        ) : null}
-      </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-const sectionStyle: CSSProperties = {
-  padding: 16,
-  borderRadius: "var(--radius-lg)",
-  background: "var(--color-bg-elevated)",
-  border: "1px solid var(--color-border-subtle)",
-  boxShadow: "var(--shadow-sm)",
-};
+/* ── Paper result card ── */
 
-const resultCardStyle: CSSProperties = {
-  padding: 14,
+function PaperResultCard({
+  result,
+  locale,
+  onClick,
+}: {
+  result: UnifiedPaperResult;
+  locale: "en" | "ko";
+  onClick: () => void;
+}) {
+  const { paper, score, evidence } = result;
+  const bestSimilarity = score > 0.01 ? Math.round(score * 100) : null;
+
+  const snippetEvidence =
+    evidence.find((e) => e.source === "content" && e.snippet) ??
+    evidence.find((e) => e.source === "highlight" && e.snippet) ??
+    evidence.find((e) => e.source === "note" && e.snippet) ??
+    evidence.find((e) => e.source === "figure" && e.snippet);
+
+  const sourceCounts = new Map<MatchEvidence["source"], number>();
+  for (const e of evidence) {
+    sourceCounts.set(e.source, (sourceCounts.get(e.source) ?? 0) + 1);
+  }
+
+  return (
+    <button onClick={onClick} style={cardStyle}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+        <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>
+          {[formatAuthors(paper.authors), paper.venue, paper.year].filter(Boolean).join(" · ")}
+        </div>
+        {bestSimilarity && bestSimilarity > 30 ? (
+          <span style={{
+            fontSize: 11,
+            fontWeight: 700,
+            padding: "2px 8px",
+            borderRadius: 999,
+            background: bestSimilarity > 70 ? "rgba(15,118,110,0.12)" : bestSimilarity > 50 ? "rgba(37,99,235,0.1)" : "rgba(0,0,0,0.05)",
+            color: bestSimilarity > 70 ? "#0f766e" : bestSimilarity > 50 ? "#2563eb" : "var(--color-text-muted)",
+            flexShrink: 0,
+          }}>
+            {bestSimilarity}%
+          </span>
+        ) : null}
+      </div>
+
+      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-text-primary)", lineHeight: 1.4, marginBottom: snippetEvidence ? 6 : 4 }}>
+        {paper.title}
+      </div>
+
+      {snippetEvidence?.snippet ? (
+        <div style={{
+          fontSize: 12,
+          color: "var(--color-text-secondary)",
+          lineHeight: 1.6,
+          marginBottom: 6,
+          borderLeft: snippetEvidence.source === "highlight" && snippetEvidence.color
+            ? `3px solid ${snippetEvidence.color}`
+            : "3px solid var(--color-border-subtle)",
+          paddingLeft: 10,
+          overflow: "hidden",
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+        }}>
+          {containsLatex(snippetEvidence.snippet) ? (
+            <LatexText style={{ fontSize: 12 }}>{snippetEvidence.snippet}</LatexText>
+          ) : (
+            snippetEvidence.snippet
+          )}
+        </div>
+      ) : null}
+
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {Array.from(sourceCounts.entries()).map(([src, count]) => {
+          const meta = sourceLabels[src];
+          const Icon = meta.icon;
+          const label = localeText(locale, meta.en, meta.ko);
+          return (
+            <span
+              key={src}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 10.5,
+                padding: "2px 7px",
+                borderRadius: 999,
+                background: "var(--color-bg-elevated)",
+                color: "var(--color-text-muted)",
+                fontWeight: 500,
+              }}
+            >
+              <Icon size={10} />
+              {label}{count > 1 ? ` ×${count}` : ""}
+            </span>
+          );
+        })}
+      </div>
+    </button>
+  );
+}
+
+/* ── Styles ── */
+
+const cardStyle: CSSProperties = {
+  display: "block",
+  width: "100%",
+  padding: "12px 14px",
   borderRadius: "var(--radius-md)",
   border: "1px solid var(--color-border-subtle)",
   background: "var(--color-bg-surface)",
@@ -353,30 +437,15 @@ const resultCardStyle: CSSProperties = {
   cursor: "pointer",
 };
 
-function SectionTitle({ icon, title, count, badge }: { icon: ReactNode; title: string; count: number; badge?: string }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
-      <div style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700 }}>
-        {icon}
-        {title}
-        {badge ? (
-          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: "999px", background: "rgba(37,99,235,0.1)", color: "#2563eb" }}>
-            {badge}
-          </span>
-        ) : null}
-      </div>
-      <div style={{ fontSize: 12, color: "var(--color-text-muted)", fontWeight: 600 }}>{count}</div>
-    </div>
-  );
-}
-
-function EmptySearchState({ message }: { message: string }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, minHeight: 140, borderRadius: "var(--radius-lg)", border: "1px dashed var(--color-border)", background: "rgba(255,255,255,0.45)", color: "var(--color-text-muted)" }}>
-      <Search size={24} style={{ opacity: 0.35 }} />
-      <span style={{ fontSize: 13 }}>{message}</span>
-    </div>
-  );
-}
-
-
+const recentCardStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  width: "100%",
+  padding: "10px 12px",
+  borderRadius: "var(--radius-sm)",
+  border: "1px solid var(--color-border-subtle)",
+  background: "var(--color-bg-surface)",
+  textAlign: "left",
+  cursor: "pointer",
+};

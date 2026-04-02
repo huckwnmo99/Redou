@@ -3,16 +3,17 @@ import { useConfirmDialog } from "@/components/ConfirmDialog";
 import { ProcessingBadge } from "@/components/ProcessingBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Tag } from "@/components/Tag";
+import { localeText } from "@/lib/locale";
 import { useDeletePaper, useTogglePaperStar } from "@/lib/queries";
 import { useUIStore } from "@/stores/uiStore";
 import type { Paper } from "@/types/paper";
 import { writePaperDragData } from "./drag";
 
-function formatAuthors(authors: Paper["authors"]) {
-  if (authors.length === 0) return "Unknown authors";
+function formatAuthors(authors: Paper["authors"], locale: "en" | "ko") {
+  if (authors.length === 0) return localeText(locale, "Unknown authors", "저자 미상");
   if (authors.length === 1) return authors[0].name;
   if (authors.length === 2) return `${authors[0].name} & ${authors[1].name}`;
-  return `${authors[0].name} et al.`;
+  return locale === "ko" ? `${authors[0].name} 외` : `${authors[0].name} et al.`;
 }
 
 function formatCitations(count: number) {
@@ -25,15 +26,15 @@ interface PaperListItemProps {
 }
 
 export function PaperListItem({ paper }: PaperListItemProps) {
-  const { selectedPaperId, setSelectedPaperId, openPaperDetail, closePaperDetail } = useUIStore();
+  const { locale, selectedPaperId, setSelectedPaperId, openPaperDetail, closePaperDetail } = useUIStore();
   const toggleStar = useTogglePaperStar();
   const deletePaper = useDeletePaper();
   const confirm = useConfirmDialog((s) => s.show);
   const isSelected = selectedPaperId === paper.id;
+  const t = (en: string, ko: string) => localeText(locale, en, ko);
 
   return (
     <div
-      role="button"
       tabIndex={0}
       aria-label={`Select ${paper.title}`}
       draggable
@@ -96,7 +97,7 @@ export function PaperListItem({ paper }: PaperListItemProps) {
           {paper.title}
         </div>
         <div style={{ fontSize: 11, color: "var(--color-text-muted)", marginTop: 2 }}>
-          {formatAuthors(paper.authors)} ? {paper.venue} {paper.year}
+          {formatAuthors(paper.authors, locale)} · {paper.venue} {paper.year}
         </div>
       </div>
 
@@ -133,11 +134,11 @@ export function PaperListItem({ paper }: PaperListItemProps) {
           flexShrink: 0,
         }}
       >
-        Open
+        {t("Open", "열기")}
       </button>
 
       <button
-        aria-label="Delete paper"
+        aria-label={t("Delete paper", "논문 삭제")}
         onClick={async (event) => {
           event.stopPropagation();
           const ok = await confirm({

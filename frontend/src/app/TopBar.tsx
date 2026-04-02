@@ -9,7 +9,7 @@
   Search,
   SlidersHorizontal,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { DropdownMenu, Select } from "radix-ui";
 import { IconButton } from "@/components/IconButton";
@@ -69,7 +69,8 @@ export function TopBar() {
     selectedPaperId,
     paperDetailOpen,
     searchQuery,
-    searchResultKind,
+    pendingDropPaths,
+    setPendingDropPaths,
     sortKey,
     viewMode,
     inspectorOpen,
@@ -97,9 +98,15 @@ export function TopBar() {
     paperTitle: selectedPaper?.title,
   });
 
+  // Auto-open import dialog when PDFs are dropped onto the window
+  useEffect(() => {
+    if (pendingDropPaths && pendingDropPaths.length > 0) {
+      setImportDialogOpen(true);
+    }
+  }, [pendingDropPaths]);
+
   const showLibraryControls = activeNav === "library" && !paperDetailOpen;
   const showPaperDetailControls = activeNav === "library" && paperDetailOpen;
-  const showSearchControls = activeNav === "search";
 
   return (
     <>
@@ -343,27 +350,6 @@ export function TopBar() {
           </button>
         ) : null}
 
-        {showSearchControls ? (
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              height: 30,
-              padding: "0 12px",
-              borderRadius: "999px",
-              background: "var(--color-bg-elevated)",
-              border: "1px solid var(--color-border-subtle)",
-              color: "var(--color-text-secondary)",
-              fontSize: 12,
-              fontWeight: 600,
-              textTransform: "capitalize",
-            }}
-          >
-            {searchResultKind === "all" ? t("All results", "전체 결과") : searchResultKind}
-          </div>
-        ) : null}
-
         <IconButton aria-label={inspectorOpen ? t("Close inspector", "인스펙터 닫기") : t("Open inspector", "인스펙터 열기")} size="sm" active={inspectorOpen} onClick={toggleInspector}>
           {inspectorOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
         </IconButton>
@@ -373,11 +359,16 @@ export function TopBar() {
         open={importDialogOpen}
         defaultFolderId={importFolderId}
         defaultFolderName={folderName}
-        onClose={() => setImportDialogOpen(false)}
+        initialPaths={pendingDropPaths}
+        onClose={() => {
+          setImportDialogOpen(false);
+          setPendingDropPaths(null);
+        }}
         onOpenImportedPaper={(paperId) => {
           setSelectedPaperId(paperId);
           openPaperDetail("overview");
           setImportDialogOpen(false);
+          setPendingDropPaths(null);
         }}
       />
     </>

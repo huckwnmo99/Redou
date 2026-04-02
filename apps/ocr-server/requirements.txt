@@ -1,0 +1,17 @@
+# torch/torchvision installed separately in Dockerfile (cu128 for Blackwell)
+transformers==4.42.4
+unimernet>=0.2.3
+timm>=0.9.16
+albumentations>=1.4.4
+opencv-python-headless>=4.6.0
+omegaconf>=2.3.0
+fairscale>=0.4.13
+ftfy>=6.2.0
+rapidfuzz>=3.8.1
+pandas>=2.2.2
+tabulate>=0.9.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+Pillow>=10.0.0
+huggingface-hub>=0.23.0

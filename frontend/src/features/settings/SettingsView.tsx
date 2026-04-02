@@ -1,4 +1,4 @@
-﻿import { CheckCircle2, FolderOpen, Globe2, HardDriveDownload, LaptopMinimal, LogOut, ShieldCheck } from "lucide-react";
+﻿import { CheckCircle2, FolderOpen, Globe2, HardDriveDownload, LaptopMinimal, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { useAuthSession, useSignOut } from "@/lib/auth";
 import {
@@ -28,6 +28,7 @@ export function SettingsView() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [latestBackupPath, setLatestBackupPath] = useState<string | null>(null);
+  const [requeuePending, setRequeuePending] = useState(false);
   const t = (english: string, korean: string) => localeText(locale, english, korean);
 
   const desktopReady = desktop?.available ?? false;
@@ -72,6 +73,29 @@ export function SettingsView() {
       setFeedback(t(`Opened ${path}`, `탐색기에서 열었습니다: ${path}`));
     } catch (caught) {
       setFeedback(getErrorMessage(caught, t("Unable to reveal the requested path.", "요청한 경로를 탐색기에서 열 수 없습니다.")));
+    }
+  }
+
+  async function handleRequeueAll() {
+    const api = window.redouDesktop;
+    if (!api) return;
+    setRequeuePending(true);
+    try {
+      const result = await api.pipeline.requeueAll();
+      if (result.success) {
+        const count = result.data?.queued ?? 0;
+        setFeedback(
+          count > 0
+            ? t(`Re-extraction queued for ${count} papers.`, `${count}개 논문의 재추출을 시작합니다.`)
+            : t("All papers are already up to date or queued.", "모든 논문이 이미 최신 상태이거나 대기열에 있습니다."),
+        );
+      } else {
+        setFeedback(result.error ?? t("Failed to queue re-extraction.", "재추출 대기열 추가에 실패했습니다."));
+      }
+    } catch (caught) {
+      setFeedback(getErrorMessage(caught, t("Failed to queue re-extraction.", "재추출 대기열 추가에 실패했습니다.")));
+    } finally {
+      setRequeuePending(false);
     }
   }
 
@@ -222,6 +246,12 @@ export function SettingsView() {
               onClick={() => handleReveal(latestBackupPath, t("Create a backup first to reveal it in Explorer.", "탐색기에서 열려면 먼저 백업을 만드세요."))}
               disabled={!desktopReady || !latestBackupPath || revealInExplorer.isPending}
             />
+            <ActionButton
+              icon={<RefreshCw size={13} />}
+              label={requeuePending ? t("Queueing...", "대기열 추가 중...") : t("Re-extract All Papers", "전체 논문 재추출")}
+              onClick={handleRequeueAll}
+              disabled={!desktopReady || requeuePending}
+            />
           </div>
 
           {feedback ? <div style={feedbackStyle}>{feedback}</div> : null}
@@ -269,7 +299,7 @@ export function SettingsView() {
   );
 }
 
-function ActionButton({ label, onClick, disabled }: { label: string; onClick: () => void; disabled?: boolean }) {
+function ActionButton({ icon, label, onClick, disabled }: { icon?: React.ReactNode; label: string; onClick: () => void; disabled?: boolean }) {
   return (
     <button
       onClick={onClick}
@@ -288,6 +318,7 @@ function ActionButton({ label, onClick, disabled }: { label: string; onClick: ()
         cursor: disabled ? "not-allowed" : "pointer",
       }}
     >
+      {icon ?? null}
       {label}
     </button>
   );

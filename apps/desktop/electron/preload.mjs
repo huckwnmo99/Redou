@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 const IPC_CHANNELS = {
   DB_QUERY: "db:query",
@@ -23,6 +23,11 @@ const IPC_CHANNELS = {
   BACKUP_LIST: "backup:list",
   EMBEDDING_GENERATE_QUERY: "embedding:generate-query",
   AUTH_GOOGLE_SIGN_IN: "auth:google-sign-in",
+  PIPELINE_REQUEUE_ALL: "pipeline:requeue-all",
+  CHAT_SEND_MESSAGE: "chat:send-message",
+  CHAT_ABORT: "chat:abort",
+  CHAT_EXPORT_CSV: "chat:export-csv",
+  SHELL_OPEN_EXTERNAL: "shell:open-external",
 };
 
 const IPC_EVENTS = {
@@ -31,6 +36,11 @@ const IPC_EVENTS = {
   JOB_FAILED: "job:failed",
   FILE_CHANGED: "file:changed",
   BACKUP_AUTO_COMPLETED: "backup:auto-completed",
+  CHAT_TOKEN: "chat:token",
+  CHAT_COMPLETE: "chat:complete",
+  CHAT_VERIFICATION_DONE: "chat:verification-done",
+  CHAT_ERROR: "chat:error",
+  CHAT_STATUS: "chat:status",
 };
 
 contextBridge.exposeInMainWorld("redouDesktop", {
@@ -79,24 +89,64 @@ contextBridge.exposeInMainWorld("redouDesktop", {
     googleSignIn: () => ipcRenderer.invoke(IPC_CHANNELS.AUTH_GOOGLE_SIGN_IN),
   },
 
+  pipeline: {
+    requeueAll: () => ipcRenderer.invoke(IPC_CHANNELS.PIPELINE_REQUEUE_ALL),
+  },
+
+  chat: {
+    sendMessage: (args) => ipcRenderer.invoke(IPC_CHANNELS.CHAT_SEND_MESSAGE, args),
+    abort: (args) => ipcRenderer.invoke(IPC_CHANNELS.CHAT_ABORT, args),
+    exportCsv: (args) => ipcRenderer.invoke(IPC_CHANNELS.CHAT_EXPORT_CSV, args),
+  },
+
+  openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_EXTERNAL, url),
+
+  getFilePathForDrop: (file) => webUtils.getPathForFile(file),
+
   onJobProgress: (callback) => {
-    const handler = (_event, data) => callback(data);
+    const handler = (_event, data) => { try { callback(data); } catch (e) { console.error("[preload] onJobProgress callback error:", e); } };
     ipcRenderer.on(IPC_EVENTS.JOB_PROGRESS, handler);
     return () => ipcRenderer.removeListener(IPC_EVENTS.JOB_PROGRESS, handler);
   },
   onJobCompleted: (callback) => {
-    const handler = (_event, data) => callback(data);
+    const handler = (_event, data) => { try { callback(data); } catch (e) { console.error("[preload] onJobCompleted callback error:", e); } };
     ipcRenderer.on(IPC_EVENTS.JOB_COMPLETED, handler);
     return () => ipcRenderer.removeListener(IPC_EVENTS.JOB_COMPLETED, handler);
   },
   onJobFailed: (callback) => {
-    const handler = (_event, data) => callback(data);
+    const handler = (_event, data) => { try { callback(data); } catch (e) { console.error("[preload] onJobFailed callback error:", e); } };
     ipcRenderer.on(IPC_EVENTS.JOB_FAILED, handler);
     return () => ipcRenderer.removeListener(IPC_EVENTS.JOB_FAILED, handler);
   },
   onBackupAutoCompleted: (callback) => {
-    const handler = (_event, data) => callback(data);
+    const handler = (_event, data) => { try { callback(data); } catch (e) { console.error("[preload] onBackupAutoCompleted callback error:", e); } };
     ipcRenderer.on(IPC_EVENTS.BACKUP_AUTO_COMPLETED, handler);
     return () => ipcRenderer.removeListener(IPC_EVENTS.BACKUP_AUTO_COMPLETED, handler);
+  },
+
+  onChatToken: (callback) => {
+    const handler = (_event, data) => { try { callback(data); } catch (e) { console.error("[preload] onChatToken error:", e); } };
+    ipcRenderer.on(IPC_EVENTS.CHAT_TOKEN, handler);
+    return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_TOKEN, handler);
+  },
+  onChatComplete: (callback) => {
+    const handler = (_event, data) => { try { callback(data); } catch (e) { console.error("[preload] onChatComplete error:", e); } };
+    ipcRenderer.on(IPC_EVENTS.CHAT_COMPLETE, handler);
+    return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_COMPLETE, handler);
+  },
+  onChatVerificationDone: (callback) => {
+    const handler = (_event, data) => { try { callback(data); } catch (e) { console.error("[preload] onChatVerificationDone error:", e); } };
+    ipcRenderer.on(IPC_EVENTS.CHAT_VERIFICATION_DONE, handler);
+    return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_VERIFICATION_DONE, handler);
+  },
+  onChatError: (callback) => {
+    const handler = (_event, data) => { try { callback(data); } catch (e) { console.error("[preload] onChatError error:", e); } };
+    ipcRenderer.on(IPC_EVENTS.CHAT_ERROR, handler);
+    return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_ERROR, handler);
+  },
+  onChatStatus: (callback) => {
+    const handler = (_event, data) => { try { callback(data); } catch (e) { console.error("[preload] onChatStatus error:", e); } };
+    ipcRenderer.on(IPC_EVENTS.CHAT_STATUS, handler);
+    return () => ipcRenderer.removeListener(IPC_EVENTS.CHAT_STATUS, handler);
   },
 });

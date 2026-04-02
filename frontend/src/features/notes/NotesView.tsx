@@ -1,5 +1,6 @@
 import { BookOpen, ExternalLink, FileText, Plus, Save, StickyNote } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { localeText } from "@/lib/locale";
 import {
   useAllNotes,
   useAllPapers,
@@ -48,6 +49,7 @@ function summarize(text: string, maxLength = 112) {
 
 export function NotesView() {
   const {
+    locale,
     selectedPaperId,
     selectedNoteId,
     setSelectedNoteId,
@@ -55,6 +57,7 @@ export function NotesView() {
     openPaperDetail,
     setReaderTargetAnchor,
   } = useUIStore();
+  const t = (en: string, ko: string) => localeText(locale, en, ko);
   const { data: notes = [] } = useAllNotes();
   const { data: papers = [] } = useAllPapers();
   const createNote = useCreateNote();
@@ -163,9 +166,9 @@ export function NotesView() {
     <div style={{ height: "100%", overflow: "auto", padding: "18px 20px 26px" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 18 }}>
         <div>
-          <h2 style={{ fontSize: 20, marginBottom: 4 }}>Notes Workspace</h2>
+          <h2 style={{ fontSize: 20, marginBottom: 4 }}>{t("Notes Workspace", "노트 워크스페이스")}</h2>
           <p style={{ color: "var(--color-text-secondary)", fontSize: 13, lineHeight: 1.6, maxWidth: 720 }}>
-            Review notes by paper, keep one editable draft open, and jump back to the exact PDF page when a saved reader selection exists.
+            {t("Review notes by paper, edit drafts, and jump back to saved PDF pages.", "논문별 노트를 확인하고 편집하며, 저장된 PDF 페이지로 바로 이동하세요.")}
           </p>
         </div>
         <button
@@ -188,7 +191,7 @@ export function NotesView() {
           }}
         >
           <Plus size={14} />
-          New note
+          {t("New note", "새 노트")}
         </button>
       </div>
 
@@ -206,7 +209,7 @@ export function NotesView() {
             cursor: "pointer",
           }}
         >
-          All papers ({notes.length})
+          {t(`All papers (${notes.length})`, `전체 논문 (${notes.length})`)}
         </button>
         {papersWithNotes.map((paper) => (
           <button
@@ -251,10 +254,13 @@ export function NotesView() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
             <div>
               <div style={{ fontSize: 11, color: "var(--color-text-muted)", marginBottom: 6, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                Note Queue
+                {t("Note Queue", "노트 목록")}
               </div>
               <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
-                {filteredNotes.length} notes visible{selectedPaperId ? " in the selected paper" : " across the library"}
+                {t(
+                  `${filteredNotes.length} notes visible${selectedPaperId ? " in the selected paper" : " across the library"}`,
+                  `${filteredNotes.length}개 노트${selectedPaperId ? " (선택한 논문)" : " (전체 라이브러리)"}`,
+                )}
               </div>
             </div>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--color-text-muted)", fontSize: 12, fontWeight: 700 }}>
@@ -268,9 +274,9 @@ export function NotesView() {
               <div key={paperId} style={{ display: "grid", gap: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                   <div>
-                    <div style={{ fontSize: 13.5, fontWeight: 700 }}>{paper?.title ?? "Unknown paper"}</div>
+                    <div style={{ fontSize: 13.5, fontWeight: 700 }}>{paper?.title ?? t("Unknown paper", "제목 미상")}</div>
                     <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>
-                      {paper?.venue || "Venue pending"}
+                      {paper?.venue || t("Venue pending", "학술지 대기중")}
                       {paper?.year ? ` | ${paper.year}` : ""}
                     </div>
                   </div>
@@ -292,7 +298,7 @@ export function NotesView() {
                     }}
                   >
                     <ExternalLink size={13} />
-                    Open paper
+                    {t("Open paper", "논문 열기")}
                   </button>
                 </div>
 
@@ -404,18 +410,18 @@ export function NotesView() {
                       {noteKindMeta[draft.kind].label}
                     </span>
                     <span style={{ fontSize: 12, color: "var(--color-text-muted)" }}>
-                      {paperMap.get(activeNote.paperId)?.title ?? "Unknown paper"}
+                      {paperMap.get(activeNote.paperId)?.title ?? t("Unknown paper", "제목 미상")}
                     </span>
                   </div>
                   <div style={{ fontSize: 11, color: "var(--color-text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>
-                    Editor
+                    {t("Editor", "편집기")}
                   </div>
                   <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
-                    Last updated {formatNoteDate(activeNote.updatedAt)}
+                    {t(`Last updated ${formatNoteDate(activeNote.updatedAt)}`, `최종 수정 ${formatNoteDate(activeNote.updatedAt)}`)}
                   </div>
                 </div>
                 <div style={{ fontSize: 12, color: dirty ? "var(--color-accent)" : "var(--color-text-muted)", fontWeight: 700 }}>
-                  {dirty ? "Unsaved changes" : "Saved"}
+                  {dirty ? t("Unsaved changes", "저장되지 않은 변경") : t("Saved", "저장됨")}
                 </div>
               </div>
 
@@ -433,10 +439,10 @@ export function NotesView() {
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                     <div>
                       <div style={{ fontSize: 11, color: "var(--color-text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>
-                        Linked Reader Selection
+                        {t("Linked Reader Selection", "연결된 리더 선택")}
                       </div>
                       <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--color-text-primary)" }}>
-                        {activeNote.anchorLabel ?? "Linked source page"}
+                        {activeNote.anchorLabel ?? t("Linked source page", "연결된 소스 페이지")}
                       </div>
                     </div>
                     {activeLinkedAnchor ? (
@@ -458,21 +464,21 @@ export function NotesView() {
                         }}
                       >
                         <FileText size={13} />
-                        Open source page
+                        {t("Open source page", "소스 페이지 열기")}
                       </button>
                     ) : null}
                   </div>
                   <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", lineHeight: 1.7 }}>
                     {activeQuote
-                      ? `Saved from the reader selection: "${activeQuote}"`
-                      : "This note is linked to a saved reader selection and will reopen the source page in the PDF workspace."}
+                      ? t(`Saved from the reader selection: "${activeQuote}"`, `리더 선택에서 저장: "${activeQuote}"`)
+                      : t("This note is linked to a saved reader selection.", "이 노트는 리더 선택에 연결되어 있습니다.")}
                   </div>
                 </div>
               ) : null}
 
               <div style={{ display: "grid", gap: 12 }}>
                 <label style={{ display: "grid", gap: 6 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-text-secondary)" }}>Title</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-text-secondary)" }}>{t("Title", "제목")}</span>
                   <input
                     value={draft.title}
                     onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
@@ -491,7 +497,7 @@ export function NotesView() {
 
                 <div style={{ display: "grid", gridTemplateColumns: "180px minmax(0, 1fr) auto", gap: 10, alignItems: "end" }}>
                   <label style={{ display: "grid", gap: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-text-secondary)" }}>Kind</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-text-secondary)" }}>{t("Kind", "유형")}</span>
                     <select
                       value={draft.kind}
                       onChange={(event) => setDraft((current) => ({ ...current, kind: event.target.value as NoteKind }))}
@@ -515,7 +521,7 @@ export function NotesView() {
                   </label>
 
                   <label style={{ display: "grid", gap: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-text-secondary)" }}>Anchor</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-text-secondary)" }}>{t("Anchor", "앵커")}</span>
                     <input
                       value={draft.anchorLabel}
                       disabled={linkedSelectionNote}
@@ -548,18 +554,18 @@ export function NotesView() {
                       fontWeight: 700,
                     }}
                   >
-                    {draft.pinned ? "Pinned" : "Pin note"}
+                    {draft.pinned ? t("Pinned", "고정됨") : t("Pin note", "노트 고정")}
                   </button>
                 </div>
 
                 {linkedSelectionNote ? (
                   <div style={{ fontSize: 11.5, color: "var(--color-text-muted)", lineHeight: 1.7 }}>
-                    Linked reader notes keep their source page anchor from the saved highlight. Use the PDF reader if you want to capture a different selection.
+                    {t("Linked notes keep their source page anchor.", "연결된 노트는 하이라이트의 소스 페이지 앵커를 유지합니다.")}
                   </div>
                 ) : null}
 
                 <label style={{ display: "grid", gap: 6 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-text-secondary)" }}>Content</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-text-secondary)" }}>{t("Content", "내용")}</span>
                   <textarea
                     value={draft.content}
                     onChange={(event) => setDraft((current) => ({ ...current, content: event.target.value }))}
@@ -598,7 +604,7 @@ export function NotesView() {
                     }}
                   >
                     <ExternalLink size={13} />
-                    Open paper detail
+                    {t("Open paper", "논문 열기")} detail
                   </button>
                   {activeLinkedAnchor ? (
                     <button
@@ -641,7 +647,7 @@ export function NotesView() {
                   }}
                 >
                   <Save size={14} />
-                  Save changes
+                  {t("Save changes", "변경 저장")}
                 </button>
               </div>
             </>
@@ -659,7 +665,7 @@ export function NotesView() {
               }}
             >
               <StickyNote size={28} style={{ opacity: 0.35 }} />
-              <div style={{ fontSize: 13 }}>Select a note to edit it here.</div>
+              <div style={{ fontSize: 13 }}>{t("Select a note to edit it here.", "노트를 선택하면 여기서 편집할 수 있습니다.")}</div>
             </div>
           )}
         </section>

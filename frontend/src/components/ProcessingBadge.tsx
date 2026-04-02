@@ -1,10 +1,10 @@
 import type { ProcessingJobStatus } from "@/types/paper";
 
 const processingConfig: Record<ProcessingJobStatus, { label: string; color: string; bg: string }> = {
-  queued: { label: "Import queued", color: "#2563eb", bg: "rgba(37,99,235,0.12)" },
-  running: { label: "Processing", color: "#d97706", bg: "rgba(217,119,6,0.12)" },
-  succeeded: { label: "Ready", color: "#0f766e", bg: "rgba(15,118,110,0.12)" },
-  failed: { label: "Needs attention", color: "#dc2626", bg: "rgba(220,38,38,0.12)" },
+  queued: { label: "Queued", color: "#2563eb", bg: "rgba(37,99,235,0.12)" },
+  running: { label: "Extracting", color: "#d97706", bg: "rgba(217,119,6,0.12)" },
+  succeeded: { label: "Complete", color: "#0f766e", bg: "rgba(15,118,110,0.12)" },
+  failed: { label: "Failed", color: "#dc2626", bg: "rgba(220,38,38,0.12)" },
 };
 
 interface ProcessingBadgeProps {

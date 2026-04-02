@@ -8,6 +8,7 @@ import { toDesktopFileUrl, useDesktopRuntime, useResolvedDesktopFilePath } from 
 import { useAllFigures, useAllPapers, useFolders, usePrimaryPaperFile } from "@/lib/queries";
 import { useUIStore } from "@/stores/uiStore";
 import type { Paper, PaperFigure } from "@/types/paper";
+import { LatexText, containsLatex } from "@/components/LatexText";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -102,14 +103,16 @@ function usePaperPdfDoc(paperId: string | null) {
 function FigureImage({ imagePath }: { imagePath: string }) {
   const { data: resolvedPath } = useResolvedDesktopFilePath(imagePath);
   const { data: runtime } = useDesktopRuntime();
+  const [broken, setBroken] = useState(false);
   const fileUrl = resolvedPath && runtime?.available ? toDesktopFileUrl(resolvedPath) : null;
 
-  if (!fileUrl) return null;
+  if (!fileUrl || broken) return null;
   return (
     <img
       src={fileUrl}
       style={{ display: "block", width: "100%", borderRadius: 6, background: "#fff" }}
       draggable={false}
+      onError={() => setBroken(true)}
     />
   );
 }
@@ -222,6 +225,117 @@ function TableCropThumbnailCard({ doc, page, figureNo, width }: { doc: PDFDocume
 }
 
 /* ------------------------------------------------------------------ */
+/*  Figure crop thumbnail — crops PDF page to show only figure region  */
+/* ------------------------------------------------------------------ */
+
+function FigureCropThumbnailCard({ doc, page, figureNo, width }: { doc: PDFDocumentProxy; page: number; figureNo: string; width: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let cancelled = false;
+
+    (async () => {
+      const pdfPage = await doc.getPage(Math.min(page, doc.numPages));
+      if (cancelled) { pdfPage.cleanup(); return; }
+
+      const baseVp = pdfPage.getViewport({ scale: 1 });
+      const renderScale = (width * 2) / baseVp.width;
+      const vp = pdfPage.getViewport({ scale: renderScale });
+      const pageH = vp.height;
+
+      const tc = await pdfPage.getTextContent();
+      const figNum = figureNo.replace(/\D/g, "");
+      // Match "Fig. N", "Figure N", "Fig N"
+      const captionRe = new RegExp(`(?:Fig\\.?|Figure)\\s*${figNum}(?![0-9])`, "i");
+      const nextRe = /(?:Table\s*\d|Figure\s*\d|Fig\.?\s*\d|\d+\.\s+[A-Z])/i;
+
+      const rawItems: { text: string; y: number }[] = [];
+      for (const item of tc.items) {
+        if (!("str" in item) || !item.str.trim()) continue;
+        const canvasY = pageH - (item.transform[5] * renderScale);
+        rawItems.push({ text: item.str, y: canvasY });
+      }
+      rawItems.sort((a, b) => a.y - b.y);
+
+      const lines: { text: string; y: number }[] = [];
+      for (const item of rawItems) {
+        const last = lines[lines.length - 1];
+        if (last && Math.abs(item.y - last.y) < 6) {
+          last.text += " " + item.text;
+        } else {
+          lines.push({ text: item.text, y: item.y });
+        }
+      }
+
+      // Find the caption line for this figure
+      let captionIdx = -1;
+      for (let i = 0; i < lines.length; i++) {
+        if (captionRe.test(lines[i].text)) { captionIdx = i; break; }
+      }
+
+      let cropTop = 0;
+      let cropBottom = pageH;
+
+      if (captionIdx >= 0) {
+        const captionY = lines[captionIdx].y;
+
+        // Figure images are typically ABOVE the caption (unlike tables where content is below)
+        // Scan upward from caption to find the start of the figure region
+        cropBottom = Math.min(pageH, captionY + 30); // include caption + small margin
+
+        // Find previous boundary (another caption, section heading) above this figure
+        for (let i = captionIdx - 1; i >= 0; i--) {
+          const lineText = lines[i].text;
+          if (nextRe.test(lineText) && !captionRe.test(lineText)) {
+            cropTop = Math.max(0, lines[i].y + 12); // start just below previous element's text
+            break;
+          }
+        }
+      }
+
+      const cropH = Math.max(60, cropBottom - cropTop);
+      if (cancelled) { pdfPage.cleanup(); return; }
+
+      const off = document.createElement("canvas");
+      off.width = Math.floor(vp.width);
+      off.height = Math.floor(pageH);
+      const offCtx = off.getContext("2d");
+      if (!offCtx) { pdfPage.cleanup(); return; }
+      await pdfPage.render({ canvasContext: offCtx, viewport: vp } as any).promise;
+      pdfPage.cleanup();
+      if (cancelled) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const displayH = (cropH / vp.width) * width;
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(displayH * dpr);
+      canvas.style.width = `${Math.floor(width)}px`;
+      canvas.style.height = `${Math.floor(displayH)}px`;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(off, 0, Math.floor(cropTop), Math.floor(vp.width), Math.floor(cropH), 0, 0, canvas.width, canvas.height);
+      if (!cancelled) setLoaded(true);
+    })().catch(() => {});
+
+    return () => { cancelled = true; };
+  }, [doc, page, figureNo, width]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        display: "block", width: "100%", borderRadius: 6,
+        background: loaded ? "#fff" : "var(--color-bg-surface)",
+        opacity: loaded ? 1 : 0.3, transition: "opacity 0.2s",
+      }}
+    />
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Figure card                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -253,6 +367,8 @@ function FigureCard({
           <FigureImage imagePath={figure.imagePath} />
         ) : doc && figure.page && figure.itemType === "table" ? (
           <TableCropThumbnailCard doc={doc} page={figure.page} figureNo={figure.figureNo} width={240} />
+        ) : doc && figure.page && figure.itemType === "figure" ? (
+          <FigureCropThumbnailCard doc={doc} page={figure.page} figureNo={figure.figureNo} width={240} />
         ) : doc && figure.page ? (
           <PageThumbnail doc={doc} page={figure.page} width={240} />
         ) : (
@@ -274,9 +390,14 @@ function FigureCard({
         {figure.caption && (
           <div style={{
             fontSize: 11.5, lineHeight: 1.6, color: "var(--color-text-secondary)",
-            display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden",
+            overflow: "hidden",
+            ...(containsLatex(figure.caption) ? {} : { display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }),
           }}>
-            {figure.caption}
+            {containsLatex(figure.caption) ? (
+              <LatexText style={{ fontSize: 11.5 }}>{figure.caption}</LatexText>
+            ) : (
+              figure.caption
+            )}
           </div>
         )}
       </div>
@@ -472,8 +593,15 @@ export function FiguresView() {
   const selectedPaper = papers.find((p) => p.id === selectedId);
   const selectedFigures = useMemo(
     () => figures.filter((f) => f.paperId === selectedId).sort((a, b) => {
-      if (a.page && b.page) return a.page - b.page;
-      return a.figureNo.localeCompare(b.figureNo);
+      // Group by item type: figure → table → equation
+      const typeOrder = { figure: 0, table: 1, equation: 2 } as Record<string, number>;
+      const ta = typeOrder[a.itemType ?? "figure"] ?? 0;
+      const tb = typeOrder[b.itemType ?? "figure"] ?? 0;
+      if (ta !== tb) return ta - tb;
+      // Within same type, sort by extracted number (numeric, not lexicographic)
+      const na = parseInt(a.figureNo.match(/(\d+)/)?.[1] ?? "0", 10);
+      const nb = parseInt(b.figureNo.match(/(\d+)/)?.[1] ?? "0", 10);
+      return na - nb;
     }),
     [figures, selectedId],
   );

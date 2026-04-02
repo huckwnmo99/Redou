@@ -4,6 +4,7 @@ import { useConfirmDialog } from "@/components/ConfirmDialog";
 import { ProcessingBadge } from "@/components/ProcessingBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Tag } from "@/components/Tag";
+import { localeText } from "@/lib/locale";
 import { useDeletePaper, useTogglePaperStar } from "@/lib/queries";
 import { useUIStore } from "@/stores/uiStore";
 import type { Paper } from "@/types/paper";
@@ -13,11 +14,11 @@ interface PaperCardProps {
   paper: Paper;
 }
 
-function formatAuthors(authors: Paper["authors"]) {
-  if (authors.length === 0) return "Unknown authors";
+function formatAuthors(authors: Paper["authors"], locale: "en" | "ko") {
+  if (authors.length === 0) return localeText(locale, "Unknown authors", "저자 미상");
   if (authors.length === 1) return authors[0].name;
   if (authors.length === 2) return `${authors[0].name} & ${authors[1].name}`;
-  return `${authors[0].name} et al.`;
+  return locale === "ko" ? `${authors[0].name} 외` : `${authors[0].name} et al.`;
 }
 
 function formatCitations(count: number) {
@@ -26,15 +27,15 @@ function formatCitations(count: number) {
 }
 
 export function PaperCard({ paper }: PaperCardProps) {
-  const { selectedPaperId, setSelectedPaperId, openPaperDetail, closePaperDetail } = useUIStore();
+  const { locale, selectedPaperId, setSelectedPaperId, openPaperDetail, closePaperDetail } = useUIStore();
   const toggleStar = useTogglePaperStar();
   const deletePaper = useDeletePaper();
   const confirm = useConfirmDialog((s) => s.show);
   const isSelected = selectedPaperId === paper.id;
+  const t = (en: string, ko: string) => localeText(locale, en, ko);
 
   return (
     <div
-      role="button"
       tabIndex={0}
       aria-label={`Select ${paper.title}`}
       draggable
@@ -93,7 +94,7 @@ export function PaperCard({ paper }: PaperCardProps) {
               textOverflow: "ellipsis",
             }}
           >
-            {formatAuthors(paper.authors)}
+            {formatAuthors(paper.authors, locale)}
           </div>
         </div>
 
@@ -152,7 +153,7 @@ export function PaperCard({ paper }: PaperCardProps) {
 
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         <span style={{ fontSize: 11, color: "var(--color-text-muted)", fontWeight: 500 }}>{paper.venue}</span>
-        <span style={{ color: "var(--color-border)", fontSize: 10 }}>?</span>
+        <span style={{ color: "var(--color-border)", fontSize: 10 }}>·</span>
         <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>{paper.year}</span>
         <div style={{ flex: 1 }} />
         {paper.processingStatus ? <ProcessingBadge status={paper.processingStatus} /> : null}
@@ -170,7 +171,7 @@ export function PaperCard({ paper }: PaperCardProps) {
 
       {paper.processingStatus ? (
         <div style={{ fontSize: 11.5, color: "var(--color-text-secondary)", lineHeight: 1.6 }}>
-          Latest pipeline state: <strong style={{ textTransform: "capitalize" }}>{paper.processingStatus}</strong>
+          {t("Pipeline:", "파이프라인:")} <strong style={{ textTransform: "capitalize" }}>{paper.processingStatus}</strong>
         </div>
       ) : null}
 
@@ -194,7 +195,7 @@ export function PaperCard({ paper }: PaperCardProps) {
             cursor: "pointer",
           }}
         >
-          Open detail
+          {t("Open detail", "상세보기")}
         </button>
       </div>
     </div>

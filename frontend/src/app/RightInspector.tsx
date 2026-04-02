@@ -1,50 +1,25 @@
 ﻿import { ScrollArea, Tabs } from "radix-ui";
-import { BookOpen, ExternalLink, FileText, Images, Quote, Star, StickyNote, X } from "lucide-react";
+import { BookOpen, ExternalLink, FileText, Star, StickyNote, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { IconButton } from "@/components/IconButton";
 import { ProcessingBadge } from "@/components/ProcessingBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Tag } from "@/components/Tag";
+import { localeText } from "@/lib/locale";
 import { useFiguresByPaper, useFolders, useNotesByPaper, usePaperById, useTogglePaperStar } from "@/lib/queries";
+import { LatexText, containsLatex } from "@/components/LatexText";
 import { useUIStore } from "@/stores/uiStore";
-import type { Paper, ProcessingJobStatus } from "@/types/paper";
+import type { Paper } from "@/types/paper";
 import { formatNoteDate, noteKindMeta } from "@/features/notes/notePresentation";
 
-function formatAuthors(authors: Paper["authors"]) {
-  if (authors.length === 0) return "Unknown authors";
+function formatAuthors(authors: Paper["authors"], locale: "en" | "ko") {
+  if (authors.length === 0) return localeText(locale, "Unknown authors", "저자 미상");
   return authors.map((author) => author.name).join(", ");
-}
-
-function formatProcessingLabel(status?: ProcessingJobStatus) {
-  if (!status) return "No active pipeline job";
-  if (status === "queued") return "Queued";
-  if (status === "running") return "Running";
-  if (status === "succeeded") return "Ready";
-  return "Needs attention";
-}
-
-function processingCopy(status?: ProcessingJobStatus) {
-  if (status === "queued") {
-    return "The PDF is stored and waiting for the next processing worker. Reader review opens into a status-first view until that job is consumed.";
-  }
-
-  if (status === "running") {
-    return "Metadata and reader preparation are in progress now. This paper should move into the reader path once the current job finishes.";
-  }
-
-  if (status === "failed") {
-    return "The last pipeline attempt failed. The file remains in the library, but the reader flow needs a retry or manual inspection.";
-  }
-
-  if (status === "succeeded") {
-    return "The latest processing job completed successfully. This paper is ready for the reader-focused next step.";
-  }
-
-  return "No processing job exists for this paper yet.";
 }
 
 export function RightInspector() {
   const {
+    locale,
     selectedPaperId,
     setInspectorOpen,
     setSelectedPaperId,
@@ -52,6 +27,7 @@ export function RightInspector() {
     openPaperDetail,
     setReaderTargetAnchor,
   } = useUIStore();
+  const t = (en: string, ko: string) => localeText(locale, en, ko);
   const { data: paper } = usePaperById(selectedPaperId);
   const { data: notes = [] } = useNotesByPaper(paper?.id ?? null);
   const { data: figures = [] } = useFiguresByPaper(paper?.id ?? null);
@@ -85,10 +61,9 @@ export function RightInspector() {
   return (
     <aside
       style={{
-        width: "var(--inspector-width)",
-        minWidth: "var(--inspector-width)",
+        width: "100%",
         background: "var(--color-bg-panel)",
-        borderLeft: "1px solid var(--color-border-subtle)",
+        borderTop: "1px solid var(--color-border-subtle)",
         display: "flex",
         flexDirection: "column",
         height: "100%",
@@ -97,7 +72,7 @@ export function RightInspector() {
     >
       <div
         style={{
-          height: "var(--topbar-height)",
+          height: 36,
           display: "flex",
           alignItems: "center",
           padding: "0 12px",
@@ -106,10 +81,10 @@ export function RightInspector() {
           flexShrink: 0,
         }}
       >
-        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-secondary)", flex: 1, letterSpacing: "0.03em", textTransform: "uppercase" }}>
-          Inspector
+        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--color-text-secondary)", flex: 1, letterSpacing: "0.03em", textTransform: "uppercase" }}>
+          {t("Inspector", "인스펙터")}
         </span>
-        <IconButton aria-label="Close inspector" size="sm" onClick={handleClose}>
+        <IconButton aria-label={t("Close inspector", "인스펙터 닫기")} size="sm" onClick={handleClose}>
           <X size={13} />
         </IconButton>
       </div>
@@ -129,7 +104,7 @@ export function RightInspector() {
           }}
         >
           <BookOpen size={32} style={{ opacity: 0.25 }} />
-          <span style={{ fontSize: 12 }}>Select a paper to see details.</span>
+          <span style={{ fontSize: 12 }}>{t("Select a paper to see details.", "논문을 선택하면 상세 정보가 표시됩니다.")}</span>
         </div>
       ) : (
         <ScrollArea.Root style={{ flex: 1, overflow: "hidden" }}>
@@ -145,9 +120,9 @@ export function RightInspector() {
                 }}
               >
                 {[
-                  { value: "overview", label: "Overview" },
-                  { value: "notes", label: "Notes" },
-                  { value: "figures", label: "Figures" },
+                  { value: "overview", label: t("Overview", "개요") },
+                  { value: "notes", label: t("Notes", "노트") },
+                  { value: "figures", label: t("Figures", "Figure") },
                 ].map((tab) => (
                   <Tabs.Trigger
                     key={tab.value}
@@ -170,205 +145,139 @@ export function RightInspector() {
               </Tabs.List>
 
               <Tabs.Content value="overview" style={{ flex: 1 }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-                  <div style={{ padding: "14px 14px 12px", borderBottom: "1px solid var(--color-border-subtle)" }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "var(--color-text-primary)", lineHeight: 1.45, marginBottom: 8 }}>
+                <div style={{ display: "flex", gap: 0, height: "100%" }}>
+                  {/* Left: paper info */}
+                  <div style={{ flex: 1, padding: "10px 14px", display: "flex", flexDirection: "column", gap: 6, minWidth: 0, borderRight: "1px solid var(--color-border-subtle)" }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "var(--color-text-primary)", lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
                       {paper.title}
                     </div>
-                    <div style={{ fontSize: 11, color: "var(--color-text-muted)", lineHeight: 1.5, marginBottom: 8 }}>
-                      {formatAuthors(paper.authors)}
+                    <div style={{ fontSize: 11, color: "var(--color-text-muted)", lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {formatAuthors(paper.authors, locale)}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 11, color: "var(--color-text-secondary)", fontWeight: 500 }}>{paper.venue}</span>
                       <span style={{ color: "var(--color-border)", fontSize: 10 }}>|</span>
                       <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>{paper.year}</span>
                       {folderName ? <Tag label={folderName} /> : null}
-                      <div style={{ flex: 1 }} />
                       <StatusBadge status={paper.status} />
                       {paper.processingStatus ? <ProcessingBadge status={paper.processingStatus} /> : null}
                     </div>
-                  </div>
-
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr 1fr",
-                      gap: 1,
-                      background: "var(--color-border-subtle)",
-                      borderBottom: "1px solid var(--color-border-subtle)",
-                    }}
-                  >
-                    {[
-                      { icon: <Quote size={12} />, value: paper.citationCount.toLocaleString(), label: "Citations" },
-                      { icon: <Images size={12} />, value: String(paper.figureCount), label: "Figures" },
-                      { icon: <StickyNote size={12} />, value: String(paper.noteCount), label: "Notes" },
-                    ].map(({ icon, value, label }) => (
-                      <div key={label} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "12px 8px", background: "var(--color-bg-panel)" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--color-text-muted)" }}>{icon}</div>
-                        <span style={{ fontSize: 14, fontWeight: 700, color: "var(--color-text-primary)", fontVariantNumeric: "tabular-nums" }}>{value}</span>
-                        <span style={{ fontSize: 9.5, color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--color-border-subtle)" }}>
-                    <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--color-text-muted)", marginBottom: 8 }}>
-                      Pipeline
-                    </div>
-                    <div
-                      style={{
-                        padding: 12,
-                        borderRadius: "var(--radius-md)",
-                        background: "var(--color-bg-elevated)",
-                        border: "1px solid var(--color-border-subtle)",
-                        display: "grid",
-                        gap: 8,
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                        <span style={{ fontSize: 12, color: "var(--color-text-secondary)", fontWeight: 600 }}>
-                          {formatProcessingLabel(paper.processingStatus)}
-                        </span>
-                        {paper.processingStatus ? <ProcessingBadge status={paper.processingStatus} /> : null}
-                      </div>
-                      <div style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.7 }}>
-                        {processingCopy(paper.processingStatus)}
-                      </div>
-                      {paper.processingUpdatedAt ? (
-                        <div style={{ fontSize: 11, color: "var(--color-text-muted)" }}>
-                          Latest signal: {paper.processingUpdatedAt}
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 2 }}>
+                      {[
+                        { value: paper.citationCount.toLocaleString(), label: t("Citations", "인용") },
+                        { value: String(paper.figureCount), label: t("Figures", "Figure") },
+                        { value: String(paper.noteCount), label: t("Notes", "노트") },
+                      ].map(({ value, label }) => (
+                        <div key={label} style={{ display: "flex", alignItems: "baseline", gap: 3 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--color-text-primary)", fontVariantNumeric: "tabular-nums" }}>{value}</span>
+                          <span style={{ fontSize: 9.5, color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</span>
                         </div>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--color-border-subtle)" }}>
-                    <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--color-text-muted)", marginBottom: 8 }}>
-                      Tags
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                      {paper.tags.map((tag) => (
-                        <Tag key={tag} label={tag} />
                       ))}
                     </div>
+                    {paper.tags.length > 0 ? (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 2 }}>
+                        {paper.tags.map((tag) => (
+                          <Tag key={tag} label={tag} />
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
 
-                  <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
-                    <button
-                      onClick={() => openPaperDetail("overview")}
-                      style={actionButtonStyle}
-                    >
-                      <FileText size={13} />
-                      Open detail workspace
+                  {/* Right: action buttons */}
+                  <div style={{ width: 200, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 5, flexShrink: 0 }}>
+                    <button onClick={() => openPaperDetail("overview")} style={actionButtonStyle}>
+                      <FileText size={12} /> {t("Detail", "상세")}
                     </button>
-                    <button
-                      onClick={() => openPaperDetail("pdf")}
-                      style={actionButtonStyle}
-                    >
-                      <ExternalLink size={13} />
-                      {paper.processingStatus && paper.processingStatus !== "succeeded" ? "Open reader status" : "Open reader tab"}
+                    <button onClick={() => openPaperDetail("pdf")} style={actionButtonStyle}>
+                      <ExternalLink size={12} />
+                      {paper.processingStatus && paper.processingStatus !== "succeeded" ? t("Reader status", "리더 상태") : t("Reader", "리더")}
                     </button>
-                    <button
-                      onClick={() => openNotesWorkspace(paper.id)}
-                      style={actionButtonStyle}
-                    >
-                      <StickyNote size={13} />
-                      Open notes workspace
+                    <button onClick={() => openNotesWorkspace(paper.id)} style={actionButtonStyle}>
+                      <StickyNote size={12} /> {t("Notes", "노트")}
                     </button>
-                    <button
-                      onClick={() => toggleStar.mutate(paper.id)}
-                      style={actionButtonStyle}
-                      disabled={toggleStar.isPending}
-                    >
-                      <Star size={13} />
-                      {paper.starred ? "Remove from starred" : "Add to starred"}
+                    <button onClick={() => toggleStar.mutate(paper.id)} style={actionButtonStyle} disabled={toggleStar.isPending}>
+                      <Star size={12} /> {paper.starred ? t("Unstar", "중요 해제") : t("Star", "중요 표시")}
                     </button>
                   </div>
                 </div>
               </Tabs.Content>
 
               <Tabs.Content value="notes" style={{ flex: 1 }}>
-                <div style={{ padding: 14, display: "grid", gap: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                    <div style={{ fontSize: 12, color: "var(--color-text-secondary)", fontWeight: 700 }}>
-                      {notes.length} linked notes
-                    </div>
+                <div style={{ padding: "10px 14px", display: "flex", gap: 10, alignItems: "flex-start", overflowX: "auto" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                    <span style={{ fontSize: 12, color: "var(--color-text-secondary)", fontWeight: 700, whiteSpace: "nowrap" }}>
+                      {t(`${notes.length} notes`, `노트 ${notes.length}개`)}
+                    </span>
                     <button onClick={() => openNotesWorkspace(paper.id)} style={miniButtonStyle}>
-                      <ExternalLink size={12} />
-                      Open workspace
+                      <ExternalLink size={12} /> {t("Open", "열기")}
                     </button>
                   </div>
 
                   {notes.length > 0 ? (
-                    notes.slice(0, 4).map((note) => {
+                    notes.slice(0, 6).map((note) => {
                       const meta = noteKindMeta[note.kind];
-
                       return (
                         <button
                           key={note.id}
                           onClick={() => openNotesWorkspace(note.paperId, note.id)}
                           style={{
-                            padding: 12,
+                            padding: "8px 12px",
                             borderRadius: "var(--radius-md)",
                             background: "var(--color-bg-elevated)",
                             border: "1px solid var(--color-border-subtle)",
                             textAlign: "left",
                             cursor: "pointer",
+                            minWidth: 200,
+                            maxWidth: 280,
+                            flexShrink: 0,
                           }}
                         >
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-                            <span style={{ display: "inline-flex", alignItems: "center", padding: "4px 8px", borderRadius: "999px", background: meta.background, color: meta.accent, fontSize: 11, fontWeight: 700 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                            <span style={{ display: "inline-flex", padding: "2px 6px", borderRadius: "999px", background: meta.background, color: meta.accent, fontSize: 10, fontWeight: 700 }}>
                               {meta.label}
                             </span>
-                            <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>{formatNoteDate(note.updatedAt)}</span>
+                            <span style={{ fontSize: 10, color: "var(--color-text-muted)" }}>{formatNoteDate(note.updatedAt)}</span>
                           </div>
-                          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>{note.title}</div>
-                          <div style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.7 }}>{note.content}</div>
+                          <div style={{ fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{note.title}</div>
+                          <div style={{ fontSize: 11, color: "var(--color-text-secondary)", lineHeight: 1.5, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{note.content}</div>
                         </button>
                       );
                     })
                   ) : (
-                    <div style={{ padding: 18, textAlign: "center", color: "var(--color-text-muted)", fontSize: 12.5 }}>
-                      No notes yet. Start a note from the workspace.
-                    </div>
+                    <div style={{ color: "var(--color-text-muted)", fontSize: 12 }}>{t("No notes yet.", "노트가 없습니다.")}</div>
                   )}
                 </div>
               </Tabs.Content>
 
               <Tabs.Content value="figures" style={{ flex: 1 }}>
-                <div style={{ padding: 14, display: "grid", gap: 10 }}>
+                <div style={{ padding: "10px 14px", display: "flex", gap: 10, overflowX: "auto" }}>
                   {figures.length > 0 ? (
-                    figures.slice(0, 4).map((figure) => (
-                      <div key={figure.id} style={{ padding: 12, borderRadius: "var(--radius-md)", background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-subtle)", display: "grid", gap: 8 }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                          <div style={{ fontSize: 12.5, fontWeight: 700 }}>{figure.page ? `${figure.figureNo} · p.${figure.page}` : figure.figureNo}</div>
-                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    figures.slice(0, 8).map((figure) => (
+                      <div key={figure.id} style={{ padding: "8px 12px", borderRadius: "var(--radius-md)", background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-subtle)", display: "flex", flexDirection: "column", gap: 4, minWidth: 180, maxWidth: 240, flexShrink: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                          <div style={{ fontSize: 11.5, fontWeight: 700 }}>{figure.page ? `${figure.figureNo} · p.${figure.page}` : figure.figureNo}</div>
+                          <div style={{ display: "flex", gap: 4 }}>
                             {figure.isKeyFigure ? <Tag label="Key" /> : null}
                             {figure.isPresentationCandidate ? <Tag label="Deck" /> : null}
                           </div>
                         </div>
-                        <div style={{ height: 72, borderRadius: "var(--radius-md)", background: "linear-gradient(135deg, rgba(37,99,235,0.12), rgba(15,118,110,0.14))", border: "1px solid var(--color-border-subtle)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <Images size={20} style={{ color: "var(--color-accent)", opacity: 0.68 }} />
+                        <div style={{ fontSize: 11, color: "var(--color-text-secondary)", lineHeight: 1.5, overflow: "hidden" }}>
+                          {containsLatex(figure.caption) ? (
+                            <LatexText style={{ fontSize: 11 }}>{figure.caption!}</LatexText>
+                          ) : (
+                            figure.caption ?? t("Caption not extracted yet.", "캡션이 아직 추출되지 않았습니다.")
+                          )}
                         </div>
-                        <div style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.7 }}>
-                          {figure.caption ?? "Caption not extracted yet."}
-                          {figure.page ? (
-                            <button
-                              onClick={() => openFigurePage(figure.page)}
-                              style={miniButtonStyle}
-                            >
-                              <ExternalLink size={12} />
-                              Open page
-                            </button>
-                          ) : null}
-                        </div>
+                        {figure.page ? (
+                          <button onClick={() => openFigurePage(figure.page)} style={miniButtonStyle}>
+                            <ExternalLink size={11} /> {t("Open page", "페이지 열기")}
+                          </button>
+                        ) : null}
                       </div>
                     ))
                   ) : (
-                    <div style={{ padding: 18, textAlign: "center", color: "var(--color-text-muted)", fontSize: 12.5 }}>
-                      {paper.processingStatus === "running"
-                        ? "Figure extraction is still running for this paper."
-                        : "No extracted figures are available yet."}
+                    <div style={{ color: "var(--color-text-muted)", fontSize: 12 }}>
+                      {paper.processingStatus === "running" ? t("Figure extraction running...", "Figure 추출 중...") : t("No figures yet.", "Figure가 없습니다.")}
                     </div>
                   )}
                 </div>

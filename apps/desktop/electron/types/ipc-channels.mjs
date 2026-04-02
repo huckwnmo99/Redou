@@ -32,6 +32,11 @@ export const IPC_CHANNELS = {
 
   EMBEDDING_GENERATE_QUERY: 'embedding:generate-query',
   AUTH_GOOGLE_SIGN_IN: 'auth:google-sign-in',
+  PIPELINE_REQUEUE_ALL: 'pipeline:requeue-all',
+
+  CHAT_SEND_MESSAGE: 'chat:send-message',
+  CHAT_ABORT: 'chat:abort',
+  CHAT_EXPORT_CSV: 'chat:export-csv',
 };
 
 /** main -> renderer (mainWindow.webContents.send) */
@@ -41,4 +46,10 @@ export const IPC_EVENTS = {
   JOB_FAILED: 'job:failed',
   FILE_CHANGED: 'file:changed',
   BACKUP_AUTO_COMPLETED: 'backup:auto-completed',
+
+  CHAT_TOKEN: 'chat:token',
+  CHAT_COMPLETE: 'chat:complete',
+  CHAT_VERIFICATION_DONE: 'chat:verification-done',
+  CHAT_ERROR: 'chat:error',
+  CHAT_STATUS: 'chat:status',
 };

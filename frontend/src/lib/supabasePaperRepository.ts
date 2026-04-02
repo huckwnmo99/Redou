@@ -7,6 +7,9 @@ import type {
   NoteKind,
   PaperChunk,
   PaperFigure,
+  PaperReference,
+  PaperSearchResult,
+  FigureSearchResult,
   PaperSection,
   Paper,
   PaperPageAnchor,
@@ -54,6 +57,8 @@ interface PaperRow {
   title: string;
   publication_year: number | null;
   journal_name: string | null;
+  doi: string | null;
+  authors: { name: string; affiliation?: string }[] | null;
   abstract: string | null;
   reading_status: string;
   is_important: boolean;
@@ -299,9 +304,10 @@ function rowToPaper(
   return {
     id: row.id,
     title: row.title,
-    authors: [],
+    authors: (row.authors ?? []).map((a) => ({ name: a.name, affiliation: a.affiliation })),
     year: row.publication_year ?? 0,
     venue: row.journal_name ?? "",
+    doi: row.doi ?? undefined,
     abstract: row.abstract ?? "",
     tags,
     status: row.reading_status as Paper["status"],
@@ -428,6 +434,10 @@ async function fetchPaperSignals() {
     supabase.from("processing_jobs").select("paper_id, status, created_at").order("created_at", { ascending: false }),
   ]);
 
+  if (noteRes.error) console.warn("[fetchPaperSignals] notes query failed:", noteRes.error.message);
+  if (figureRes.error) console.warn("[fetchPaperSignals] figures query failed:", figureRes.error.message);
+  if (jobRes.error) console.warn("[fetchPaperSignals] processing_jobs query failed:", jobRes.error.message);
+
   const noteMap = new Map<string, number>();
   for (const row of noteRes.data ?? []) {
     noteMap.set(row.paper_id, (noteMap.get(row.paper_id) ?? 0) + 1);
@@ -461,7 +471,7 @@ async function fetchPapersRaw(filter?: {
   let query = supabase
     .from("papers")
     .select(
-      "id, title, publication_year, journal_name, abstract, reading_status, is_important, created_at, paper_tags(tags(name)), paper_folders(folder_id)",
+      "id, title, publication_year, journal_name, doi, authors, abstract, reading_status, is_important, created_at, paper_tags(tags(name)), paper_folders(folder_id)",
     )
     .is("trashed_at", null)
     .order("created_at", { ascending: false });
@@ -737,23 +747,12 @@ export const supabasePaperRepository = {
   },
 
   async togglePaperStar(id: string): Promise<Paper> {
-    const { data: current, error: readError } = await supabase
-      .from("papers")
-      .select("is_important")
-      .eq("id", id)
-      .single();
+    const { error: rpcError } = await supabase.rpc("toggle_paper_star", {
+      paper_id: id,
+    });
 
-    if (readError || !current) {
-      throw new Error("Paper not found");
-    }
-
-    const { error: updateError } = await supabase
-      .from("papers")
-      .update({ is_important: !current.is_important })
-      .eq("id", id);
-
-    if (updateError) {
-      throw new Error(updateError.message);
+    if (rpcError) {
+      throw new Error(rpcError.message);
     }
 
     const paper = await this.getPaperById(id);
@@ -935,12 +934,16 @@ export const supabasePaperRepository = {
     threshold?: number;
     limit?: number;
     paperIds?: string[];
+    boostSectionNames?: string[];
+    sectionBoost?: number;
   }): Promise<import("@/types/paper").SemanticSearchResult[]> {
     const { data, error } = await supabase.rpc("match_chunks", {
       query_embedding: JSON.stringify(queryEmbedding),
       match_threshold: options?.threshold ?? 0.35,
       match_count: options?.limit ?? 20,
       filter_paper_ids: options?.paperIds ?? null,
+      boost_section_names: options?.boostSectionNames ?? null,
+      section_boost: options?.sectionBoost ?? 0.08,
     });
 
     if (error) {
@@ -951,6 +954,7 @@ export const supabasePaperRepository = {
       chunkId: row.chunk_id as string,
       paperId: row.paper_id as string,
       sectionId: (row.section_id as string) ?? undefined,
+      sectionName: (row.section_name as string) ?? undefined,
       chunkOrder: row.chunk_order as number,
       page: (row.page as number) ?? undefined,
       text: row.text as string,
@@ -1086,6 +1090,9 @@ export const supabasePaperRepository = {
       supabase.from("folders").select("id, name, parent_folder_id, sort_order").order("sort_order"),
       supabase.from("paper_folders").select("paper_id, folder_id"),
     ]);
+
+    if (folderRes.error) throw new Error(folderRes.error.message);
+    if (linkRes.error) throw new Error(linkRes.error.message);
 
     const folders = folderRes.data ?? [];
     const links = linkRes.data ?? [];
@@ -1285,7 +1292,7 @@ export const supabasePaperRepository = {
           text_content: input.textContent,
           note_text: input.noteText || null,
           embedding: JSON.stringify(input.embedding),
-          embedding_model: "all-MiniLM-L6-v2",
+          embedding_model: "nvidia/llama-nemotron-embed-vl-1b-v2",
           updated_at: new Date().toISOString(),
         },
         { onConflict: "highlight_id" },
@@ -1333,17 +1340,21 @@ export const supabasePaperRepository = {
 
   async deletePaper(paperId: string): Promise<{ id: string }> {
     // Get stored file paths before deleting so we can clean up disk files
-    const { data: files } = await supabase
+    const { data: files, error: filesErr } = await supabase
       .from("paper_files")
       .select("stored_path")
       .eq("paper_id", paperId);
 
+    if (filesErr) console.warn("[deletePaper] Failed to query paper_files:", filesErr.message);
+
     // Get figure image paths
-    const { data: figures } = await supabase
+    const { data: figures, error: figErr } = await supabase
       .from("figures")
       .select("image_path")
       .eq("paper_id", paperId)
       .not("image_path", "is", null);
+
+    if (figErr) console.warn("[deletePaper] Failed to query figures:", figErr.message);
 
     // Hard delete the paper (all related rows CASCADE)
     const { error } = await supabase
@@ -1371,6 +1382,97 @@ export const supabasePaperRepository = {
     }
 
     return { id: paperId };
+  },
+
+  async getReferencesByPaper(paperId: string): Promise<PaperReference[]> {
+    const { data, error } = await supabase
+      .from("paper_references")
+      .select("id, paper_id, ref_order, ref_title, ref_authors, ref_year, ref_journal, ref_doi, ref_volume, ref_pages, ref_raw_text, linked_paper_id")
+      .eq("paper_id", paperId)
+      .order("ref_order", { ascending: true });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []).map((row: Record<string, unknown>) => ({
+      id: row.id as string,
+      paperId: row.paper_id as string,
+      refOrder: row.ref_order as number,
+      refTitle: (row.ref_title as string) ?? undefined,
+      refAuthors: ((row.ref_authors as Array<{ name: string; affiliation?: string }>) ?? []).map((a) => ({
+        name: a.name,
+        affiliation: a.affiliation,
+      })),
+      refYear: (row.ref_year as number) ?? undefined,
+      refJournal: (row.ref_journal as string) ?? undefined,
+      refDoi: (row.ref_doi as string) ?? undefined,
+      refVolume: (row.ref_volume as string) ?? undefined,
+      refPages: (row.ref_pages as string) ?? undefined,
+      refRawText: (row.ref_raw_text as string) ?? undefined,
+      linkedPaperId: (row.linked_paper_id as string) ?? undefined,
+    }));
+  },
+
+  async semanticPaperSearch(queryEmbedding: number[], options?: {
+    threshold?: number;
+    limit?: number;
+    paperIds?: string[];
+  }): Promise<PaperSearchResult[]> {
+    const { data, error } = await supabase.rpc("match_papers", {
+      query_embedding: JSON.stringify(queryEmbedding),
+      match_threshold: options?.threshold ?? 0.35,
+      match_count: options?.limit ?? 20,
+      filter_paper_ids: options?.paperIds ?? null,
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []).map((row: Record<string, unknown>) => ({
+      paperId: row.paper_id as string,
+      title: row.title as string,
+      authors: ((row.authors as Array<{ name: string; affiliation?: string }>) ?? []).map((a) => ({
+        name: a.name,
+        affiliation: a.affiliation,
+      })),
+      publicationYear: (row.publication_year as number) ?? undefined,
+      abstract: (row.abstract as string) ?? undefined,
+      journalName: (row.journal_name as string) ?? undefined,
+      doi: (row.doi as string) ?? undefined,
+      similarity: row.similarity as number,
+    }));
+  },
+
+  async semanticFigureSearch(queryEmbedding: number[], options?: {
+    threshold?: number;
+    limit?: number;
+    itemTypes?: string[];
+    paperIds?: string[];
+  }): Promise<FigureSearchResult[]> {
+    const { data, error } = await supabase.rpc("match_figures", {
+      query_embedding: JSON.stringify(queryEmbedding),
+      match_threshold: options?.threshold ?? 0.3,
+      match_count: options?.limit ?? 20,
+      filter_item_types: options?.itemTypes ?? ["table", "equation"],
+      filter_paper_ids: options?.paperIds ?? null,
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data ?? []).map((row: Record<string, unknown>) => ({
+      figureId: row.figure_id as string,
+      paperId: row.paper_id as string,
+      figureNo: row.figure_no as string,
+      caption: (row.caption as string) ?? undefined,
+      itemType: row.item_type as "figure" | "table" | "equation",
+      summaryText: (row.summary_text as string) ?? undefined,
+      page: (row.page as number) ?? undefined,
+      similarity: row.similarity as number,
+    }));
   },
 };
 

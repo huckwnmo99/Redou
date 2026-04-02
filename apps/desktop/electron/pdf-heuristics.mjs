@@ -52,14 +52,15 @@ function averageValue(values) {
 
 const SECTION_PATTERNS = [
   { name: "Abstract", patterns: [/^abstract$/i, /^abstract\s*[:.-]?\s+(.+)$/i] },
-  { name: "Introduction", patterns: [/^(?:\d+(?:\.\d+)*)?\s*introduction$/i, /^(?:\d+(?:\.\d+)*)?\s*introduction\s*[:.-]?\s+(.+)$/i] },
-  { name: "Background", patterns: [/^(?:related work|background)$/i, /^(?:related work|background)\s*[:.-]?\s+(.+)$/i] },
-  { name: "Method", patterns: [/^(?:\d+(?:\.\d+)*)?\s*(?:method|methods|methodology|approach|model|materials and methods)$/i, /^(?:\d+(?:\.\d+)*)?\s*(?:method|methods|methodology|approach|model|materials and methods)\s*[:.-]?\s+(.+)$/i] },
-  { name: "Experiments", patterns: [/^(?:\d+(?:\.\d+)*)?\s*(?:experiment|experiments|evaluation|experimental setup)$/i, /^(?:\d+(?:\.\d+)*)?\s*(?:experiment|experiments|evaluation|experimental setup)\s*[:.-]?\s+(.+)$/i] },
-  { name: "Results", patterns: [/^(?:\d+(?:\.\d+)*)?\s*(?:result|results|results and discussion|findings)$/i, /^(?:\d+(?:\.\d+)*)?\s*(?:result|results|results and discussion|findings)\s*[:.-]?\s+(.+)$/i] },
-  { name: "Discussion", patterns: [/^(?:\d+(?:\.\d+)*)?\s*discussion$/i, /^(?:\d+(?:\.\d+)*)?\s*discussion\s*[:.-]?\s+(.+)$/i] },
-  { name: "Conclusion", patterns: [/^(?:\d+(?:\.\d+)*)?\s*conclusion(?:s)?$/i, /^(?:\d+(?:\.\d+)*)?\s*conclusion(?:s)?\s*[:.-]?\s+(.+)$/i] },
-  { name: "References", patterns: [/^references$/i, /^references\s*[:.-]?\s+(.+)$/i] },
+  { name: "Introduction", patterns: [/^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*introduction$/i, /^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*introduction\s*[:.-]?\s+(.+)$/i] },
+  { name: "Background", patterns: [/^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*(?:related work|background|literature review)$/i, /^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*(?:related work|background|literature review)\s*[:.-]?\s+(.+)$/i] },
+  { name: "Theory", patterns: [/^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*(?:theory|theoretical (?:background|framework))$/i, /^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*(?:theory|theoretical (?:background|framework))\s*[:.-]?\s+(.+)$/i] },
+  { name: "Method", patterns: [/^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*(?:method|methods|methodology|approach|model|materials and methods|materials|preparation|characterization|analytical methods?)$/i, /^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*(?:method|methods|methodology|approach|model|materials and methods|materials|preparation|characterization|analytical methods?)\s*[:.-]?\s+(.+)$/i] },
+  { name: "Experiments", patterns: [/^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*(?:experiment|experiments|experimental|evaluation|experimental (?:setup|section|procedure|details|work))$/i, /^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*(?:experiment|experiments|experimental|evaluation|experimental (?:setup|section|procedure|details|work))\s*[:.-]?\s+(.+)$/i] },
+  { name: "Results", patterns: [/^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*(?:result|results|results and discussion|findings)$/i, /^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*(?:result|results|results and discussion|findings)\s*[:.-]?\s+(.+)$/i] },
+  { name: "Discussion", patterns: [/^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*discussion$/i, /^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*discussion\s*[:.-]?\s+(.+)$/i] },
+  { name: "Conclusion", patterns: [/^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*conclusion(?:s)?$/i, /^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*conclusion(?:s)?\s*[:.-]?\s+(.+)$/i] },
+  { name: "References", patterns: [/^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*references$/i, /^(?:\d+(?:\.\d+)*)?\s*[.)]?\s*references\s*[:.-]?\s+(.+)$/i] },
 ];
 
 const FRONT_MATTER_NOISE_PATTERNS = [
@@ -200,8 +201,9 @@ function isLikelyMetadataLine(text) {
 }
 
 function isLikelyAuthorLine(text) {
-  const normalized = normalizeWhitespace(text).replace(/\d+/g, " ").replace(/[*,†‡§]/g, " ").trim();
-  if (!normalized || normalized.length > 140) {
+  // Remove superscript markers and digits, but keep commas for splitting
+  const normalized = normalizeWhitespace(text).replace(/\d+/g, " ").replace(/[*†‡§●•]/g, " ").trim();
+  if (!normalized || normalized.length > 200) {
     return false;
   }
 
@@ -209,12 +211,15 @@ function isLikelyAuthorLine(text) {
     return false;
   }
 
-  const commaParts = normalized.split(/,| and /i).map((part) => part.trim()).filter(Boolean);
-  if (commaParts.length < 2) {
+  // Split by comma or " and " to get individual author names
+  const parts = normalized.split(/,|\band\b/i).map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 2) {
     return false;
   }
 
-  return commaParts.every((part) => /^[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,2}$/.test(part));
+  // Each part should look like a person name: 1-4 capitalized words (allow hyphens, dots, apostrophes)
+  const nameRe = /^[A-Z][A-Za-z.'\-]+(?:[\s\-]+[A-Z][A-Za-z.'\-]+){0,3}$/;
+  return parts.every((part) => nameRe.test(part));
 }
 
 function looksLikeBodyText(text) {
@@ -252,9 +257,17 @@ function isLikelyTitleCandidate(text) {
   return /[A-Za-z]/.test(normalized);
 }
 
+/**
+ * Matches a numbered section heading like "2. OVERVIEW OF CO ADSORPTION..." or "3.1. Raw materials".
+ * Must start with a number (e.g. "2.", "3.1.", "2.1.1)"), followed by a short title (2-15 words),
+ * no trailing sentence-end punctuation, and short enough to be a heading (< 120 chars).
+ */
+const NUMBERED_HEADING_RE = /^(\d+(?:\.\d+)*)\s*[.)]\s+(.+)$/;
+
 function detectHeading(lineText) {
   const normalized = normalizeWhitespace(lineText);
 
+  // First try known section patterns (keyword-based)
   for (const candidate of SECTION_PATTERNS) {
     for (const pattern of candidate.patterns) {
       const match = normalized.match(pattern);
@@ -269,13 +282,42 @@ function detectHeading(lineText) {
     }
   }
 
+  // Then try generic numbered heading detection
+  if (normalized.length <= 120) {
+    const numberedMatch = normalized.match(NUMBERED_HEADING_RE);
+    if (numberedMatch) {
+      const title = numberedMatch[2].trim();
+      const wordCount = title.split(/\s+/).length;
+      // Must be 2-15 words, no sentence-end punctuation at the end, and contain a letter
+      if (wordCount >= 2 && wordCount <= 15 && !/[.?!;]$/.test(title) && /[A-Za-z]/.test(title)) {
+        // Avoid matching figure/table captions or equation labels
+        if (!/^(?:fig(?:ure)?|table|eq(?:uation)?|scheme|chart|plate)\b/i.test(title)) {
+          return {
+            name: title,
+            body: "",
+          };
+        }
+      }
+    }
+  }
+
   return null;
 }
+
+const KNOWN_SECTION_NAMES = new Set(SECTION_PATTERNS.map((p) => p.name));
 
 function finalizeSection(section, order) {
   const rawText = normalizeWhitespace(section.lines.map((line) => line.text).join("\n\n"));
   if (rawText.length < 80 && section.name !== "Abstract") {
     return null;
+  }
+
+  let confidence = 0.7;
+  if (section.name === "Imported text") {
+    confidence = 0.42;
+  } else if (!KNOWN_SECTION_NAMES.has(section.name)) {
+    // Generic numbered heading — slightly lower confidence
+    confidence = 0.6;
   }
 
   return {
@@ -284,7 +326,7 @@ function finalizeSection(section, order) {
     pageStart: section.pageStart,
     pageEnd: section.pageEnd,
     rawText,
-    parserConfidence: section.name === "Imported text" ? 0.42 : 0.7,
+    parserConfidence: confidence,
     lines: section.lines,
   };
 }
@@ -449,6 +491,7 @@ function orderPageLinesForReading(page) {
   return {
     ...page,
     layoutMode: "two-column",
+    _splitX: layout.splitX,
     lines: orderedLines,
     text: normalizeWhitespace(orderedLines.map((line) => line.text).join("\n")),
   };
@@ -600,21 +643,42 @@ function chooseDerivedTitle({ metadataTitle, pageLines, fallbackTitle }) {
 }
 
 function extractFirstAuthor(pageLines, titleRangeEnd) {
-  const candidateLines = pageLines.slice(Math.max(0, titleRangeEnd + 1), Math.min(pageLines.length, titleRangeEnd + 6));
+  const authors = extractAuthors(pageLines, titleRangeEnd);
+  return authors.length > 0 ? authors[0].name : undefined;
+}
+
+/**
+ * Extract all authors from the first page of a PDF.
+ * Scans lines after the title for author-like patterns.
+ * Returns array of { name: string } objects.
+ */
+function extractAuthors(pageLines, titleRangeEnd) {
+  const startIdx = Math.max(0, (titleRangeEnd ?? 0) + 1);
+  const endIdx = Math.min(pageLines.length, startIdx + 8);
+  const candidateLines = pageLines.slice(startIdx, endIdx);
+  const nameRe = /^[A-Z][A-Za-z.'\-]+(?:[\s\-]+[A-Z][A-Za-z.'\-]+){0,3}$/;
+
+  // Collect all consecutive author lines (some papers split authors across 2-3 lines)
+  const authorNames = [];
+  let foundAuthorLine = false;
 
   for (const line of candidateLines) {
-    if (!isLikelyAuthorLine(line.text)) {
-      continue;
-    }
-
-    const cleaned = normalizeWhitespace(line.text).replace(/\d+/g, " ").replace(/[*,†‡§]/g, " ").trim();
-    const first = cleaned.split(/,| and /i).map((part) => part.trim()).filter(Boolean)[0];
-    if (first && /^[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,2}$/.test(first)) {
-      return first;
+    if (isLikelyAuthorLine(line.text)) {
+      foundAuthorLine = true;
+      const cleaned = normalizeWhitespace(line.text).replace(/\d+/g, " ").replace(/[*†‡§●•]/g, " ").trim();
+      const parts = cleaned.split(/,|\band\b/i).map((p) => p.trim()).filter(Boolean);
+      for (const part of parts) {
+        if (nameRe.test(part) && !authorNames.some((a) => a.name === part)) {
+          authorNames.push({ name: part });
+        }
+      }
+    } else if (foundAuthorLine) {
+      // Stop once we leave the author block (hit affiliation, abstract, etc.)
+      break;
     }
   }
 
-  return undefined;
+  return authorNames;
 }
 
 function detectPublicationYearFromText(text) {
@@ -695,7 +759,7 @@ function buildSectionsFromPageLines(pages) {
   let normalizedSections = sections
     .map((section, index) => finalizeSection(section, index + 1))
     .filter(Boolean)
-    .slice(0, reachedReferences ? 8 : 10);
+    .slice(0, reachedReferences ? 20 : 25);
 
   if (normalizedSections.some((section) => section.sectionName !== "Imported text")) {
     normalizedSections = normalizedSections.filter((section) => section.sectionName !== "Imported text");
@@ -789,17 +853,86 @@ function splitSectionIntoChunks(section) {
   return chunks;
 }
 
+// Finite verbs that indicate a sentence (body text), not a caption noun phrase.
+// Used to filter "Fig. N. <sentence>" from being detected as a figure caption.
+const BODY_TEXT_VERB_RE =
+  /\b(?:is|are|was|were|has|have|had|shows?|showed|can|could|would|may|might|shall|should|must|did|does|do)\b/i;
+
+// Body-text preposition/verb phrases before a figure/table reference.
+const BODY_REF_BEFORE_RE =
+  /\b(?:in|see|from|shown|given|presented|described|illustrated|depicted|displayed|plotted|compared|reported|listed|as)\s+(?:Fig\.?|Figure|Table)\s/i;
+
+// "Figure 3 shows that..." — verb right after figure number = body text, not caption.
+// Captions use noun phrases ("Fig. 3 Comparison of..."), not finite verbs.
+// Matches "Fig. N shows...", "Fig. 6(c) and (d) presents...", "Figure 5 represents..."
+// The optional sub-figure group handles "(a)", "(c) and (d)", "a,b" etc. between number and verb
+const FIG_THEN_VERB_RE =
+  /(?:[Ff]ig\.?|[Ff]igure|FIG\.?|FIGURE)\s*\d+\s*(?:[a-z]?\s+|(?:\([a-z](?:[,\s]*(?:and\s+)?\([a-z]\))*\)\s*(?:and\s+\([a-z]\)\s*)?))(?:[Ss]hows?|[Ss]howed|[Dd]epicts?|[Ii]llustrates?|[Pp]resents?|[Dd]isplays?|[Ii]ndicates?|[Dd]emonstrates?|[Rr]eveals?|[Dd]escribes?|[Cc]ompares?|[Cc]onfirms?|[Pp]roves?|[Ss]ummarizes?|[Ll]ists?|[Pp]rovides?|[Gg]ives?|[Cc]ontains?|[Rr]epresents?|[Ss]uggests?|[Ee]xhibits?)\b/;
+
+// In 2-column PDFs, the next line by y-sort may be from the other column.
+// This helper finds the next line that's in the same column (xStart within ±80pt).
+// Falls back to page.lines[index + 1] for single-column layouts.
+function findSameColumnNextLine(lines, index, currentXStart) {
+  const COLUMN_TOLERANCE = 80;
+  // Check up to 3 lines ahead to find one in the same column
+  for (let offset = 1; offset <= 3 && index + offset < lines.length; offset++) {
+    const candidate = lines[index + offset];
+    if (!candidate?.text) continue;
+    // If no xStart info, fall back to accepting it
+    if (currentXStart == null || candidate.xStart == null) return candidate;
+    if (Math.abs(candidate.xStart - currentXStart) < COLUMN_TOLERANCE) return candidate;
+  }
+  // Fallback: return immediate next line
+  return lines[index + 1] ?? null;
+}
+
 function extractFigureCandidatesFromPages(pages) {
   const figures = [];
   const seen = new Set();
-  const pattern = /\b(?:Figure|Fig\.?)\s*#?\s*(\d+)\s*[A-Za-z]?\s*[:.\-]?\s*(.*)$/i;
-
+  // No 'i' flag — [a-z]? must only match actual lowercase (sub-figure labels a,b,c)
+  // With 'i' flag, [a-z]? would match uppercase caption first letters like "S" in "Schematic"
+  const pattern = /\b(?:[Ff]igure|[Ff]ig\.?|FIGURE|FIG\.?)\s*#?\s*(\d+)\s*[a-z]?\s*[:.\-]?\s*(.*)$/;
   for (const page of pages) {
     for (let index = 0; index < page.lines.length; index += 1) {
       const currentLine = page.lines[index]?.text ?? "";
       const match = currentLine.match(pattern);
       if (!match) {
         continue;
+      }
+
+      // Skip body-text references like "in Fig. 1", "shown in Figure 2"
+      if (BODY_REF_BEFORE_RE.test(currentLine)) {
+        continue;
+      }
+
+      // Skip "Figure 3 shows that..." — verb after figure number = body text
+      if (FIG_THEN_VERB_RE.test(currentLine)) {
+        continue;
+      }
+
+      // "Fig. N" or "Figure N" should appear near the start of the line for a caption
+      // (captions start with "Fig." — body text has it mid-sentence)
+      const figPos = currentLine.search(/(?:[Ff]ig\.?|[Ff]igure|FIG\.?|FIGURE)\s*\d/);
+      if (figPos > 25) {
+        continue;
+      }
+
+      // "Fig. 5. The order of adsorption rate... was..." — period after number
+      // then sentence with verb = body text starting with a figure reference,
+      // NOT a caption. Real captions: "Fig. 5 Effective diffusion time constants..."
+      const figDotSentenceRe = new RegExp(
+        `(?:[Ff]ig\\.?|[Ff]igure|FIG\\.?|FIGURE)\\s*${match[1]}\\s*[a-z]?\\.\\s`,
+      );
+      if (figDotSentenceRe.test(currentLine)) {
+        const captionText = match[2] || "";
+        // Only check first ~50 chars for verb — body text has verb early
+        // ("The order... was"), while real captions have verb in a late subordinate
+        // clause ("Adsorption amount of... until the concentration... was")
+        if (
+          BODY_TEXT_VERB_RE.test(captionText.slice(0, 50))
+        ) {
+          continue;
+        }
       }
 
       const figureNo = `Figure ${match[1]}`;
@@ -811,8 +944,39 @@ function extractFigureCandidatesFromPages(pages) {
 
       let caption = normalizeWhitespace(match[2] ?? "");
 
-      if (caption.length < 24 && page.lines[index + 1]?.text) {
-        caption = normalizeWhitespace(`${caption} ${page.lines[index + 1].text}`);
+      // Body text continuation: caption starts with closing bracket/punctuation
+      // e.g. "Fig. 2), but the difference..." or "Fig. 1, and the amounts..."
+      if (/^[)\],.;:]/.test(caption)) {
+        continue;
+      }
+
+      // Body text: "(a)), caused by..." or "(b)). Therefore..." — sub-figure ref followed by closing paren
+      // Real sub-figure captions: "(a) Description..." or "(a,b) Description..."
+      if (/^\([a-z][^)]*\)\s*[)\],.;:]/.test(caption)) {
+        continue;
+      }
+
+      // Body text: caption starts with lowercase (real captions start uppercase or "(")
+      // Allow: "(a) ..." style sub-figure captions
+      if (/^[a-z]/.test(caption) && !caption.startsWith("(")) {
+        continue;
+      }
+
+      if (caption.length < 24) {
+        // Column-aware next-line: prefer lines in the same column (similar xStart)
+        const curLine = page.lines[index];
+        const nextLine = findSameColumnNextLine(page.lines, index, curLine?.xStart);
+        if (nextLine?.text) {
+          caption = normalizeWhitespace(`${caption} ${nextLine.text}`);
+        }
+      }
+
+      // Re-check body text filters after next-line merge
+      if (/^[)\],.;:]/.test(caption) || (/^[a-z]/.test(caption) && !caption.startsWith("("))) {
+        continue;
+      }
+      if (/^\([a-z][^)]*\)\s*[)\],.;:]/.test(caption)) {
+        continue;
       }
 
       if (caption.length < 20 || isLikelyMetadataLine(caption)) {
@@ -841,15 +1005,49 @@ function extractFigureCandidatesFromPages(pages) {
 function extractTableCandidatesFromPages(pages) {
   const tables = [];
   const seen = new Set();
-  const pattern = /\b(?:Table)\s*#?\s*(\d+)\s*[A-Za-z]?\s*[:.\-]?\s*(.*)$/i;
+  // Match "Table N" only when it appears at/near the start of a line (caption),
+  // NOT when it's embedded in body text like "...shown in Table 1..."
+  // No 'i' flag — [a-z]? must only match actual lowercase (sub-table labels a,b,c)
+  const captionPattern = /^(?:\s*(?:\d+\s+)?)?(?:[Tt]able|TABLE)\s*#?\s*(\d+)\s*[a-z]?\s*[:.\-]?\s*(.*)$/;
+  const bodyRefPattern = /\b(?:in|see|from|of|shows?|given|listed|presented|shown|described)\s+(?:in\s+)?Table\s+\d/i;
   const stopPattern = /^(?:Table|Figure|Fig\.?|Equation|Eq\.?|References|Bibliography|\d+\.\s+[A-Z])/i;
 
   for (const page of pages) {
     for (let index = 0; index < page.lines.length; index += 1) {
       const currentLine = page.lines[index]?.text ?? "";
-      const match = currentLine.match(pattern);
+      const match = currentLine.match(captionPattern);
       if (!match) {
         continue;
+      }
+
+      // Skip body text references like "as shown in Table 1" or "Table 1 shows..."
+      if (bodyRefPattern.test(currentLine)) {
+        continue;
+      }
+
+      // "Table N" should appear within the first 20 chars of the line to be a caption
+      const tablePos = currentLine.search(/Table\s*\d/i);
+      if (tablePos > 20) {
+        continue;
+      }
+
+      // "Table 4. The small adsorption amounts..." — period after number then sentence
+      // with a verb = body text, not a caption. Captions use noun phrases.
+      const tableDotSentenceRe = new RegExp(
+        `(?:[Tt]able|TABLE)\\s*${match[1]}\\s*[a-z]?\\.\\s`,
+      );
+      if (tableDotSentenceRe.test(currentLine)) {
+        const captionText = match[2] || "";
+        // Check verb in first 50 chars
+        if (BODY_TEXT_VERB_RE.test(captionText.slice(0, 50))) {
+          continue;
+        }
+        // Sentence starters: "The", "This", "These", "It", "In", "As", "For"
+        // Table captions use noun phrases ("Physical properties...", "Parameters of...")
+        // not sentence beginnings ("The small adsorption amounts...")
+        if (/^(?:The|This|These|Those|It|In|As|For|From|With|However|Moreover|Furthermore|Although|Since)\s/i.test(captionText)) {
+          continue;
+        }
       }
 
       const tableNo = `Table ${match[1]}`;
@@ -860,8 +1058,29 @@ function extractTableCandidatesFromPages(pages) {
 
       let caption = normalizeWhitespace(match[2] ?? "");
 
-      if (caption.length < 24 && page.lines[index + 1]?.text) {
-        caption = normalizeWhitespace(`${caption} ${page.lines[index + 1].text}`);
+      // Body text continuation: "Table 1, the results show..." or "Table 2) for comparison"
+      if (/^[)\],.;:]/.test(caption)) {
+        continue;
+      }
+
+      // Body text: caption starts with lowercase (real table captions start uppercase)
+      if (/^[a-z]/.test(caption)) {
+        continue;
+      }
+
+      if (caption.length < 24) {
+        // Column-aware next-line: prefer lines in the same column (similar xStart)
+        const curLine = page.lines[index];
+        const nextLine = findSameColumnNextLine(page.lines, index, curLine?.xStart);
+        if (nextLine?.text) {
+          caption = normalizeWhitespace(`${caption} ${nextLine.text}`);
+        }
+      }
+
+      // Re-check body text filters after next-line merge (standalone "Table N" lines
+      // have empty initial caption, so pre-merge filter doesn't catch body text from next line)
+      if (/^[)\],.;:]/.test(caption) || /^[a-z]/.test(caption)) {
+        continue;
       }
 
       if (caption.length < 10 || isLikelyMetadataLine(caption)) {
@@ -869,16 +1088,42 @@ function extractTableCandidatesFromPages(pages) {
       }
 
       // Extract table body text: collect lines after caption until next heading/figure/table
+      // or until we encounter body-text prose (long sentences with articles/verbs).
+      // Tables in PDFs are typically short structured data; long prose = we've left the table.
       const bodyLines = [];
       const captionConsumed = caption.length < 24 ? 2 : 1;
+      let consecutiveProse = 0;
+      let totalChars = 0;
+      let lastBodyLineIndex = -1;
       for (let bi = index + captionConsumed; bi < page.lines.length; bi += 1) {
         const line = normalizeWhitespace(page.lines[bi]?.text ?? "");
         if (!line) continue;
         if (stopPattern.test(line)) break;
+        // Detect body text: line with 8+ words and common prose function words
+        const wordCount = line.split(/\s+/).length;
+        const isProse = wordCount >= 8 && /[a-z]{3,}/.test(line) && /\b(?:the|is|are|was|were|of|in|for|and|with|that|this|from|by|to|an?)\b/i.test(line);
+        if (isProse) {
+          consecutiveProse += 1;
+          // Two consecutive prose lines means we've left the table body
+          if (consecutiveProse >= 2) {
+            // Remove the first prose line that was tentatively added
+            bodyLines.pop();
+            break;
+          }
+        } else {
+          consecutiveProse = 0;
+        }
         bodyLines.push(line);
-        if (bodyLines.length >= 40) break;
+        lastBodyLineIndex = bi;
+        totalChars += line.length;
+        // Hard limits: tables rarely exceed 30 lines or 2500 chars of raw text
+        if (bodyLines.length >= 30 || totalChars >= 2500) break;
       }
       const tableBody = bodyLines.join("\n").trim();
+
+      // Gather coordinate metadata for OCR cropping
+      const captionLine = page.lines[index];
+      const lastBodyLine = lastBodyLineIndex >= 0 ? page.lines[lastBodyLineIndex] : null;
 
       seen.add(tableNo);
       tables.push({
@@ -889,6 +1134,12 @@ function extractTableCandidatesFromPages(pages) {
         isKeyFigure: false,
         isPresentationCandidate: /result|comparison|benchmark|performance|accuracy/i.test(caption),
         itemType: "table",
+        _captionY: captionLine?.y ?? null,
+        _bodyYEnd: lastBodyLine?.y ?? null,
+        _xStart: captionLine?.xStart ?? null,
+        _xEnd: captionLine?.xEnd ?? null,
+        _pageWidth: page.pageWidth ?? null,
+        _splitX: page._splitX ?? null,
       });
 
       if (tables.length >= 12) {
@@ -904,75 +1155,180 @@ function extractEquationCandidatesFromPages(pages) {
   const equations = [];
   const seen = new Set();
 
-  // Pattern 1: "Equation 1", "Eq. 2", "Eq 3:" as explicit labels
-  const labeledPattern = /\b(?:Equation|Eq\.?)\s*[.(]?\s*(\d+)\s*[.)]?\s*[:.\-]?\s*(.*)$/i;
+  // Pattern 1: "Equation 1", "Eq. 2", "Eq 3:" as explicit labels (display equations only, not body refs)
+  const labeledPattern = /\b(?:Equation|Eq\.?)\s*[.(ð]?\s*(\d+)\s*[.)Þ]?\s*[:.\-]?\s*(.*)$/i;
+  // Skip body-text references like "in Eq. (4)", "using Eq. (11)", "from Eq. 3"
+  const eqBodyRefPattern = /\b(?:in|see|from|using|by|of|into|with|to|and|gives?|yields?|becomes?|shows?|given|described|defined|presented|listed)\s+(?:Eq\.?|Equation)\s/i;
+  // Also skip "Eq. (N)" appearing mid-sentence (preceded by lowercase or common words)
+  const eqMidSentencePattern = /[a-z,;]\s+(?:Eq\.?|Equation)\s*[.(ð]?\s*\d/i;
+
   // Pattern 2: line ending with (number) — most common equation numbering in academic papers
-  const trailingNumPattern = /\((\d{1,3})\)\s*$/;
+  // Some PDFs encode parentheses as ð...Þ (U+00F0, U+00DE) due to font encoding issues
+  const trailingNumPattern = /[\(ð]\s*(\d{1,3})\s*[\)Þ]\s*$/;
+
+  // Pattern 3: ð N Þ anywhere in line (safe for mid-line because ð...Þ encoding is display-equation-specific)
+  // Handles 2-column PDF merge artifacts where equation number is followed by text from adjacent column
+  const midLineEthPattern = /ð\s*(\d{1,3})\s*Þ/g;
+
+  const mathHints = /[=<>≤≥≈∼±×÷∑∫∂∇∞∈∀∃⊂⊃∪∩αβγδεζηθλμνξπρσφψωΔΘΛΣΦΨΩ^_{}|¼½¾]|\b(?:log|exp|sin|cos|tan|max|min|arg|lim|sup|inf)\b/i;
+
+  function addEquation(num, context, pageNumber, lineY, lineIndex, lineXStart, lineXEnd, pageWidth, pageLines, splitX) {
+    const numVal = parseInt(num, 10);
+    // Equation numbers > 30 are almost certainly reference numbers like [89]
+    if (numVal > 30) return;
+    const eqNo = `Eq. ${num}`;
+    if (seen.has(eqNo)) return;
+    seen.add(eqNo);
+    const eqText = normalizeWhitespace(context);
+
+    // Scan adjacent lines to find the equation's vertical extent.
+    // Multi-line equations (fractions, matrices) extend above/below the detected line.
+    let yTop = lineY;
+    let yBottom = lineY;
+    if (lineY != null && lineIndex != null && pageLines) {
+      const eqX = lineXStart ?? 0;
+      // Scan upward (max 5 lines)
+      for (let j = lineIndex - 1; j >= Math.max(0, lineIndex - 5); j--) {
+        const prev = pageLines[j];
+        if (!prev || prev.y == null) break;
+        if (Math.abs(prev.y - yTop) > 25) break; // gap too large
+        if (prev.xStart != null && Math.abs(prev.xStart - eqX) > 60) break; // different column
+        const text = prev.text ?? "";
+        if (/\b(?:the|is|are|was|were|of|in|for|and|with|that|this)\b/i.test(text) && text.split(/\s+/).length >= 8) break;
+        if (mathHints.test(text) || text.trim().length < 50) {
+          yTop = prev.y;
+        } else break;
+      }
+      // Scan downward (max 5 lines)
+      for (let j = lineIndex + 1; j <= Math.min((pageLines.length ?? 0) - 1, lineIndex + 5); j++) {
+        const next = pageLines[j];
+        if (!next || next.y == null) break;
+        if (Math.abs(next.y - yBottom) > 25) break;
+        if (next.xStart != null && Math.abs(next.xStart - eqX) > 60) break;
+        const text = next.text ?? "";
+        if (/\b(?:the|is|are|was|were|of|in|for|and|with|that|this)\b/i.test(text) && text.split(/\s+/).length >= 8) break;
+        if (mathHints.test(text) || text.trim().length < 50) {
+          yBottom = next.y;
+        } else break;
+      }
+    }
+
+    equations.push({
+      figureNo: eqNo,
+      caption: eqText || `Equation ${num}`,
+      page: pageNumber,
+      summaryText: eqText || null,
+      isKeyFigure: false,
+      isPresentationCandidate: false,
+      itemType: "equation",
+      _lineY: lineY ?? null,
+      _lineIndex: lineIndex ?? null,
+      _xStart: lineXStart ?? null,
+      _xEnd: lineXEnd ?? null,
+      _pageWidth: pageWidth ?? null,
+      _yTop: yTop ?? null,
+      _yBottom: yBottom ?? null,
+      _splitX: splitX ?? null,
+    });
+  }
 
   for (const page of pages) {
     for (let index = 0; index < page.lines.length; index += 1) {
       const currentLine = page.lines[index]?.text ?? "";
+      if (equations.length >= 20) return equations;
 
       // Try labeled equation first (Equation 1, Eq. 2, Eq. (3))
+      // But skip body-text references like "in Eq. (4)" or "using Eq. (11)"
       const labeledMatch = currentLine.match(labeledPattern);
       if (labeledMatch) {
-        const eqNo = `Eq. ${labeledMatch[1]}`;
-        if (seen.has(eqNo)) continue;
-
-        let description = normalizeWhitespace(labeledMatch[2] ?? "");
-        if (description.length < 10 && page.lines[index + 1]?.text) {
-          description = normalizeWhitespace(`${description} ${page.lines[index + 1].text}`);
+        if (!eqBodyRefPattern.test(currentLine) && !eqMidSentencePattern.test(currentLine)) {
+          const num = labeledMatch[1];
+          // "Eq. N" should appear near start of line (within first 30 chars) for display equations
+          const eqPos = currentLine.search(/(?:Equation|Eq\.?)\s/i);
+          if (eqPos <= 30) {
+            let description = normalizeWhitespace(labeledMatch[2] ?? "");
+            if (description.length < 10 && page.lines[index + 1]?.text) {
+              description = normalizeWhitespace(`${description} ${page.lines[index + 1].text}`);
+            }
+            addEquation(num, description, page.pageNumber, page.lines[index]?.y, index, page.lines[index]?.xStart, page.lines[index]?.xEnd, page.pageWidth, page.lines, page._splitX);
+            continue;
+          }
         }
-
-        seen.add(eqNo);
-        equations.push({
-          figureNo: eqNo,
-          caption: description || `Equation ${labeledMatch[1]}`,
-          page: page.pageNumber,
-          summaryText: description.length > 180 ? `${description.slice(0, 177).trimEnd()}...` : description || null,
-          isKeyFigure: false,
-          isPresentationCandidate: false,
-          itemType: "equation",
-        });
-
-        if (equations.length >= 20) return equations;
-        continue;
       }
 
       // Try trailing (number) — e.g. "x = a + b (1)" or "L = ∑ yi log(pi) (3)"
       const trailingMatch = currentLine.match(trailingNumPattern);
       if (trailingMatch) {
         const num = trailingMatch[1];
-        const eqNo = `Eq. ${num}`;
-        if (seen.has(eqNo)) continue;
+        if (seen.has(`Eq. ${num}`)) continue;
 
-        // Skip if it looks like a citation "(1)" in running prose — check if line is short-ish or has math chars
         const beforeNum = currentLine.slice(0, trailingMatch.index).trim();
-        const mathHints = /[=<>≤≥≈∼±×÷∑∫∂∇∞∈∀∃⊂⊃∪∩αβγδεζηθλμνξπρσφψωΔΘΛΣΦΨΩ^_{}|]|\b(?:log|exp|sin|cos|tan|max|min|arg|lim|sup|inf)\b/i;
-        const hasOperators = /[=<>]/.test(beforeNum);
+        const hasOperators = /[=<>¼]/.test(beforeNum);
         const lineLen = beforeNum.length;
 
-        // Accept if: line has math-like content, or is relatively short (formula, not paragraph)
+        // Skip if it looks like a citation "(1)" in running prose — long paragraph without math
         if (!mathHints.test(beforeNum) && !hasOperators && lineLen > 80) continue;
-        // Skip very short lines (just a number reference in isolation)
-        if (lineLen < 3) continue;
+        // Very short lines like just "(1)" or "ð 4 Þ" — check if surrounded by math-like content
+        if (lineLen < 3) {
+          const prevLine = page.lines[index - 1]?.text ?? "";
+          const prevPrev = page.lines[index - 2]?.text ?? "";
+          const hasMathNearby = mathHints.test(prevLine + prevPrev);
+          const shortNearby = prevLine.trim().length < 60 && prevLine.trim().length > 3;
+          if (!hasMathNearby && !shortNearby) continue;
+        }
 
-        // Gather context: current line before the number
-        const eqText = normalizeWhitespace(beforeNum);
-
-        seen.add(eqNo);
-        equations.push({
-          figureNo: eqNo,
-          caption: eqText || `Equation ${num}`,
-          page: page.pageNumber,
-          summaryText: eqText || null,
-          isKeyFigure: false,
-          isPresentationCandidate: false,
-          itemType: "equation",
-        });
-
-        if (equations.length >= 20) return equations;
+        addEquation(num, normalizeWhitespace(beforeNum), page.pageNumber, page.lines[index]?.y, index, page.lines[index]?.xStart, page.lines[index]?.xEnd, page.pageWidth, page.lines, page._splitX);
+        // Don't continue — mid-line pattern may find additional equation numbers on the same line
       }
+
+      // Try mid-line ð N Þ pattern (for 2-column PDFs where equation number isn't at line end)
+      // This only matches ð...Þ encoding (not regular parentheses) to avoid citation false positives
+      let ethMatch;
+      midLineEthPattern.lastIndex = 0;
+      while ((ethMatch = midLineEthPattern.exec(currentLine)) !== null) {
+        const num = ethMatch[1];
+        if (seen.has(`Eq. ${num}`)) continue;
+
+        const beforeNum = currentLine.slice(0, ethMatch.index).trim();
+        const hasOperators = /[=<>¼]/.test(beforeNum);
+        const lineLen = beforeNum.length;
+
+        // Same validation as trailing pattern
+        if (!mathHints.test(beforeNum) && !hasOperators && lineLen > 80) continue;
+        if (lineLen < 3) {
+          const prevLine = page.lines[index - 1]?.text ?? "";
+          const prevPrev = page.lines[index - 2]?.text ?? "";
+          const hasMathNearby = mathHints.test(prevLine + prevPrev);
+          const shortNearby = prevLine.trim().length < 60 && prevLine.trim().length > 3;
+          if (!hasMathNearby && !shortNearby) continue;
+        }
+
+        addEquation(num, normalizeWhitespace(beforeNum), page.pageNumber, page.lines[index]?.y, index, page.lines[index]?.xStart, page.lines[index]?.xEnd, page.pageWidth, page.lines, page._splitX);
+      }
+    }
+  }
+
+  // Post-extraction continuity check:
+  // Real equations are numbered sequentially (1,2,3,...). If detected numbers
+  // are sparse/random (e.g. 2,10,12 or 46,53,89), they're likely reference numbers.
+  if (equations.length >= 2) {
+    const nums = equations.map(eq => parseInt(eq.figureNo.replace("Eq. ", ""), 10)).sort((a, b) => a - b);
+    const maxNum = nums[nums.length - 1];
+    const minNum = nums[0];
+    const span = maxNum - minNum + 1;
+    // Coverage: what fraction of the [min..max] range is actually filled?
+    // Real equations: 1,2,3,4,5 → coverage = 5/5 = 1.0
+    // False positives: 2,10,12 → coverage = 3/11 = 0.27
+    const coverage = nums.length / span;
+    // Also check: does it start near 1? Real equations almost always include Eq. 1
+    const startsNear1 = minNum <= 2;
+    if (coverage < 0.4 && !startsNear1) {
+      // Sparse, non-sequential, doesn't start at 1 → likely all false positives
+      return [];
+    }
+    if (coverage < 0.3) {
+      // Even if starts at 1, extremely sparse means false positives
+      return [];
     }
   }
 
@@ -1416,6 +1772,7 @@ export async function inspectPdfMetadata(pdfBuffer, fallbackTitle = "") {
       title: titleChoice.title,
       year: detectPublicationYearFromText(mergedText),
       firstAuthor: extractFirstAuthor(firstPage?.lines ?? [], titleChoice.titleRangeEnd),
+      authors: extractAuthors(firstPage?.lines ?? [], titleChoice.titleRangeEnd),
       venue: undefined,
       abstractPreview: normalizeWhitespace(mergedText.slice(0, 320)),
     };
@@ -1425,6 +1782,7 @@ export async function inspectPdfMetadata(pdfBuffer, fallbackTitle = "") {
       title: cleanDetectedTitle(fallbackTitle) || undefined,
       year: detectPublicationYearFromText(rawPdfText),
       firstAuthor: undefined,
+      authors: [],
       venue: undefined,
       abstractPreview: normalizeWhitespace(rawPdfText.slice(0, 320)),
     };
@@ -1444,18 +1802,30 @@ export async function inspectPdfMetadata(pdfBuffer, fallbackTitle = "") {
 export async function extractFigureImagesFromPdf(pdfBuffer, figureCandidates) {
   if (!figureCandidates || figureCandidates.length === 0) return [];
 
-  // Try Strategy 1 first (pdfjs decoded images)
+  // Strategy 1: pdfjs decoded images (best quality for standard embedded images)
   const pdfjsResults = await extractViaOperatorList(pdfBuffer, figureCandidates);
   if (pdfjsResults.length > 0) {
     console.log("[figure-images] pdfjs approach extracted", pdfjsResults.length, "images");
-    return pdfjsResults;
   }
 
-  // Fallback: Strategy 2 — scan for raw JPEG streams in PDF binary
-  console.log("[figure-images] pdfjs approach yielded 0 images, trying raw JPEG scan");
-  const jpegResults = extractViaJpegScan(pdfBuffer, figureCandidates);
-  console.log("[figure-images] raw JPEG scan found", jpegResults.length, "images");
-  return jpegResults;
+  // Strategy 2: mupdf page render + crop (universal fallback — works for image masks,
+  // vector graphics, CCITT, and any other encoding)
+  const extractedSet = new Set(pdfjsResults.map((r) => r.figureNo));
+  const remaining = figureCandidates.filter((f) => !extractedSet.has(f.figureNo));
+  let cropResults = [];
+  if (remaining.length > 0) {
+    console.log("[figure-images] Attempting mupdf page crop for", remaining.length, "remaining figures");
+    cropResults = await extractViaPageCrop(pdfBuffer, remaining);
+    if (cropResults.length > 0) {
+      console.log("[figure-images] mupdf crop extracted", cropResults.length, "images");
+    }
+  }
+
+  const allResults = [...pdfjsResults, ...cropResults];
+  if (allResults.length === 0) {
+    console.log("[figure-images] all strategies yielded 0 images");
+  }
+  return allResults;
 }
 
 async function extractViaOperatorList(pdfBuffer, figureCandidates) {
@@ -1540,51 +1910,292 @@ async function extractViaOperatorList(pdfBuffer, figureCandidates) {
 }
 
 /**
- * Scan PDF binary for raw JPEG streams (FF D8 FF ... FF D9).
- * Research papers typically embed figures as JPEG.
- * Returns images sorted by size; assigns to figures in order.
+ * Scan rendered page pixels upward from caption to find the figure's top boundary.
+ * Uses the caption's x-range so only the figure's column is analyzed — this handles
+ * multi-column layouts where the other column has body text at the same y-positions.
+ *
+ * Algorithm: scan upward from caption through figure content, find the first significant
+ * whitespace band (>= MIN_GAP_HEIGHT). That band separates body text / previous elements
+ * from the current figure.
  */
-function extractViaJpegScan(pdfBuffer, figureCandidates) {
-  const buf = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
-  const jpegs = [];
+function findFigureTopByPixels(pixels, fullWidth, fullHeight, channels, captionPx, scanLeftPx, scanRightPx) {
+  const WHITE_THRESHOLD = 240;
+  const MIN_GAP_HEIGHT = 24;         // 12pt at 2x — whitespace band to count as boundary
+  const MIN_FIGURE_CONTENT = 40;     // need ≥40px of figure content before accepting a gap
+  const MARGIN = 4;                  // include a few px of whitespace above figure
+  const SCAN_STEP = 4;              // check every 4th pixel in row for performance
 
-  for (let i = 0; i < buf.length - 3; i++) {
-    // JPEG SOI marker: FF D8 FF
-    if (buf[i] !== 0xFF || buf[i + 1] !== 0xD8 || buf[i + 2] !== 0xFF) continue;
+  const colWidth = scanRightPx - scanLeftPx;
+  const noiseThreshold = Math.max(3, Math.floor(colWidth / SCAN_STEP * 0.10)); // 10% of sampled pixels — accounts for anti-aliased edges and thin border lines
 
-    let end = i + 3;
-    while (end < buf.length - 1) {
-      if (buf[end] === 0xFF && buf[end + 1] === 0xD9) {
-        end += 2;
-        break;
+  let figureContentRows = 0;
+  let consecutiveWhite = 0;
+
+  for (let row = captionPx - 1; row >= 0; row--) {
+    // Count non-white pixels within the scan column
+    let nonWhite = 0;
+    const rowStart = row * fullWidth * channels;
+    for (let col = scanLeftPx; col < scanRightPx; col += SCAN_STEP) {
+      const idx = rowStart + col * channels;
+      if (pixels[idx] < WHITE_THRESHOLD || pixels[idx + 1] < WHITE_THRESHOLD || pixels[idx + 2] < WHITE_THRESHOLD) {
+        nonWhite++;
       }
-      end++;
     }
 
-    const size = end - i;
-    if (size > 4000) {
-      jpegs.push({ data: buf.subarray(i, end), offset: i, size });
+    if (nonWhite <= noiseThreshold) {
+      // Whitespace row
+      consecutiveWhite++;
+    } else {
+      // Content row
+      if (consecutiveWhite >= MIN_GAP_HEIGHT && figureContentRows >= MIN_FIGURE_CONTENT) {
+        // Found significant gap above figure content → this separates text from figure
+        return Math.max(0, row + consecutiveWhite + 1 - MARGIN);
+      }
+      // Small gap within figure: absorb it
+      figureContentRows += consecutiveWhite + 1;
+      consecutiveWhite = 0;
     }
-    i = end - 1;
   }
 
-  // Sort by size descending — largest JPEGs are most likely the actual figures
-  jpegs.sort((a, b) => b.size - a.size);
+  // Reached page top — trim leading whitespace
+  if (consecutiveWhite > 0 && figureContentRows >= MIN_FIGURE_CONTENT) {
+    return Math.max(0, consecutiveWhite - MARGIN);
+  }
+  return 0;
+}
 
-  // Assign the largest N JPEGs to the N figure candidates (in figure order)
+/**
+ * Render PDF page with mupdf and crop to figure region.
+ * Works universally regardless of image encoding (image masks, vector graphics, CCITT, etc.)
+ *
+ * Uses pdfjs text content to detect figure caption positions and pixel analysis
+ * to determine precise crop boundaries.
+ * Figures in academic papers are typically ABOVE their captions.
+ */
+async function extractViaPageCrop(pdfBuffer, figureCandidates) {
+  let mupdf;
+  try {
+    mupdf = await import("mupdf");
+  } catch {
+    console.log("[figure-images] mupdf not available for page crop fallback");
+    return [];
+  }
+
+  const pdfjsModule = await import(pdfJsModuleUrl);
+  const { getDocument } = pdfjsModule;
+
+  let pdfjsDoc;
+  try {
+    pdfjsDoc = await getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
+  } catch {
+    return [];
+  }
+
+  const RENDER_SCALE = 2.0;
   const results = [];
-  const sortedFigures = [...figureCandidates]
-    .filter((f) => f.page)
-    .sort((a, b) => (a.page ?? 0) - (b.page ?? 0));
 
-  for (let fi = 0; fi < sortedFigures.length && fi < jpegs.length; fi++) {
-    results.push({
-      figureNo: sortedFigures[fi].figureNo,
-      page: sortedFigures[fi].page,
-      jpegBuffer: jpegs[fi].data,
-    });
+  // Group figures by page
+  const figsByPage = new Map();
+  for (const fig of figureCandidates) {
+    if (!fig.page || fig.page < 1) continue;
+    const list = figsByPage.get(fig.page) || [];
+    list.push(fig);
+    figsByPage.set(fig.page, list);
   }
 
+  // Open PDF once with mupdf
+  const mupdfDoc = mupdf.Document.openDocument(pdfBuffer, "application/pdf");
+
+  for (const [pageNum, figs] of figsByPage) {
+    try {
+      // --- Get text positions from pdfjs ---
+      const pdfPage = await pdfjsDoc.getPage(Math.min(pageNum, pdfjsDoc.numPages));
+      const viewport = pdfPage.getViewport({ scale: 1.0 });
+      const pageHeightPt = viewport.height;
+      const tc = await pdfPage.getTextContent();
+      pdfPage.cleanup();
+
+      // Build text lines sorted visually top-to-bottom
+      // pdfjs y: bottom-left origin (high y = top of page)
+      const rawItems = [];
+      for (const item of tc.items) {
+        if (!("str" in item) || !item.str.trim()) continue;
+        const x = item.transform[4];
+        const w = item.width ?? 0;
+        rawItems.push({ text: item.str, y: item.transform[5], x, xEnd: x + w });
+      }
+      rawItems.sort((a, b) => b.y - a.y || a.x - b.x); // top-to-bottom, left-to-right
+
+      // Merge items into lines using y-bucket + x-gap detection
+      // Items on the same y but with a large x gap are from different columns
+      const lines = [];
+      for (const item of rawItems) {
+        const last = lines[lines.length - 1];
+        if (last && Math.abs(item.y - last.y) < 3) {
+          const xGap = item.x - last.xEnd;
+          if (xGap > 12) {
+            // Large x gap → different column, treat as separate line
+            lines.push({ text: item.text, y: item.y, x: item.x, xEnd: item.xEnd });
+          } else {
+            last.text += " " + item.text;
+            last.xEnd = Math.max(last.xEnd, item.xEnd);
+          }
+        } else {
+          lines.push({ text: item.text, y: item.y, x: item.x, xEnd: item.xEnd });
+        }
+      }
+
+      // --- Render the full page once with mupdf ---
+      const pageIndex = Math.min(pageNum - 1, mupdfDoc.countPages() - 1);
+      const mupdfPage = mupdfDoc.loadPage(pageIndex);
+      const matrix = mupdf.Matrix.scale(RENDER_SCALE, RENDER_SCALE);
+      const pixmap = mupdfPage.toPixmap(matrix, mupdf.ColorSpace.DeviceRGB, true, true);
+      const fullWidth = pixmap.getWidth();
+      const fullHeight = pixmap.getHeight();
+      const channels = pixmap.getNumberOfComponents(); // 4 for RGBA
+      const fullPixels = pixmap.getPixels();
+
+      // --- For each figure, find crop coordinates ---
+      for (const fig of figs) {
+        try {
+          const figNum = fig.figureNo.replace(/\D/g, "");
+          const captionRe = new RegExp(`(?:[Ff]ig\\.?|[Ff]igure|FIG\\.?|FIGURE)\\s*${figNum}(?![0-9])`);
+
+          // Find this figure's caption — skip body text references
+          let captionY = null;
+          let captionX = 0;
+          let captionXEnd = 0;
+          for (const line of lines) {
+            if (!captionRe.test(line.text)) continue;
+            if (BODY_REF_BEFORE_RE.test(line.text)) continue;
+            if (FIG_THEN_VERB_RE.test(line.text)) continue;
+            const refPos = line.text.search(/(?:[Ff]ig\.?|[Ff]igure|FIG\.?|FIGURE)\s*\d/);
+            if (refPos > 25) continue;
+            const dotRe = new RegExp(`(?:[Ff]ig\\.?|[Ff]igure|FIG\\.?|FIGURE)\\s*${figNum}\\s*[a-z]?\\.\\s`);
+            if (dotRe.test(line.text)) {
+              const afterDot = line.text.slice(line.text.search(dotRe) + line.text.match(dotRe)[0].length);
+              if (BODY_TEXT_VERB_RE.test(afterDot.slice(0, 50))) continue;
+            }
+            captionY = line.y;
+            captionX = line.x;
+            captionXEnd = line.xEnd;
+            break;
+          }
+          if (captionY === null) continue;
+
+          const captionPixelY = Math.round((pageHeightPt - captionY) * RENDER_SCALE);
+          const pageWidthPt = viewport.width;
+
+          // Bottom boundary: caption + fixed margin (40pt covers 3-4 caption lines)
+          const bottomPixel = Math.min(fullHeight, Math.round(captionPixelY + 40 * RENDER_SCALE));
+
+          // --- Determine column vs full-width figure ---
+          const captionCenterPt = (captionX + captionXEnd) / 2;
+          const isFullWidth = Math.abs(captionCenterPt - pageWidthPt / 2) < pageWidthPt * 0.12;
+
+          let scanLeftPt, scanRightPt;
+          if (isFullWidth) {
+            scanLeftPt = 0;
+            scanRightPt = pageWidthPt;
+          } else {
+            scanLeftPt = Math.max(0, captionX - 15);
+            scanRightPt = Math.min(pageWidthPt, captionXEnd + 15);
+          }
+          // Ensure minimum 25% width
+          if (scanRightPt - scanLeftPt < pageWidthPt * 0.25) {
+            const center = (scanLeftPt + scanRightPt) / 2;
+            scanLeftPt = Math.max(0, center - pageWidthPt * 0.125);
+            scanRightPt = Math.min(pageWidthPt, center + pageWidthPt * 0.125);
+          }
+          const scanLeftPx = Math.round(scanLeftPt * RENDER_SCALE);
+          const scanRightPx = Math.round(scanRightPt * RENDER_SCALE);
+
+          // --- Top boundary: text-gap analysis (primary) ---
+          // Find the largest y-gap in text items within the figure's column.
+          // Raster/chart figures create a text-free zone; the gap marks the boundary.
+          const columnItems = rawItems
+            .filter(item => {
+              const cx = (item.x + item.xEnd) / 2;
+              return cx >= scanLeftPt && cx <= scanRightPt && item.y > captionY;
+            })
+            .sort((a, b) => b.y - a.y);
+
+          let topPixel = 0;
+          const MIN_TEXT_GAP = 25;
+
+          if (columnItems.length >= 1) {
+            let maxGap = 0;
+            let gapAboveIdx = -1;
+
+            for (let i = 0; i < columnItems.length - 1; i++) {
+              const gap = columnItems[i].y - columnItems[i + 1].y;
+              if (gap > maxGap) { maxGap = gap; gapAboveIdx = i; }
+            }
+            // Also check gap between last column item and caption
+            const lastItem = columnItems[columnItems.length - 1];
+            const gapToCaption = lastItem.y - captionY;
+            if (gapToCaption > maxGap) { maxGap = gapToCaption; gapAboveIdx = columnItems.length - 1; }
+
+            if (maxGap >= MIN_TEXT_GAP) {
+              // Item above the gap marks where text/table ends → figure starts below
+              const aboveGapY = columnItems[gapAboveIdx].y;
+              topPixel = Math.round((pageHeightPt - aboveGapY) * RENDER_SCALE + 20);
+            }
+          }
+
+          // --- Fallback / refinement: pixel-based whitespace scan ---
+          // Use pixel scanner when text-gap failed OR when the crop is suspiciously tall
+          // (>50% of page = likely includes another figure or unrelated content above)
+          const maxReasonableHeight = fullHeight * 0.50;
+          if (topPixel <= 0 || (bottomPixel - topPixel) > maxReasonableHeight) {
+            // For refinement, narrow the scan column inward to avoid edge artifacts
+            const pixScanLeft = scanLeftPx + 10;
+            const pixScanRight = scanRightPx - 10;
+            const refined = findFigureTopByPixels(
+              fullPixels, fullWidth, fullHeight, channels,
+              captionPixelY, pixScanLeft, pixScanRight,
+            );
+            if (refined > topPixel) topPixel = refined;
+          }
+
+          // Sanity checks
+          if (bottomPixel <= topPixel) continue;
+          const finalHeight = bottomPixel - topPixel;
+          if (finalHeight < 40) continue;
+
+          // --- Extract cropped pixels (horizontal + vertical) ---
+          // For column figures, use scan bounds directly (no extra padding that bleeds into adjacent column)
+          const cropLeftPx = isFullWidth ? 0 : scanLeftPx;
+          const cropRightPx = isFullWidth ? fullWidth : scanRightPx;
+          const cropWidth = cropRightPx - cropLeftPx;
+
+          const croppedPixels = new Uint8Array(cropWidth * finalHeight * channels);
+          for (let row = 0; row < finalHeight; row++) {
+            const srcRowStart = (topPixel + row) * fullWidth * channels;
+            const srcColStart = srcRowStart + cropLeftPx * channels;
+            croppedPixels.set(
+              fullPixels.subarray(srcColStart, srcColStart + cropWidth * channels),
+              row * cropWidth * channels,
+            );
+          }
+
+          results.push({
+            figureNo: fig.figureNo,
+            page: pageNum,
+            width: cropWidth,
+            height: finalHeight,
+            rgbaData: croppedPixels,
+          });
+        } catch (figErr) {
+          console.warn(`[figure-images] crop failed for ${fig.figureNo}:`, figErr.message);
+        }
+      }
+    } catch (pageErr) {
+      console.warn(`[figure-images] page crop failed for page ${pageNum}:`, pageErr.message);
+    }
+  }
+
+  await pdfjsDoc.destroy().catch(() => {});
   return results;
 }
 
@@ -1671,6 +2282,7 @@ export async function extractHeuristicPaperData(pdfBuffer, paperTitle = "", opti
       derivedTitle: titleChoice.title,
       publicationYear: detectPublicationYearFromText(mergedText),
       firstAuthor: extractFirstAuthor(firstPage?.lines ?? [], titleChoice.titleRangeEnd),
+      authors: extractAuthors(firstPage?.lines ?? [], titleChoice.titleRangeEnd),
       extractedTextLength: mergedText.length,
       abstractText: normalizeWhitespace(abstractText),
       sections: sections.map(({ lines, ...section }) => section),

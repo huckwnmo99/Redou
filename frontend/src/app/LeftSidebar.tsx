@@ -1,8 +1,9 @@
-﻿import { Images, Library, Search, Settings } from "lucide-react";
+﻿import { Cpu, Images, Library, MessageSquare, Search, Settings, StickyNote } from "lucide-react";
 import type { ReactNode } from "react";
 import { Separator } from "radix-ui";
 import { CategoryTree } from "@/features/library/CategoryTree";
 import { SearchSidebar } from "@/features/search/SearchSidebar";
+import { ChatSidebar } from "@/features/chat/ChatSidebar";
 import { localeText } from "@/lib/locale";
 import { useAllPapers } from "@/lib/queries";
 import { useUIStore } from "@/stores/uiStore";
@@ -90,6 +91,18 @@ function WorkspaceSidebar() {
     );
   }
 
+  if (activeNav === "chat") {
+    return <ChatSidebar />;
+  }
+
+  if (activeNav === "processing") {
+    return (
+      <SidebarSection title={t("Processing", "처리")}>
+        <SidebarButton active icon={Cpu} label={t("All Jobs", "전체 작업")} />
+      </SidebarSection>
+    );
+  }
+
   return (
     <SidebarSection title={t("Settings Sections", "설정 섹션") }>
       <SidebarButton active icon={Settings} label={t("Workspace", "워크스페이스")} />
@@ -104,6 +117,9 @@ export function LeftSidebar() {
     { id: "library", label: t("Library", "라이브러리"), icon: Library },
     { id: "search", label: t("Search", "검색"), icon: Search },
     { id: "figures", label: t("Figures", "Figure"), icon: Images },
+    { id: "chat", label: t("Chat", "채팅"), icon: MessageSquare },
+    { id: "notes", label: t("Notes", "노트"), icon: StickyNote },
+    { id: "processing", label: t("Processing", "처리"), icon: Cpu },
   ];
 
   return (
@@ -126,24 +142,12 @@ export function LeftSidebar() {
           alignItems: "center",
           padding: "0 14px",
           borderBottom: "1px solid var(--color-border-subtle)",
-          gap: 10,
+          gap: 7,
           flexShrink: 0,
         }}
       >
-        <div
-          style={{
-            width: 26,
-            height: 26,
-            borderRadius: "var(--radius-sm)",
-            background: "var(--color-accent)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Library size={14} color="#fff" />
-        </div>
-        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text-primary)", letterSpacing: "-0.01em" }}>
+        <img src="/Redou.png" alt="Redou" style={{ width: 35, height: 35, borderRadius: "var(--radius-sm)" }} />
+        <span style={{ fontSize: 16, fontWeight: 600, color: "var(--color-text-primary)", letterSpacing: "-0.01em" }}>
           Redou
         </span>
       </div>

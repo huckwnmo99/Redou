@@ -3,9 +3,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
 import workerUrl from "@/pdf-worker?worker&url";
 import type { PDFDocumentProxy } from "pdfjs-dist/types/src/display/api";
+import katex from "katex";
+import "katex/dist/katex.min.css";
 import { ProcessingBadge } from "@/components/ProcessingBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Tag } from "@/components/Tag";
+import { LatexText, containsLatex } from "@/components/LatexText";
+import { localeText } from "@/lib/locale";
 import {
   toDesktopFileUrl,
   useDesktopRuntime,
@@ -26,6 +30,7 @@ import {
   useNotesByPaper,
   usePaperById,
   usePrimaryPaperFile,
+  useReferencesByPaper,
   useSectionsByPaper,
   useUpdateHighlight,
   useUpdateNote,
@@ -38,14 +43,15 @@ import { PdfReaderWorkspace } from "@/features/paper/PdfReaderWorkspace";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
-const tabs: { id: PaperDetailTab; label: string }[] = [
-  { id: "overview", label: "Overview" },
-  { id: "pdf", label: "PDF" },
-  { id: "notes", label: "Notes" },
-  { id: "figures", label: "Figures" },
-  { id: "tables", label: "Tables" },
-  { id: "equations", label: "Equations" },
-  { id: "metadata", label: "Metadata" },
+const tabDefs: { id: PaperDetailTab; en: string; ko: string }[] = [
+  { id: "overview", en: "Overview", ko: "개요" },
+  { id: "pdf", en: "PDF", ko: "PDF" },
+  { id: "notes", en: "Notes", ko: "노트" },
+  { id: "figures", en: "Figures", ko: "Figure" },
+  { id: "tables", en: "Tables", ko: "Table" },
+  { id: "equations", en: "Equations", ko: "수식" },
+  { id: "references", en: "References", ko: "참고문헌" },
+  { id: "metadata", en: "Metadata", ko: "메타데이터" },
 ];
 
 function formatAuthors(paper: Paper) {
@@ -64,16 +70,16 @@ function buildInsightCards(paper: Paper) {
 
   return [
     {
-      title: "Objective",
-      body: first ?? "Clarify the paper objective and why this work matters to the current research thread.",
+      title: "목적",
+      body: first ?? "이 논문의 목적과 현재 연구 흐름에서 중요한 이유를 정리합니다.",
     },
     {
-      title: "Main Result",
-      body: second ?? first ?? "Summarize the strongest result or claim worth remembering.",
+      title: "주요 결과",
+      body: second ?? first ?? "기억할 가치가 있는 가장 강력한 결과나 주장을 정리합니다.",
     },
     {
-      title: "Limitation",
-      body: third ?? "Note assumptions, missing evidence, or follow-up checks to revisit later.",
+      title: "한계",
+      body: third ?? "가정, 부족한 증거, 나중에 재확인할 사항을 기록합니다.",
     },
   ];
 }
@@ -82,32 +88,30 @@ function summarize(text: string, maxLength = 148) {
   return text.length > maxLength ? `${text.slice(0, maxLength).trimEnd()}...` : text;
 }
 
-function formatProcessingLabel(status?: ProcessingJobStatus) {
-  if (!status) return "No active pipeline job";
-  if (status === "queued") return "Queued";
-  if (status === "running") return "Running";
-  if (status === "succeeded") return "Ready";
-  return "Failed";
+function formatProcessingLabel(status?: ProcessingJobStatus, locale: "en" | "ko" = "en") {
+  const t = (en: string, ko: string) => localeText(locale, en, ko);
+  if (!status) return t("No active pipeline job", "파이프라인 작업 없음");
+  if (status === "queued") return t("Queued", "대기 중");
+  if (status === "running") return t("Running", "처리 중");
+  if (status === "succeeded") return t("Ready", "완료");
+  return t("Failed", "실패");
 }
 
-function processingCopy(status?: ProcessingJobStatus) {
+function processingCopy(status: ProcessingJobStatus | undefined, locale: "en" | "ko") {
+  const t = (en: string, ko: string) => localeText(locale, en, ko);
   if (status === "queued") {
-    return "The PDF is stored and queued. The desktop worker will pick it up shortly before the reader unlocks.";
+    return t("The PDF is stored and queued for processing.", "PDF가 저장되었고 처리 대기 중입니다.");
   }
-
   if (status === "running") {
-    return "The desktop worker is verifying the stored PDF and preparing the paper for reader review now.";
+    return t("Processing the PDF now.", "PDF를 처리하고 있습니다.");
   }
-
   if (status === "failed") {
-    return "The last processing attempt failed. The stored PDF still exists, but the reader path needs a retry or manual inspection.";
+    return t("Processing failed. Retry or inspect manually.", "처리에 실패했습니다. 재시도하거나 수동으로 확인하세요.");
   }
-
   if (status === "succeeded") {
-    return "The latest processing job succeeded. The PDF tab can now open the imported file through the desktop bridge.";
+    return t("Processing complete. The PDF reader is ready.", "처리 완료. PDF 리더를 사용할 수 있습니다.");
   }
-
-  return "Reader and extraction signals will appear here once a processing job is created for this paper.";
+  return t("Processing signals will appear once a job is created.", "처리 작업이 생성되면 상태가 표시됩니다.");
 }
 
 function formatFileSize(fileSize?: number) {
@@ -136,11 +140,13 @@ function buildFallbackAnchor(paperId: string, pageNumber: number, pageLabel?: st
 function OverviewTab({ paper, folderName }: { paper: Paper; folderName?: string }) {
   const { data: sections = [] } = useSectionsByPaper(paper.id);
   const { data: figures = [] } = useFiguresByPaper(paper.id);
-  const { openPaperDetail, setReaderTargetAnchor } = useUIStore();
+  const { locale, openPaperDetail, setReaderTargetAnchor } = useUIStore();
+  const t = (en: string, ko: string) => localeText(locale, en, ko);
   const fallbackCards = buildInsightCards(paper);
   const insightCards =
     sections.length > 0
       ? sections.slice(0, 3).map((section) => ({
+          id: section.id,
           title: section.name,
           body: summarize(section.rawText, 188),
         }))
@@ -168,9 +174,9 @@ function OverviewTab({ paper, folderName }: { paper: Paper; folderName?: string 
         }}
       >
         <section style={cardStyle}>
-          <div style={eyebrowStyle}>Paper Card</div>
+          <div style={eyebrowStyle}>{t("Paper Card", "논문 카드")}</div>
           <p style={{ fontSize: 14, color: "var(--color-text-secondary)", lineHeight: 1.75, marginBottom: 14 }}>
-            {paper.abstract || "This imported paper has not been summarized yet. The current extraction pass will fill the outline and figure surfaces as the worker finishes."}
+            {paper.abstract || t("This imported paper has not been summarized yet.", "아직 초록이 추출되지 않았습니다. 추출이 완료되면 내용이 채워집니다.")}
           </p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {paper.tags.map((tag) => (
@@ -181,14 +187,14 @@ function OverviewTab({ paper, folderName }: { paper: Paper; folderName?: string 
         </section>
 
         <section style={cardStyle}>
-          <div style={eyebrowStyle}>Status</div>
+          <div style={eyebrowStyle}>{t("Status", "상태")}</div>
           {[
-            ["Read status", paper.status],
-            ["Pipeline", formatProcessingLabel(paper.processingStatus)],
-            ["Category", folderName ?? "Uncategorized"],
-            ["Sections", `${sections.length} extracted`],
-            ["Figures", `${figures.length} extracted`],
-            ["Notes", `${paper.noteCount} linked`],
+            [t("Read status", "읽기 상태"), paper.status],
+            [t("Pipeline", "파이프라인"), formatProcessingLabel(paper.processingStatus, locale)],
+            [t("Category", "카테고리"), folderName ?? t("Uncategorized", "미분류")],
+            [t("Sections", "섹션"), t(`${sections.length} extracted`, `${sections.length}개 추출`)],
+            [t("Figures", "Figure"), t(`${figures.length} extracted`, `${figures.length}개 추출`)],
+            [t("Notes", "노트"), t(`${paper.noteCount} linked`, `${paper.noteCount}개 연결`)],
           ].map(([label, value]) => (
             <div
               key={label}
@@ -215,8 +221,8 @@ function OverviewTab({ paper, folderName }: { paper: Paper; folderName?: string 
           gap: 12,
         }}
       >
-        {insightCards.map((card) => (
-          <section key={card.title} style={cardStyle}>
+        {insightCards.map((card, index) => (
+          <section key={"id" in card ? (card.id as string) : `fallback-${index}`} style={cardStyle}>
             <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{card.title}</div>
             <p style={{ fontSize: 12.5, lineHeight: 1.7, color: "var(--color-text-secondary)" }}>{card.body}</p>
           </section>
@@ -231,7 +237,7 @@ function OverviewTab({ paper, folderName }: { paper: Paper; folderName?: string 
         }}
       >
         <section style={cardStyle}>
-          <div style={eyebrowStyle}>Section Outline</div>
+          <div style={eyebrowStyle}>{t("Section Outline", "섹션 목차")}</div>
           {extractionReady && outline.length > 0 ? (
             <div style={{ display: "grid", gap: 10 }}>
               {outline.map((section, index) => (
@@ -246,7 +252,7 @@ function OverviewTab({ paper, folderName }: { paper: Paper; folderName?: string 
                   {section.pageStart ? (
                     <button onClick={() => jumpToPage(section.pageStart)} style={lightButtonStyle}>
                       <FileText size={13} />
-                      Open section page
+                      {t("Open section page", "섹션 페이지 열기")}
                     </button>
                   ) : null}
                 </div>
@@ -255,31 +261,37 @@ function OverviewTab({ paper, folderName }: { paper: Paper; folderName?: string 
           ) : (
             <div style={{ padding: 14, borderRadius: "var(--radius-md)", background: "var(--color-bg-panel)", fontSize: 12.5, color: "var(--color-text-muted)", lineHeight: 1.7 }}>
               {paper.processingStatus === "running"
-                ? "The extraction worker is still assembling the first section outline for this paper."
-                : "No section outline is available yet. Import a PDF or rerun processing to populate the structured outline."}
+                ? t("The extraction worker is still assembling the section outline.", "섹션 목차를 추출하고 있습니다.")
+                : t("No section outline available yet.", "아직 섹션 목차가 없습니다. PDF를 가져오거나 재추출하면 채워집니다.")}
             </div>
           )}
         </section>
 
         <section style={cardStyle}>
-          <div style={eyebrowStyle}>Figure Signal</div>
+          <div style={eyebrowStyle}>{t("Figure Signal", "Figure 미리보기")}</div>
           {leadFigure ? (
             <div style={{ display: "grid", gap: 10 }}>
               <div style={{ padding: 12, borderRadius: "var(--radius-md)", background: "var(--color-bg-panel)" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
                   <div style={{ fontSize: 13, fontWeight: 700 }}>{leadFigure.figureNo}</div>
-                  <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>{leadFigure.page ? `Page ${leadFigure.page} - ${figures.length} total` : `${figures.length} total`}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>{leadFigure.page ? t(`Page ${leadFigure.page} - ${figures.length} total`, `${leadFigure.page}페이지 · 총 ${figures.length}개`) : t(`${figures.length} total`, `총 ${figures.length}개`)}</div>
                 </div>
                 <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: 10 }}>
-                  {leadFigure.caption ?? "Caption not extracted yet."}
+                  {containsLatex(leadFigure.caption) ? (
+                    <LatexText style={{ fontSize: 12.5 }}>{leadFigure.caption!}</LatexText>
+                  ) : (leadFigure.caption ?? t("Caption not extracted yet.", "캡션이 아직 추출되지 않았습니다."))}
                 </div>
                 {leadFigure.summaryText ? (
-                  <div style={{ fontSize: 11.5, color: "var(--color-text-muted)", lineHeight: 1.7, marginBottom: leadFigure.page ? 10 : 0 }}>{leadFigure.summaryText}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--color-text-muted)", lineHeight: 1.7, marginBottom: leadFigure.page ? 10 : 0 }}>
+                    {containsLatex(leadFigure.summaryText) ? (
+                      <LatexText style={{ fontSize: 11.5 }}>{leadFigure.summaryText}</LatexText>
+                    ) : leadFigure.summaryText}
+                  </div>
                 ) : null}
                 {leadFigure.page ? (
                   <button onClick={() => jumpToPage(leadFigure.page)} style={lightButtonStyle}>
                     <Images size={13} />
-                    Open figure page
+                    {t("Open figure page", "Figure 페이지 열기")}
                   </button>
                 ) : null}
               </div>
@@ -315,6 +327,8 @@ function OverviewTab({ paper, folderName }: { paper: Paper; folderName?: string 
 }
 
 function PdfTab({ paper, folderName }: { paper: Paper; folderName?: string }) {
+  const locale = useUIStore((s) => s.locale);
+  const tl = (en: string, ko: string) => localeText(locale, en, ko);
   const { data: notes = [] } = useNotesByPaper(paper.id);
   const { data: highlights = [] } = useHighlightsByPaper(paper.id);
   const { data: allPresets = [] } = useHighlightPresets();
@@ -556,8 +570,8 @@ function PdfTab({ paper, folderName }: { paper: Paper; folderName?: string }) {
       <div style={cardStyle}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Reader is waiting on the processing pipeline</div>
-            <div style={{ fontSize: 13, lineHeight: 1.7, color: "var(--color-text-secondary)" }}>{processingCopy(paper.processingStatus)}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>{tl("Reader is waiting on the processing pipeline", "리더가 파이프라인 처리를 기다리고 있습니다")}</div>
+            <div style={{ fontSize: 13, lineHeight: 1.7, color: "var(--color-text-secondary)" }}>{processingCopy(paper.processingStatus, locale)}</div>
           </div>
           {paper.processingStatus ? <ProcessingBadge status={paper.processingStatus} /> : null}
         </div>
@@ -933,22 +947,23 @@ function PresetForm({ onSave, onCancel, isPending }: {
 
 function NotesTab({ paper }: { paper: Paper }) {
   const { data: notes = [] } = useNotesByPaper(paper.id);
-  const { openNotesWorkspace } = useUIStore();
+  const { locale, openNotesWorkspace } = useUIStore();
+  const t = (en: string, ko: string) => localeText(locale, en, ko);
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
         <div>
           <div style={{ fontSize: 11, color: "var(--color-text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>
-            Notes Workspace Bridge
+            {t("Notes Workspace", "노트 워크스페이스")}
           </div>
           <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
-            Review note summaries here, then jump into the dedicated editor when you need to keep writing.
+            {t("Review note summaries here, then jump into the editor.", "노트 요약을 확인하고 편집기로 이동하세요.")}
           </div>
         </div>
         <button onClick={() => openNotesWorkspace(paper.id)} style={lightButtonStyle}>
           <ExternalLink size={13} />
-          Open notes workspace
+          {t("Open notes workspace", "노트 워크스페이스 열기")}
         </button>
       </div>
 
@@ -982,7 +997,7 @@ function NotesTab({ paper }: { paper: Paper }) {
         })
       ) : (
         <div style={{ padding: 28, textAlign: "center", color: "var(--color-text-muted)" }}>
-          No notes yet. This tab is ready for the dedicated note editor.
+          {t("No notes yet.", "아직 노트가 없습니다.")}
         </div>
       )}
     </div>
@@ -992,19 +1007,21 @@ function NotesTab({ paper }: { paper: Paper }) {
 function FigureDetailImage({ imagePath }: { imagePath: string }) {
   const { data: resolvedPath } = useResolvedDesktopFilePath(imagePath);
   const { data: runtime } = useDesktopRuntime();
+  const [broken, setBroken] = useState(false);
   const fileUrl = resolvedPath && runtime?.available ? toDesktopFileUrl(resolvedPath) : null;
 
-  if (!fileUrl) return null;
+  if (!fileUrl || broken) return null;
   return (
     <img
       src={fileUrl}
       style={{ display: "block", width: "100%", borderRadius: "var(--radius-md)", background: "#fff" }}
       draggable={false}
+      onError={() => setBroken(true)}
     />
   );
 }
 
-function FigureDetailThumbnail({ doc, page, width }: { doc: PDFDocumentProxy; page: number; width: number }) {
+function FigureDetailThumbnail({ doc, page, figureNo, width }: { doc: PDFDocumentProxy; page: number; figureNo?: string; width: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -1014,25 +1031,80 @@ function FigureDetailThumbnail({ doc, page, width }: { doc: PDFDocumentProxy; pa
     let cancelled = false;
 
     (async () => {
-      const p = await doc.getPage(Math.min(page, doc.numPages));
-      if (cancelled) { p.cleanup(); return; }
-      const vp = p.getViewport({ scale: 1 });
-      const scale = width / vp.width;
-      const svp = p.getViewport({ scale });
+      const pdfPage = await doc.getPage(Math.min(page, doc.numPages));
+      if (cancelled) { pdfPage.cleanup(); return; }
+
+      const baseVp = pdfPage.getViewport({ scale: 1 });
+      const renderScale = (width * 2) / baseVp.width;
+      const vp = pdfPage.getViewport({ scale: renderScale });
+      const pageH = vp.height;
+
+      // Try to crop to the figure region if figureNo is provided
+      let cropTop = 0;
+      let cropBottom = pageH;
+
+      if (figureNo) {
+        const tc = await pdfPage.getTextContent();
+        const figNum = figureNo.replace(/\D/g, "");
+        const captionRe = new RegExp(`(?:Fig\\.?|Figure)\\s*${figNum}(?![0-9])`, "i");
+        const nextRe = /(?:Table\s*\d|Figure\s*\d|Fig\.?\s*\d|\d+\.\s+[A-Z])/i;
+
+        const rawItems: { text: string; y: number }[] = [];
+        for (const item of tc.items) {
+          if (!("str" in item) || !item.str.trim()) continue;
+          rawItems.push({ text: item.str, y: pageH - (item.transform[5] * renderScale) });
+        }
+        rawItems.sort((a, b) => a.y - b.y);
+
+        const lines: { text: string; y: number }[] = [];
+        for (const item of rawItems) {
+          const last = lines[lines.length - 1];
+          if (last && Math.abs(item.y - last.y) < 6) { last.text += " " + item.text; }
+          else { lines.push({ text: item.text, y: item.y }); }
+        }
+
+        let captionIdx = -1;
+        for (let i = 0; i < lines.length; i++) {
+          if (captionRe.test(lines[i].text)) { captionIdx = i; break; }
+        }
+
+        if (captionIdx >= 0) {
+          cropBottom = Math.min(pageH, lines[captionIdx].y + 30);
+          for (let i = captionIdx - 1; i >= 0; i--) {
+            if (nextRe.test(lines[i].text) && !captionRe.test(lines[i].text)) {
+              cropTop = Math.max(0, lines[i].y + 12);
+              break;
+            }
+          }
+        }
+      }
+
+      const cropH = Math.max(60, cropBottom - cropTop);
+      if (cancelled) { pdfPage.cleanup(); return; }
+
+      const off = document.createElement("canvas");
+      off.width = Math.floor(vp.width);
+      off.height = Math.floor(pageH);
+      const offCtx = off.getContext("2d");
+      if (!offCtx) { pdfPage.cleanup(); return; }
+      await pdfPage.render({ canvasContext: offCtx, viewport: vp } as any).promise;
+      pdfPage.cleanup();
+      if (cancelled) return;
+
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.floor(svp.width * dpr);
-      canvas.height = Math.floor(svp.height * dpr);
-      canvas.style.width = `${Math.floor(svp.width)}px`;
-      canvas.style.height = `${Math.floor(svp.height)}px`;
+      const displayH = (cropH / vp.width) * width;
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(displayH * dpr);
+      canvas.style.width = `${Math.floor(width)}px`;
+      canvas.style.height = `${Math.floor(displayH)}px`;
       const ctx = canvas.getContext("2d");
-      if (!ctx) { p.cleanup(); return; }
-      await p.render({ canvas, canvasContext: ctx, viewport: svp, transform: dpr === 1 ? undefined : [dpr, 0, 0, dpr, 0, 0] } as any).promise;
-      p.cleanup();
+      if (!ctx) return;
+      ctx.drawImage(off, 0, Math.floor(cropTop), Math.floor(vp.width), Math.floor(cropH), 0, 0, canvas.width, canvas.height);
       if (!cancelled) setLoaded(true);
     })().catch(() => {});
 
     return () => { cancelled = true; };
-  }, [doc, page, width]);
+  }, [doc, page, figureNo, width]);
 
   return (
     <canvas
@@ -1191,18 +1263,152 @@ function useFigureTabPdfDoc(paperId: string) {
   return doc;
 }
 
-const itemTypeLabels: Record<string, { title: string; empty: string; emptyRunning: string; icon: typeof Images }> = {
-  figure: { title: "Figures", empty: "No extracted figures for this paper yet.", emptyRunning: "Scanning the PDF for figures...", icon: Images },
-  table: { title: "Tables", empty: "No extracted tables for this paper yet.", emptyRunning: "Scanning the PDF for tables...", icon: Table2 },
-  equation: { title: "Equations", empty: "No extracted equations for this paper yet.", emptyRunning: "Scanning the PDF for equations...", icon: Sigma },
+/* ------------------------------------------------------------------ */
+/*  Markdown table → HTML                                              */
+/* ------------------------------------------------------------------ */
+
+function tableDataToHtml(raw: string): string | null {
+  const trimmed = raw.trim();
+
+  // If it's already HTML (from GLM-OCR), return as-is
+  if (trimmed.startsWith("<table") || trimmed.startsWith("<TABLE")) {
+    return trimmed;
+  }
+
+  // Otherwise try markdown pipe-table format
+  const lines = trimmed.split("\n").filter((l) => l.trim());
+  if (lines.length < 2 || !lines[0].includes("|")) return null;
+
+  const parseRow = (line: string) =>
+    line.split("|").map((c) => c.trim()).filter((_, i, arr) => i > 0 && i < arr.length);
+
+  const headers = parseRow(lines[0]);
+  // skip separator line (line[1])
+  const rows = lines.slice(2).map(parseRow);
+
+  const ths = headers.map((h) => `<th>${h}</th>`).join("");
+  const trs = rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("");
+  return `<table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>`;
+}
+
+/* ------------------------------------------------------------------ */
+/*  LaTeX equation renderer                                            */
+/* ------------------------------------------------------------------ */
+
+function stripLatexDelimiters(raw: string): string {
+  let s = raw.trim();
+  // Strip $$...$$ (display mode delimiters)
+  if (s.startsWith("$$") && s.endsWith("$$") && s.length > 4) {
+    s = s.slice(2, -2).trim();
+  }
+  // Strip $...$ (inline delimiters)
+  else if (s.startsWith("$") && s.endsWith("$") && s.length > 2) {
+    s = s.slice(1, -1).trim();
+  }
+  return s;
+}
+
+function LatexBlock({ latex }: { latex: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const cleaned = stripLatexDelimiters(latex);
+    try {
+      katex.render(cleaned, ref.current, {
+        displayMode: true,
+        throwOnError: false,
+        strict: false,
+      });
+      setError(null);
+    } catch (e: any) {
+      setError(e.message ?? "Render error");
+    }
+  }, [latex]);
+
+  if (error) {
+    return (
+      <pre style={{ fontSize: 12, color: "var(--color-text-secondary)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+        {latex}
+      </pre>
+    );
+  }
+  return <div ref={ref} style={{ overflow: "auto", padding: "8px 0" }} />;
+}
+
+/** Renders OCR HTML table with post-render KaTeX processing for $...$ patterns in cells. */
+function OcrTableHtml({ html }: { html: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const cells = ref.current.querySelectorAll("td, th");
+    for (const cell of cells) {
+      const text = cell.textContent ?? "";
+      if (!text.includes("$")) continue;
+      // Replace $...$ patterns with KaTeX-rendered spans
+      const parts: (string | { latex: string })[] = [];
+      let lastIndex = 0;
+      const regex = /\$([^$]+)\$/g;
+      let m;
+      while ((m = regex.exec(text)) !== null) {
+        if (m.index > lastIndex) parts.push(text.slice(lastIndex, m.index));
+        parts.push({ latex: m[1] });
+        lastIndex = m.index + m[0].length;
+      }
+      if (parts.length === 0) continue;
+      if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+      cell.innerHTML = parts
+        .map((p) => {
+          if (typeof p === "string") return p;
+          try {
+            return katex.renderToString(p.latex, { throwOnError: false, strict: false });
+          } catch {
+            return `$${p.latex}$`;
+          }
+        })
+        .join("");
+    }
+  }, [html]);
+
+  return (
+    <div
+      ref={ref}
+      className="ocr-table"
+      dangerouslySetInnerHTML={{ __html: html }}
+      style={{
+        overflow: "auto", maxHeight: 400, fontSize: 12.5, lineHeight: 1.6,
+        borderRadius: "var(--radius-sm)", border: "1px solid var(--color-border-subtle)",
+      }}
+    />
+  );
+}
+
+const itemTypeLabels: Record<string, { en: string; ko: string; emptyEn: string; emptyKo: string; emptyRunEn: string; emptyRunKo: string; icon: typeof Images }> = {
+  figure: { en: "Figures", ko: "Figure", emptyEn: "No extracted figures yet.", emptyKo: "추출된 Figure가 없습니다.", emptyRunEn: "Figure 추출 중...", emptyRunKo: "Figure 추출 중...", icon: Images },
+  table: { en: "Tables", ko: "Table", emptyEn: "No extracted tables yet.", emptyKo: "추출된 Table이 없습니다.", emptyRunEn: "Table 추출 중...", emptyRunKo: "Table 추출 중...", icon: Table2 },
+  equation: { en: "Equations", ko: "수식", emptyEn: "No extracted equations yet.", emptyKo: "추출된 수식이 없습니다.", emptyRunEn: "수식 추출 중...", emptyRunKo: "수식 추출 중...", icon: Sigma },
 };
 
 function FiguresTab({ paper, filterType = "figure" }: { paper: Paper; filterType?: "figure" | "table" | "equation" }) {
   const { data: allItems = [] } = useFiguresByPaper(paper.id);
-  const { openPaperDetail, setReaderTargetAnchor } = useUIStore();
+  const { locale, openPaperDetail, setReaderTargetAnchor } = useUIStore();
   const doc = useFigureTabPdfDoc(paper.id);
-  const items = allItems.filter((f) => f.itemType === filterType);
-  const meta = itemTypeLabels[filterType] ?? itemTypeLabels.figure;
+  const items = allItems
+    .filter((f) => f.itemType === filterType)
+    .sort((a, b) => {
+      const na = parseInt(a.figureNo.match(/(\d+)/)?.[1] ?? "0", 10);
+      const nb = parseInt(b.figureNo.match(/(\d+)/)?.[1] ?? "0", 10);
+      return na - nb;
+    });
+  const rawMeta = itemTypeLabels[filterType] ?? itemTypeLabels.figure;
+  const meta = {
+    title: localeText(locale, rawMeta.en, rawMeta.ko),
+    empty: localeText(locale, rawMeta.emptyEn, rawMeta.emptyKo),
+    emptyRunning: localeText(locale, rawMeta.emptyRunEn, rawMeta.emptyRunKo),
+    icon: rawMeta.icon,
+  };
   const FallbackIcon = meta.icon;
 
   function jumpToPage(page?: number) {
@@ -1232,33 +1438,71 @@ function FiguresTab({ paper, filterType = "figure" }: { paper: Paper; filterType
             <div style={eyebrowStyle}>{meta.title}</div>
           </div>
           <div style={{ padding: "6px 10px", borderRadius: "999px", background: "var(--color-bg-surface)", border: "1px solid var(--color-border-subtle)", fontSize: 12, fontWeight: 700, color: "var(--color-text-secondary)" }}>
-            {items.length} total
+            {localeText(locale, `${items.length} total`, `총 ${items.length}개`)}
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: filterType === "table" ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
-          {items.map((item) => (
+        <div style={{ display: "grid", gridTemplateColumns: filterType === "table" ? "1fr" : filterType === "equation" ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+          {items.map((item) => {
+            const tableHtml = filterType === "table" && item.summaryText ? tableDataToHtml(item.summaryText) : null;
+
+            return (
             <div key={item.id} style={{ padding: 14, borderRadius: "var(--radius-md)", background: "var(--color-bg-panel)", border: "1px solid var(--color-border-subtle)", display: "grid", gap: 10 }}>
               {filterType === "table" ? (
-                /* Tables: cropped table region from PDF page */
+                /* Tables: HTML table from OCR or fallback crop */
                 <>
-                  <div style={{ borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)", overflow: "hidden", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    {doc && item.page ? (
-                      <TableCropThumbnail doc={doc} page={item.page} figureNo={item.figureNo} width={460} />
-                    ) : (
-                      <div style={{ padding: 20 }}>
-                        <Table2 size={24} style={{ color: "var(--color-accent)", opacity: 0.72 }} />
-                      </div>
-                    )}
-                  </div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700 }}>{item.page ? `${item.figureNo} - p.${item.page}` : item.figureNo}</div>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Table2 size={15} style={{ color: "var(--color-accent)", flexShrink: 0 }} />
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>{item.page ? `${item.figureNo} - p.${item.page}` : item.figureNo}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
                       {item.isPresentationCandidate ? <Tag label="Deck" /> : null}
                     </div>
                   </div>
-                  <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", lineHeight: 1.7 }}>
-                    {item.caption ?? "Caption not extracted."}
+                  {item.caption ? (
+                    <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", lineHeight: 1.6, fontStyle: "italic" }}>
+                      {containsLatex(item.caption) ? (
+                        <LatexText style={{ fontSize: 12.5 }}>{item.caption}</LatexText>
+                      ) : item.caption}
+                    </div>
+                  ) : null}
+                  {tableHtml ? (
+                    <OcrTableHtml html={tableHtml} />
+                  ) : item.summaryText ? (
+                    <pre style={{
+                      overflow: "auto", maxHeight: 400, fontSize: 11.5, lineHeight: 1.5,
+                      padding: 12, borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--color-border-subtle)",
+                      background: "var(--color-bg-surface)",
+                      whiteSpace: "pre-wrap", wordBreak: "break-word",
+                      color: "var(--color-text-secondary)", fontFamily: "var(--font-mono, monospace)",
+                    }}>{item.summaryText}</pre>
+                  ) : doc && item.page ? (
+                    <TableCropThumbnail doc={doc} page={item.page} figureNo={item.figureNo} width={460} />
+                  ) : null}
+                  {item.page ? (
+                    <button onClick={() => jumpToPage(item.page)} style={lightButtonStyle}>
+                      <FileText size={13} />
+                      Open page
+                    </button>
+                  ) : null}
+                </>
+              ) : filterType === "equation" ? (
+                /* Equations: LaTeX rendered with KaTeX */
+                <>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Sigma size={15} style={{ color: "var(--color-accent)", flexShrink: 0 }} />
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>{item.page ? `${item.figureNo} - p.${item.page}` : item.figureNo}</div>
+                    </div>
+                  </div>
+                  <div style={{
+                    padding: 16, borderRadius: "var(--radius-sm)",
+                    border: "1px solid var(--color-border-subtle)",
+                    background: "#fff", overflow: "auto",
+                  }}>
+                    <LatexBlock latex={item.summaryText ?? item.caption ?? ""} />
                   </div>
                   {item.page ? (
                     <button onClick={() => jumpToPage(item.page)} style={lightButtonStyle}>
@@ -1268,13 +1512,13 @@ function FiguresTab({ paper, filterType = "figure" }: { paper: Paper; filterType
                   ) : null}
                 </>
               ) : (
-                /* Figures / Equations: show image or page thumbnail */
+                /* Figures: show image or page thumbnail */
                 <>
                   <div style={{ borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-subtle)", overflow: "hidden", background: "var(--color-bg-surface)", minHeight: 80, display: "flex", alignItems: "center", justifyContent: "center" }}>
                     {item.imagePath ? (
                       <FigureDetailImage imagePath={item.imagePath} />
                     ) : doc && item.page ? (
-                      <FigureDetailThumbnail doc={doc} page={item.page} width={220} />
+                      <FigureDetailThumbnail doc={doc} page={item.page} figureNo={item.figureNo} width={220} />
                     ) : (
                       <div style={{ padding: 20 }}>
                         <FallbackIcon size={24} style={{ color: "var(--color-accent)", opacity: 0.72 }} />
@@ -1289,10 +1533,16 @@ function FiguresTab({ paper, filterType = "figure" }: { paper: Paper; filterType
                     </div>
                   </div>
                   <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)", lineHeight: 1.7 }}>
-                    {item.caption ?? "Caption not extracted yet."}
+                    {containsLatex(item.caption) ? (
+                      <LatexText style={{ fontSize: 12.5 }}>{item.caption!}</LatexText>
+                    ) : (item.caption ?? "Caption not extracted yet.")}
                   </div>
                   {item.summaryText ? (
-                    <div style={{ fontSize: 11.5, color: "var(--color-text-muted)", lineHeight: 1.7 }}>{item.summaryText}</div>
+                    <div style={{ fontSize: 11.5, color: "var(--color-text-muted)", lineHeight: 1.7 }}>
+                      {containsLatex(item.summaryText) ? (
+                        <LatexText style={{ fontSize: 11.5 }}>{item.summaryText}</LatexText>
+                      ) : item.summaryText}
+                    </div>
                   ) : null}
                   {item.page ? (
                     <button onClick={() => jumpToPage(item.page)} style={lightButtonStyle}>
@@ -1303,25 +1553,120 @@ function FiguresTab({ paper, filterType = "figure" }: { paper: Paper; filterType
                 </>
               )}
             </div>
-          ))}
+          );
+          })}
         </div>
       </div>
     </div>
   );
 }
 
+function ReferencesTab({ paper }: { paper: Paper }) {
+  const locale = useUIStore((s) => s.locale);
+  const t = (en: string, ko: string) => localeText(locale, en, ko);
+  const { data: references = [], isLoading } = useReferencesByPaper(paper.id);
+
+  if (isLoading) {
+    return (
+      <div style={cardStyle}>
+        <div style={eyebrowStyle}>{t("References", "참고문헌")}</div>
+        <p style={{ fontSize: 13, color: "var(--color-text-muted)" }}>{t("Loading references...", "참고문헌 불러오는 중...")}</p>
+      </div>
+    );
+  }
+
+  if (references.length === 0) {
+    return (
+      <div style={cardStyle}>
+        <div style={eyebrowStyle}>{t("References", "참고문헌")}</div>
+        <p style={{ fontSize: 13, color: "var(--color-text-muted)", lineHeight: 1.6 }}>
+          {t("No references extracted yet.", "아직 참고문헌이 추출되지 않았습니다.")}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={cardStyle}>
+      <div style={eyebrowStyle}>{t("References", "참고문헌")} ({references.length})</div>
+      <div style={{ display: "grid", gap: 2 }}>
+        {references.map((ref) => {
+          const authorStr = ref.refAuthors.map((a) => a.name).join(", ");
+          return (
+            <div
+              key={ref.id}
+              style={{
+                padding: "10px 0",
+                borderBottom: "1px solid var(--color-border-subtle)",
+                display: "grid",
+                gridTemplateColumns: "32px minmax(0, 1fr)",
+                gap: 8,
+                alignItems: "start",
+              }}
+            >
+              <span style={{ fontSize: 12, color: "var(--color-text-muted)", fontWeight: 600, paddingTop: 2 }}>
+                [{ref.refOrder}]
+              </span>
+              <div>
+                <p style={{ fontSize: 13, color: "var(--color-text-primary)", lineHeight: 1.6, marginBottom: 2 }}>
+                  {ref.refTitle || ref.refRawText || t("Untitled reference", "제목 없는 참고문헌")}
+                </p>
+                {authorStr && (
+                  <p style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.5 }}>{authorStr}</p>
+                )}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+                  {ref.refJournal && (
+                    <span style={{ fontSize: 11, color: "var(--color-text-muted)", fontStyle: "italic" }}>{ref.refJournal}</span>
+                  )}
+                  {ref.refYear && (
+                    <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>{ref.refYear}</span>
+                  )}
+                  {ref.refVolume && (
+                    <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>Vol. {ref.refVolume}</span>
+                  )}
+                  {ref.refPages && (
+                    <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>pp. {ref.refPages}</span>
+                  )}
+                  {ref.refDoi && (
+                    <a
+                      href={`https://doi.org/${ref.refDoi}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ fontSize: 11, color: "var(--color-accent)", textDecoration: "none" }}
+                    >
+                      DOI
+                    </a>
+                  )}
+                  {ref.linkedPaperId && (
+                    <span style={{ fontSize: 11, color: "var(--color-success)", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                      <Link2 size={10} /> {t("In Library", "라이브러리에 있음")}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function MetadataTab({ paper, folderName }: { paper: Paper; folderName?: string }) {
+  const locale = useUIStore((s) => s.locale);
+  const t = (en: string, ko: string) => localeText(locale, en, ko);
   return (
     <div style={cardStyle}>
       {[
-        ["Title", paper.title],
-        ["Authors", formatAuthors(paper)],
-        ["Venue", paper.venue],
-        ["Year", String(paper.year)],
-        ["Category", folderName ?? "Uncategorized"],
-        ["Added", paper.addedAt],
-        ["Read status", paper.status],
-        ["Pipeline", formatProcessingLabel(paper.processingStatus)],
+        [t("Title", "제목"), paper.title],
+        [t("Authors", "저자"), formatAuthors(paper)],
+        [t("Venue", "학술지"), paper.venue],
+        [t("Year", "연도"), String(paper.year)],
+        [t("DOI", "DOI"), paper.doi || "—"],
+        [t("Category", "카테고리"), folderName ?? t("Uncategorized", "미분류")],
+        [t("Added", "추가일"), paper.addedAt],
+        [t("Read status", "읽기 상태"), paper.status],
+        [t("Pipeline", "파이프라인"), formatProcessingLabel(paper.processingStatus, locale)],
       ].map(([label, value]) => (
         <div
           key={label}
@@ -1334,7 +1679,16 @@ function MetadataTab({ paper, folderName }: { paper: Paper; folderName?: string 
           }}
         >
           <span style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{label}</span>
-          <span style={{ fontSize: 13, color: "var(--color-text-primary)", lineHeight: 1.6 }}>{value}</span>
+          {label === "DOI" && paper.doi ? (
+            <span
+              onClick={() => window.redouDesktop?.openExternal(`https://doi.org/${paper.doi}`)}
+              style={{ fontSize: 13, color: "var(--color-accent)", lineHeight: 1.6, cursor: "pointer" }}
+            >
+              {paper.doi}
+            </span>
+          ) : (
+            <span style={{ fontSize: 13, color: "var(--color-text-primary)", lineHeight: 1.6 }}>{value}</span>
+          )}
         </div>
       ))}
     </div>
@@ -1342,7 +1696,8 @@ function MetadataTab({ paper, folderName }: { paper: Paper; folderName?: string 
 }
 
 export function PaperDetailView() {
-  const { selectedPaperId, paperDetailTab, setPaperDetailTab, closePaperDetail } = useUIStore();
+  const { locale, selectedPaperId, paperDetailTab, setPaperDetailTab, closePaperDetail } = useUIStore();
+  const t = (en: string, ko: string) => localeText(locale, en, ko);
   const { data: paper } = usePaperById(selectedPaperId);
   const { data: folders = [] } = useFolders();
 
@@ -1354,7 +1709,7 @@ export function PaperDetailView() {
   if (!paper) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-text-muted)" }}>
-        Select a paper to open the detail workspace.
+        {t("Select a paper to open the detail workspace.", "논문을 선택하면 상세 화면이 열립니다.")}
       </div>
     );
   }
@@ -1383,18 +1738,30 @@ export function PaperDetailView() {
                 {formatAuthors(paper)}
               </p>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, color: "var(--color-text-muted)", fontSize: 12.5, flexWrap: "wrap" }}>
-                <span>{paper.venue || "Venue pending"}</span>
+                <span>{paper.venue || t("Venue pending", "학술지 대기중")}</span>
                 <span>|</span>
-                <span>{paper.year || "Year pending"}</span>
+                <span>{paper.year || t("Year pending", "연도 대기중")}</span>
                 <span>|</span>
-                <span>{paper.citationCount.toLocaleString()} citations</span>
+                <span>{t(`${paper.citationCount.toLocaleString()} citations`, `인용 ${paper.citationCount.toLocaleString()}회`)}</span>
+                {paper.doi && (
+                  <>
+                    <span>|</span>
+                    <span
+                      onClick={() => window.redouDesktop?.openExternal(`https://doi.org/${paper.doi}`)}
+                      style={{ color: "var(--color-accent)", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 3 }}
+                    >
+                      <ExternalLink size={11} />
+                      DOI
+                    </span>
+                  </>
+                )}
               </div>
             </div>
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
               <button onClick={closePaperDetail} style={lightButtonStyle}>
                 <ArrowLeft size={14} />
-                Back to Library
+                {t("Back to Library", "라이브러리로")}
               </button>
               <button
                 onClick={() => setPaperDetailTab("pdf")}
@@ -1412,7 +1779,7 @@ export function PaperDetailView() {
                 }}
               >
                 <FileText size={14} />
-                Open Reader
+                {t("Open Reader", "리더 열기")}
               </button>
             </div>
           </div>
@@ -1424,21 +1791,21 @@ export function PaperDetailView() {
             </div>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
               <Images size={13} />
-              {paper.figureCount} figures
+              {t(`${paper.figureCount} figures`, `Figure ${paper.figureCount}개`)}
             </div>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
               <StickyNote size={13} />
-              {paper.noteCount} notes
+              {t(`${paper.noteCount} notes`, `노트 ${paper.noteCount}개`)}
             </div>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
               <ExternalLink size={13} />
-              {formatProcessingLabel(paper.processingStatus)}
+              {formatProcessingLabel(paper.processingStatus, locale)}
             </div>
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {tabs.map((tab) => {
+          {tabDefs.map((tab) => {
             const active = tab.id === paperDetailTab;
             return (
               <button
@@ -1455,7 +1822,7 @@ export function PaperDetailView() {
                   cursor: "pointer",
                 }}
               >
-                {tab.label}
+                {localeText(locale, tab.en, tab.ko)}
               </button>
             );
           })}
@@ -1467,6 +1834,7 @@ export function PaperDetailView() {
         {paperDetailTab === "figures" ? <FiguresTab paper={paper} filterType="figure" /> : null}
         {paperDetailTab === "tables" ? <FiguresTab paper={paper} filterType="table" /> : null}
         {paperDetailTab === "equations" ? <FiguresTab paper={paper} filterType="equation" /> : null}
+        {paperDetailTab === "references" ? <ReferencesTab paper={paper} /> : null}
         {paperDetailTab === "metadata" ? <MetadataTab paper={paper} folderName={folderName} /> : null}
       </div>
     </div>

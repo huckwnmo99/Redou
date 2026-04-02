@@ -1,6 +1,7 @@
 ﻿import { ChevronRight, Clock, Folder, FolderOpen, Plus, Star, BookOpen } from "lucide-react";
 import type { Dispatch, DragEvent, FormEvent, SetStateAction } from "react";
 import { useMemo, useState } from "react";
+import { localeText } from "@/lib/locale";
 import { useCreateFolder, useFolders, useMovePaperToFolder } from "@/lib/queries";
 import { useUIStore } from "@/stores/uiStore";
 import type { Folder as FolderItem } from "@/types/paper";
@@ -64,7 +65,7 @@ function CreateFolderForm({
         autoFocus
         value={name}
         onChange={(event) => setName(event.target.value)}
-        placeholder={parentId ? "New subfolder name" : "New top-level folder name"}
+        placeholder={parentId ? "하위 폴더 이름" : "폴더 이름"}
         style={{
           height: 32,
           borderRadius: "var(--radius-sm)",
@@ -91,7 +92,7 @@ function CreateFolderForm({
             cursor: createFolder.isPending ? "progress" : "pointer",
           }}
         >
-          {createFolder.isPending ? "Creating..." : "Create"}
+          {createFolder.isPending ? "생성 중..." : "생성"}
         </button>
         <button
           type="button"
@@ -107,7 +108,7 @@ function CreateFolderForm({
             cursor: "pointer",
           }}
         >
-          Cancel
+          취소
         </button>
       </div>
     </form>
@@ -321,7 +322,8 @@ function FolderBranch({
 
 export function CategoryTree() {
   const { data: folders = [] } = useFolders();
-  const { activeFolderId, setActiveFolderId } = useUIStore();
+  const { locale, activeFolderId, setActiveFolderId } = useUIStore();
+  const t = (en: string, ko: string) => localeText(locale, en, ko);
   const movePaperToFolder = useMovePaperToFolder();
   const [foldersOpen, setFoldersOpen] = useState(true);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
@@ -331,9 +333,9 @@ export function CategoryTree() {
   const tree = useMemo(() => buildFolderTree(folders), [folders]);
 
   const topItems = [
-    { id: null, label: "All Papers", icon: BookOpen },
-    { id: "starred", label: "Starred", icon: Star },
-    { id: "recent", label: "Recent", icon: Clock },
+    { id: null, label: t("All Papers", "전체 논문"), icon: BookOpen },
+    { id: "starred", label: t("Starred", "중요 표시"), icon: Star },
+    { id: "recent", label: t("Recent", "최근 항목"), icon: Clock },
   ];
 
   function handleCreated(folderId: string, parentId: string | null) {
@@ -392,36 +394,44 @@ export function CategoryTree() {
       })}
 
       <div style={{ marginTop: 8 }}>
-        <button
-          onClick={() => setFoldersOpen((value) => !value)}
+        <div
           style={{
             display: "flex",
             alignItems: "center",
             gap: 8,
             width: "100%",
             padding: "6px 10px",
-            border: "none",
-            background: "transparent",
-            color: "var(--color-text-muted)",
-            cursor: "pointer",
-            fontSize: 11.5,
-            textTransform: "uppercase",
-            letterSpacing: 0.08,
           }}
         >
-          <ChevronRight
-            size={12}
+          <button
+            onClick={() => setFoldersOpen((value) => !value)}
             style={{
-              transform: foldersOpen ? "rotate(90deg)" : "rotate(0deg)",
-              transition: "transform var(--transition-fast)",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flex: 1,
+              padding: 0,
+              border: "none",
+              background: "transparent",
+              color: "var(--color-text-muted)",
+              cursor: "pointer",
+              fontSize: 11.5,
+              textTransform: "uppercase",
+              letterSpacing: 0.08,
             }}
-          />
-          Folders
-          <div style={{ flex: 1 }} />
+          >
+            <ChevronRight
+              size={12}
+              style={{
+                transform: foldersOpen ? "rotate(90deg)" : "rotate(0deg)",
+                transition: "transform var(--transition-fast)",
+              }}
+            />
+            {t("Folders", "폴더")}
+          </button>
           <button
             aria-label="Create top-level folder"
-            onClick={(event) => {
-              event.stopPropagation();
+            onClick={() => {
               setDraftParentId(draftParentId === null ? undefined : null);
             }}
             style={{
@@ -435,11 +445,12 @@ export function CategoryTree() {
               alignItems: "center",
               justifyContent: "center",
               cursor: "pointer",
+              flexShrink: 0,
             }}
           >
             <Plus size={11} />
           </button>
-        </button>
+        </div>
 
         {draftParentId === null ? (
           <CreateFolderForm parentId={null} depth={0} onCancel={() => setDraftParentId(undefined)} onCreated={(folderId) => handleCreated(folderId, null)} />

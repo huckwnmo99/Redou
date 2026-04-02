@@ -112,6 +112,13 @@ async function recoverFromAuthError(message: string | null | undefined) {
 }
 
 async function ensureAppUser(user: User) {
+  // Ensure the JWT is actually set before making DB calls (fixes 401 race condition)
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    console.warn("[ensureAppUser] No active session — skipping profile upsert");
+    return;
+  }
+
   const { error } = await supabase.from("app_users").upsert(
     {
       id: user.id,

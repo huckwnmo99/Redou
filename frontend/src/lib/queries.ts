@@ -6,6 +6,9 @@ import type {
   ImportedPaperResult,
   PaperChunk,
   PaperFigure,
+  PaperReference,
+  PaperSearchResult,
+  FigureSearchResult,
   PaperSection,
   PaperTextSelectionAnchor,
   ResearchNote,
@@ -49,8 +52,14 @@ export const figureKeys = {
   byPaper: (paperId: string) => ["paper-figures", "paper", paperId] as const,
 };
 
+export const referenceKeys = {
+  byPaper: (paperId: string) => ["paper-references", "paper", paperId] as const,
+};
+
 export const embeddingKeys = {
   search: (q: string, paperIds?: string[]) => ["embedding-search", q, paperIds ?? null] as const,
+  paperSearch: (q: string, paperIds?: string[]) => ["embedding-paper-search", q, paperIds ?? null] as const,
+  figureSearch: (q: string, itemTypes?: string[], paperIds?: string[]) => ["embedding-figure-search", q, itemTypes ?? null, paperIds ?? null] as const,
 };
 
 export function useAllPapers() {
@@ -119,6 +128,63 @@ export function useAllChunks() {
   });
 }
 
+/**
+ * 쿼리 키워드 → 부스트할 섹션명 매핑.
+ * 값은 section_name과 LIKE '%keyword%' 매칭하므로 어근(stem) 형태로 작성.
+ * 예: "experiment" → "Experiments", "Experimental" 모두 매칭
+ */
+const SECTION_BOOST_MAP: Record<string, string[]> = {
+  // 실험/방법 관련
+  method: ["method", "experiment", "material", "procedur", "preparat", "synth"],
+  experiment: ["method", "experiment", "material", "procedur"],
+  condition: ["method", "experiment", "condition"],
+  procedure: ["method", "experiment", "procedur"],
+  synthesis: ["method", "experiment", "synth", "preparat"],
+  preparation: ["method", "experiment", "preparat"],
+  material: ["method", "material", "experiment"],
+  reagent: ["method", "material", "experiment"],
+  sample: ["method", "experiment", "material"],
+  characterization: ["method", "experiment", "character"],
+  // 결과 관련
+  result: ["result", "discussion", "finding"],
+  performance: ["result", "discussion", "performance"],
+  efficiency: ["result", "discussion", "performance"],
+  selectivity: ["result", "discussion"],
+  capacity: ["result", "discussion"],
+  // 이론/모델 관련
+  model: ["model", "theor", "kinetic", "isotherm", "thermodynamic"],
+  kinetic: ["kinetic", "model", "theor"],
+  isotherm: ["isotherm", "model", "equilibri"],
+  thermodynamic: ["thermodynamic", "model", "theor"],
+  mechanism: ["mechanism", "theor", "discussion"],
+  equation: ["model", "theor", "kinetic", "thermodynamic"],
+  // 결론
+  conclusion: ["conclus", "summar"],
+  // 소개
+  introduction: ["introduct", "background"],
+  background: ["introduct", "background", "literatur"],
+  // 한국어 키워드
+  "실험": ["method", "experiment"],
+  "방법": ["method", "experiment", "procedur"],
+  "조건": ["method", "experiment", "condition"],
+  "결과": ["result", "discussion"],
+  "결론": ["conclus", "summar"],
+  "모델": ["model", "theor", "kinetic"],
+  "흡착": ["result", "discussion", "isotherm", "kinetic"],
+  "메커니즘": ["mechanism", "theor"],
+};
+
+function detectBoostSections(query: string): string[] | undefined {
+  const lower = query.toLowerCase();
+  const matched = new Set<string>();
+  for (const [keyword, sections] of Object.entries(SECTION_BOOST_MAP)) {
+    if (lower.includes(keyword)) {
+      sections.forEach((s) => matched.add(s));
+    }
+  }
+  return matched.size > 0 ? [...matched] : undefined;
+}
+
 export function useSemanticChunkSearch(query: string, paperIds?: string[]) {
   return useQuery({
     queryKey: embeddingKeys.search(query, paperIds),
@@ -129,10 +195,14 @@ export function useSemanticChunkSearch(query: string, paperIds?: string[]) {
       const result = await api.embedding.generateQuery({ text: query });
       if (!result.success || !result.data) return null;
 
+      const boostSectionNames = detectBoostSections(query);
+
       return paperRepository.semanticSearch(result.data, {
         threshold: 0.35,
         limit: 20,
         paperIds,
+        boostSectionNames,
+        sectionBoost: boostSectionNames ? 0.08 : undefined,
       });
     },
     enabled: query.trim().length > 2,
@@ -414,8 +484,9 @@ export function useUpsertHighlightEmbedding() {
       noteText?: string;
       embedding: number[];
     }) => paperRepository.upsertHighlightEmbedding(input),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["highlight-embedding-search"] });
+      queryClient.invalidateQueries({ queryKey: highlightKeys.byPaper(variables.paperId) });
     },
   });
 }
@@ -439,6 +510,57 @@ export function useSearchHighlightEmbeddings(
         paperIds,
         threshold: 0.35,
         limit: 20,
+      });
+    },
+    enabled: query.trim().length > 2,
+    staleTime: 30_000,
+  });
+}
+
+export function useReferencesByPaper(paperId: string | null) {
+  return useQuery<PaperReference[]>({
+    queryKey: referenceKeys.byPaper(paperId ?? "none"),
+    queryFn: () => (paperId ? paperRepository.getReferencesByPaper(paperId) : Promise.resolve([])),
+    enabled: Boolean(paperId),
+  });
+}
+
+export function useSemanticPaperSearch(query: string, paperIds?: string[]) {
+  return useQuery<PaperSearchResult[] | null>({
+    queryKey: embeddingKeys.paperSearch(query, paperIds),
+    queryFn: async () => {
+      const api = window.redouDesktop;
+      if (!api?.embedding?.generateQuery) return null;
+
+      const result = await api.embedding.generateQuery({ text: query });
+      if (!result.success || !result.data) return null;
+
+      return paperRepository.semanticPaperSearch(result.data, {
+        threshold: 0.35,
+        limit: 20,
+        paperIds,
+      });
+    },
+    enabled: query.trim().length > 2,
+    staleTime: 30_000,
+  });
+}
+
+export function useSemanticFigureSearch(query: string, itemTypes?: string[], paperIds?: string[]) {
+  return useQuery<FigureSearchResult[] | null>({
+    queryKey: embeddingKeys.figureSearch(query, itemTypes, paperIds),
+    queryFn: async () => {
+      const api = window.redouDesktop;
+      if (!api?.embedding?.generateQuery) return null;
+
+      const result = await api.embedding.generateQuery({ text: query });
+      if (!result.success || !result.data) return null;
+
+      return paperRepository.semanticFigureSearch(result.data, {
+        threshold: 0.3,
+        limit: 20,
+        itemTypes,
+        paperIds,
       });
     },
     enabled: query.trim().length > 2,

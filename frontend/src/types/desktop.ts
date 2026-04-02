@@ -81,6 +81,53 @@ export interface DesktopJobFailedEvent {
   error: string;
 }
 
+export interface ChatSendMessageParams {
+  conversationId?: string;
+  message: string;
+  scopeFolderId?: string | null;
+  scopeAll?: boolean;
+}
+
+export interface ChatAbortParams {
+  conversationId: string;
+}
+
+export interface ChatExportCsvParams {
+  tableId: string;
+}
+
+export interface ChatTokenEvent {
+  conversationId: string;
+  token: string;
+}
+
+export interface ChatCompleteEvent {
+  conversationId: string;
+  messageId: string;
+  hasTable: boolean;
+  tableId?: string;
+}
+
+export interface ChatVerificationDoneEvent {
+  conversationId: string;
+  tableId: string;
+  verification: unknown[];
+}
+
+export interface ChatErrorEvent {
+  conversationId: string;
+  error: string;
+}
+
+export type ChatPipelineStage = "orchestrating" | "searching" | "parsing" | "assembling" | "verifying";
+
+export interface ChatStatusEvent {
+  conversationId: string;
+  stage: ChatPipelineStage;
+  message: string;
+  detail?: string;
+}
+
 export interface RedouDesktopApi {
   platform: string;
   db: {
@@ -119,10 +166,25 @@ export interface RedouDesktopApi {
   auth: {
     googleSignIn: () => Promise<DbResult<{ accessToken: string; refreshToken: string }>>;
   };
+  pipeline: {
+    requeueAll: () => Promise<DbResult<{ queued: number }>>;
+  };
+  chat: {
+    sendMessage: (args: ChatSendMessageParams) => Promise<DbResult<{ conversationId: string }>>;
+    abort: (args: ChatAbortParams) => Promise<DbResult>;
+    exportCsv: (args: ChatExportCsvParams) => Promise<DbResult<{ filePath: string }>>;
+  };
+  openExternal: (url: string) => Promise<void>;
+  getFilePathForDrop: (file: File) => string;
   onJobProgress: (callback: (data: DesktopJobProgressEvent) => void) => () => void;
   onJobCompleted: (callback: (data: DesktopJobCompletedEvent) => void) => () => void;
   onJobFailed: (callback: (data: DesktopJobFailedEvent) => void) => () => void;
   onBackupAutoCompleted: (callback: (data: { backupPath: string }) => void) => () => void;
+  onChatToken: (callback: (data: ChatTokenEvent) => void) => () => void;
+  onChatComplete: (callback: (data: ChatCompleteEvent) => void) => () => void;
+  onChatVerificationDone: (callback: (data: ChatVerificationDoneEvent) => void) => () => void;
+  onChatError: (callback: (data: ChatErrorEvent) => void) => () => void;
+  onChatStatus: (callback: (data: ChatStatusEvent) => void) => () => void;
 }
 
 declare global {

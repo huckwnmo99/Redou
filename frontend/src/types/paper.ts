@@ -2,9 +2,9 @@
 export type ProcessingJobStatus = "queued" | "running" | "succeeded" | "failed";
 export type SortKey = "addedAt" | "year" | "title" | "citations";
 export type ViewMode = "grid" | "list";
-export type NavItem = "library" | "search" | "figures" | "tables" | "equations" | "settings";
-export type PaperDetailTab = "overview" | "pdf" | "notes" | "figures" | "tables" | "equations" | "metadata";
-export type SearchResultKind = "all" | "papers" | "chunks" | "notes" | "figures" | "highlights";
+export type NavItem = "library" | "search" | "figures" | "tables" | "equations" | "notes" | "processing" | "settings" | "chat";
+export type PaperDetailTab = "overview" | "pdf" | "notes" | "figures" | "tables" | "equations" | "metadata" | "references";
+export type SearchResultKind = "all" | "title" | "content" | "notes" | "highlights" | "figures" | "equations";
 
 export interface HighlightSearchResult {
   id: string;
@@ -38,6 +38,7 @@ export interface Paper {
   folderId?: string;
   addedAt: string;
   thumbnailUrl?: string;
+  doi?: string;
   processingStatus?: ProcessingJobStatus;
   processingUpdatedAt?: string;
 }
@@ -78,6 +79,7 @@ export interface SemanticSearchResult {
   chunkId: string;
   paperId: string;
   sectionId?: string;
+  sectionName?: string;
   chunkOrder: number;
   page?: number;
   text: string;
@@ -86,6 +88,43 @@ export interface SemanticSearchResult {
 }
 
 export type FigureItemType = "figure" | "table" | "equation";
+
+export interface PaperReference {
+  id: string;
+  paperId: string;
+  refOrder: number;
+  refTitle?: string;
+  refAuthors: Author[];
+  refYear?: number;
+  refJournal?: string;
+  refDoi?: string;
+  refVolume?: string;
+  refPages?: string;
+  refRawText?: string;
+  linkedPaperId?: string;
+}
+
+export interface PaperSearchResult {
+  paperId: string;
+  title: string;
+  authors: Author[];
+  publicationYear?: number;
+  abstract?: string;
+  journalName?: string;
+  doi?: string;
+  similarity: number;
+}
+
+export interface FigureSearchResult {
+  figureId: string;
+  paperId: string;
+  figureNo: string;
+  caption?: string;
+  itemType: FigureItemType;
+  summaryText?: string;
+  page?: number;
+  similarity: number;
+}
 
 export interface PaperFigure {
   id: string;

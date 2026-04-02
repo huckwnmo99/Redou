@@ -24,6 +24,7 @@ interface UIState {
   searchPresetFilter: string[] | null;
   sortKey: SortKey;
   viewMode: ViewMode;
+  pendingDropPaths: string[] | null;
 
   setLocale: (locale: AppLocale) => void;
   setActiveNav: (nav: NavItem) => void;
@@ -42,6 +43,7 @@ interface UIState {
   setSearchPresetFilter: (presetIds: string[] | null) => void;
   setSortKey: (key: SortKey) => void;
   setViewMode: (mode: ViewMode) => void;
+  setPendingDropPaths: (paths: string[] | null) => void;
 }
 
 const initialLocale = resolveInitialLocale();
@@ -61,6 +63,7 @@ export const useUIStore = create<UIState>((set) => ({
   searchPresetFilter: null,
   sortKey: "addedAt",
   viewMode: "grid",
+  pendingDropPaths: null,
 
   setLocale: (locale) => {
     persistLocale(locale);
@@ -116,11 +119,10 @@ export const useUIStore = create<UIState>((set) => ({
 
   openNotesWorkspace: (paperId = null, noteId = null) =>
     set((state) => ({
-      activeNav: "library",
+      activeNav: "notes",
       selectedPaperId: paperId ?? state.selectedPaperId,
       selectedNoteId: noteId ?? state.selectedNoteId,
-      paperDetailOpen: true,
-      paperDetailTab: "notes",
+      paperDetailOpen: false,
       inspectorOpen: false,
     })),
 
@@ -133,4 +135,5 @@ export const useUIStore = create<UIState>((set) => ({
   setSearchPresetFilter: (presetIds) => set({ searchPresetFilter: presetIds }),
   setSortKey: (key) => set({ sortKey: key }),
   setViewMode: (mode) => set({ viewMode: mode }),
+  setPendingDropPaths: (paths) => set({ pendingDropPaths: paths }),
 }));

@@ -1,14 +1,16 @@
-import { CheckCircle2, FileUp, FolderOpen, LoaderCircle, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, FileUp, FolderOpen, LoaderCircle, X, AlertCircle } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { inspectDesktopPdfMetadata, useDesktopPdfSelection, useDesktopRuntime } from "@/lib/desktop";
 import { useImportDesktopPapers } from "@/lib/queries";
 import type { ImportedPaperDraft, ImportedPaperResult } from "@/types/paper";
+import type { DesktopJobProgressEvent, DesktopJobCompletedEvent, DesktopJobFailedEvent } from "@/types/desktop";
 
 interface ImportPdfDialogProps {
   open: boolean;
   defaultFolderId: string | null;
   defaultFolderName?: string;
+  initialPaths?: string[] | null;
   onClose: () => void;
   onOpenImportedPaper: (paperId: string) => void;
 }
@@ -55,6 +57,7 @@ export function ImportPdfDialog({
   open,
   defaultFolderId,
   defaultFolderName,
+  initialPaths,
   onClose,
   onOpenImportedPaper,
 }: ImportPdfDialogProps) {
@@ -65,16 +68,112 @@ export function ImportPdfDialog({
   const [results, setResults] = useState<ImportedPaperResult[]>([]);
   const [feedback, setFeedback] = useState<string | null>(null);
 
+  // Per-job processing status tracking
+  const [jobStatuses, setJobStatuses] = useState<Record<string, {
+    status: "queued" | "running" | "completed" | "failed";
+    progress: number;
+    message: string;
+  }>>({});
+
   const desktopReady = desktop?.available ?? false;
   const canImport = drafts.length > 0 && drafts.every((draft) => draft.title.trim().length > 0) && !importPapers.isPending;
+
+  const processedPathsRef = useRef<string[] | null>(null);
 
   useEffect(() => {
     if (!open) {
       setDrafts([]);
       setResults([]);
       setFeedback(null);
+      setJobStatuses({});
+      processedPathsRef.current = null;
     }
   }, [open]);
+
+  // Subscribe to job events to track processing status of imported papers
+  const trackedJobIds = useRef(new Set<string>());
+  useEffect(() => {
+    if (results.length === 0) {
+      trackedJobIds.current.clear();
+      return;
+    }
+    const ids = new Set(results.map((r) => r.processingJobId));
+    trackedJobIds.current = ids;
+
+    // Initialize all as queued
+    setJobStatuses((prev) => {
+      const next = { ...prev };
+      for (const id of ids) {
+        if (!next[id]) {
+          next[id] = { status: "queued", progress: 0, message: "Waiting in queue..." };
+        }
+      }
+      return next;
+    });
+
+    const api = window.redouDesktop;
+    if (!api) return;
+
+    const onProgress = (e: DesktopJobProgressEvent) => {
+      if (!trackedJobIds.current.has(e.jobId)) return;
+      setJobStatuses((prev) => ({
+        ...prev,
+        [e.jobId]: {
+          status: "running",
+          progress: e.progress,
+          message: e.message || e.status || "Processing...",
+        },
+      }));
+    };
+    const onCompleted = (e: DesktopJobCompletedEvent) => {
+      if (!trackedJobIds.current.has(e.jobId)) return;
+      setJobStatuses((prev) => ({
+        ...prev,
+        [e.jobId]: { status: "completed", progress: 100, message: "Complete" },
+      }));
+    };
+    const onFailed = (e: DesktopJobFailedEvent) => {
+      if (!trackedJobIds.current.has(e.jobId)) return;
+      setJobStatuses((prev) => ({
+        ...prev,
+        [e.jobId]: { status: "failed", progress: 0, message: e.error || "Failed" },
+      }));
+    };
+
+    const unsub1 = api.onJobProgress(onProgress);
+    const unsub2 = api.onJobCompleted(onCompleted);
+    const unsub3 = api.onJobFailed(onFailed);
+    return () => { unsub1(); unsub2(); unsub3(); };
+  }, [results]);
+
+  // Auto-process dropped file paths
+  useEffect(() => {
+    if (!open || !initialPaths || initialPaths.length === 0) return;
+    if (processedPathsRef.current === initialPaths) return;
+    processedPathsRef.current = initialPaths;
+
+    (async () => {
+      const nextDrafts = await Promise.all(
+        initialPaths.map(async (filePath) => {
+          const fallbackDraft = inferDraftFromPath(filePath, defaultFolderId);
+          try {
+            const inspected = await inspectDesktopPdfMetadata(filePath);
+            return {
+              ...fallbackDraft,
+              title: inspected.title?.trim() || fallbackDraft.title,
+              year: inspected.year ?? fallbackDraft.year,
+              firstAuthor: inspected.firstAuthor?.trim() || fallbackDraft.firstAuthor,
+              venue: inspected.venue?.trim() || fallbackDraft.venue,
+            };
+          } catch {
+            return fallbackDraft;
+          }
+        }),
+      );
+      setFeedback(`${initialPaths.length} PDF files dropped. Metadata was inferred — you can edit it below before import.`);
+      setDrafts(nextDrafts);
+    })();
+  }, [open, initialPaths, defaultFolderId]);
 
   const fileCountLabel = useMemo(() => {
     if (drafts.length === 0) {
@@ -199,48 +298,107 @@ export function ImportPdfDialog({
 
         <div style={contentGridStyle}>
           <div style={draftColumnStyle}>
-            <div style={sectionHeaderStyle}>Import Metadata</div>
-            {drafts.length === 0 ? (
-              <div style={emptyStateStyle}>
-                <FileUp size={28} style={{ opacity: 0.4 }} />
-                <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
-                  Choose one or more PDFs to start the first Phase 3 import slice.
+            {results.length > 0 ? (
+              <>
+                <div style={sectionHeaderStyle}>Processing Status</div>
+                <div style={{ display: "grid", gap: 10, maxHeight: 420, overflow: "auto", paddingRight: 4 }}>
+                  {results.map((result) => {
+                    const job = jobStatuses[result.processingJobId];
+                    const status = job?.status ?? "queued";
+                    const progress = job?.progress ?? 0;
+                    const message = job?.message ?? "Waiting in queue...";
+
+                    const tones: Record<string, { bg: string; accent: string; border: string }> = {
+                      queued: { bg: "rgba(148, 163, 184, 0.08)", accent: "#64748b", border: "rgba(148, 163, 184, 0.2)" },
+                      running: { bg: "rgba(37, 99, 235, 0.06)", accent: "#2563eb", border: "rgba(37, 99, 235, 0.18)" },
+                      completed: { bg: "rgba(15, 118, 110, 0.06)", accent: "#0f766e", border: "rgba(15, 118, 110, 0.18)" },
+                      failed: { bg: "rgba(220, 38, 38, 0.06)", accent: "#dc2626", border: "rgba(220, 38, 38, 0.18)" },
+                    };
+                    const tone = tones[status] ?? tones.queued;
+
+                    return (
+                      <div key={result.processingJobId} style={{ ...jobCardStyle, background: tone.bg, borderColor: tone.border }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                          {status === "running" ? (
+                            <LoaderCircle size={14} style={{ color: tone.accent, animation: "spin 1s linear infinite" }} />
+                          ) : status === "completed" ? (
+                            <CheckCircle2 size={14} style={{ color: tone.accent }} />
+                          ) : status === "failed" ? (
+                            <AlertCircle size={14} style={{ color: tone.accent }} />
+                          ) : (
+                            <div style={{ width: 14, height: 14, borderRadius: 999, border: `2px solid ${tone.accent}`, opacity: 0.5 }} />
+                          )}
+                          <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700, letterSpacing: "-0.01em", minWidth: 0 }}>
+                            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {result.paper.title}
+                            </div>
+                          </div>
+                          <div style={{ ...jobChipStyle, background: `${tone.accent}14`, color: tone.accent }}>
+                            {status === "running" ? `${Math.round(progress)}%` : status}
+                          </div>
+                        </div>
+                        {status === "running" ? (
+                          <div style={{ height: 3, borderRadius: 2, background: `${tone.accent}22`, overflow: "hidden", marginBottom: 6 }}>
+                            <div style={{ height: "100%", width: `${Math.min(100, progress)}%`, background: tone.accent, borderRadius: 2, transition: "width 0.4s ease" }} />
+                          </div>
+                        ) : null}
+                        <div style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.6 }}>
+                          {message}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
+                <button type="button" onClick={() => onOpenImportedPaper(results[0].paper.id)} style={openPaperButtonStyle}>
+                  Open first imported paper
+                </button>
+              </>
             ) : (
-              <div style={{ display: "grid", gap: 12, maxHeight: 420, overflow: "auto", paddingRight: 4 }}>
-                {drafts.map((draft, index) => (
-                  <div key={`${draft.sourcePath}-${index}`} style={draftCardStyle}>
-                    <div style={{ display: "grid", gap: 4, marginBottom: 12 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: "-0.02em" }}>{getFilename(draft.sourcePath)}</div>
-                      <div style={{ fontSize: 12, color: "var(--color-text-muted)", wordBreak: "break-all" }}>{draft.sourcePath}</div>
-                    </div>
-                    <div style={fieldGridStyle}>
-                      <Field label="Title">
-                        <input value={draft.title} onChange={(event) => updateDraft(index, { title: event.target.value })} style={inputStyle} />
-                      </Field>
-                      <Field label="Year">
-                        <input
-                          value={draft.year ?? ""}
-                          onChange={(event) => updateDraft(index, { year: event.target.value ? Number(event.target.value) : undefined })}
-                          inputMode="numeric"
-                          style={inputStyle}
-                        />
-                      </Field>
-                      <Field label="First Author">
-                        <input
-                          value={draft.firstAuthor ?? ""}
-                          onChange={(event) => updateDraft(index, { firstAuthor: event.target.value })}
-                          style={inputStyle}
-                        />
-                      </Field>
-                      <Field label="Venue">
-                        <input value={draft.venue ?? ""} onChange={(event) => updateDraft(index, { venue: event.target.value })} style={inputStyle} />
-                      </Field>
+              <>
+                <div style={sectionHeaderStyle}>Import Metadata</div>
+                {drafts.length === 0 ? (
+                  <div style={emptyStateStyle}>
+                    <FileUp size={28} style={{ opacity: 0.4 }} />
+                    <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
+                      Choose one or more PDFs to start importing.
                     </div>
                   </div>
-                ))}
-              </div>
+                ) : (
+                  <div style={{ display: "grid", gap: 12, maxHeight: 420, overflow: "auto", paddingRight: 4 }}>
+                    {drafts.map((draft, index) => (
+                      <div key={`${draft.sourcePath}-${index}`} style={draftCardStyle}>
+                        <div style={{ display: "grid", gap: 4, marginBottom: 12 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: "-0.02em" }}>{getFilename(draft.sourcePath)}</div>
+                          <div style={{ fontSize: 12, color: "var(--color-text-muted)", wordBreak: "break-all" }}>{draft.sourcePath}</div>
+                        </div>
+                        <div style={fieldGridStyle}>
+                          <Field label="Title">
+                            <input value={draft.title} onChange={(event) => updateDraft(index, { title: event.target.value })} style={inputStyle} />
+                          </Field>
+                          <Field label="Year">
+                            <input
+                              value={draft.year ?? ""}
+                              onChange={(event) => updateDraft(index, { year: event.target.value ? Number(event.target.value) : undefined })}
+                              inputMode="numeric"
+                              style={inputStyle}
+                            />
+                          </Field>
+                          <Field label="First Author">
+                            <input
+                              value={draft.firstAuthor ?? ""}
+                              onChange={(event) => updateDraft(index, { firstAuthor: event.target.value })}
+                              style={inputStyle}
+                            />
+                          </Field>
+                          <Field label="Venue">
+                            <input value={draft.venue ?? ""} onChange={(event) => updateDraft(index, { venue: event.target.value })} style={inputStyle} />
+                          </Field>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -259,7 +417,7 @@ export function ImportPdfDialog({
                   <div key={result.processingJobId} style={resultCardStyle}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
                       <div style={{ fontSize: 14, fontWeight: 700 }}>{result.paper.title}</div>
-                      <div style={queuedChipStyle}>Queued</div>
+                      <div style={queuedChipStyle}>{(jobStatuses[result.processingJobId]?.status ?? "queued").toUpperCase()}</div>
                     </div>
                     <div style={{ fontSize: 12.5, lineHeight: 1.7, color: "var(--color-text-secondary)", wordBreak: "break-word" }}>
                       Paper ID: {result.paper.id}
@@ -270,9 +428,6 @@ export function ImportPdfDialog({
                     </div>
                   </div>
                 ))}
-                <button type="button" onClick={() => onOpenImportedPaper(results[0].paper.id)} style={openPaperButtonStyle}>
-                  Open first imported paper
-                </button>
               </div>
             )}
           </div>
@@ -515,5 +670,25 @@ const openPaperButtonStyle: CSSProperties = {
   cursor: "pointer",
   fontSize: 13,
   fontWeight: 700,
+};
+
+const jobCardStyle: CSSProperties = {
+  padding: 14,
+  borderRadius: 16,
+  border: "1px solid",
+  transition: "background 0.3s ease, border-color 0.3s ease",
+};
+
+const jobChipStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "3px 8px",
+  borderRadius: 999,
+  fontSize: 10.5,
+  fontWeight: 700,
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+  flexShrink: 0,
 };
 
