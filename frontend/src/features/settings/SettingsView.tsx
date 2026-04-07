@@ -1,4 +1,4 @@
-﻿import { CheckCircle2, FolderOpen, Globe2, HardDriveDownload, LaptopMinimal, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
+﻿import { CheckCircle2, FolderOpen, Globe2, HardDriveDownload, LaptopMinimal, LogOut, RefreshCw, ShieldCheck, BrainCircuit } from "lucide-react";
 import { useState } from "react";
 import { useAuthSession, useSignOut } from "@/lib/auth";
 import {
@@ -12,6 +12,7 @@ import {
   useRevealInExplorer,
 } from "@/lib/desktop";
 import { useUIStore } from "@/stores/uiStore";
+import { useLlmModels, useActiveLlmModel, useSetLlmModel } from "@/lib/chatQueries";
 
 function getErrorMessage(caught: unknown, fallback: string): string {
   return caught instanceof Error ? caught.message : fallback;
@@ -29,6 +30,9 @@ export function SettingsView() {
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [latestBackupPath, setLatestBackupPath] = useState<string | null>(null);
   const [requeuePending, setRequeuePending] = useState(false);
+  const { data: llmModels = [], isLoading: modelsLoading, isError: modelsError, refetch: refetchModels } = useLlmModels();
+  const { data: activeModel } = useActiveLlmModel();
+  const setLlmModel = useSetLlmModel();
   const t = (english: string, korean: string) => localeText(locale, english, korean);
 
   const desktopReady = desktop?.available ?? false;
@@ -205,6 +209,96 @@ export function SettingsView() {
               ))}
             </select>
           </label>
+        </div>
+
+        {/* LLM Model Selection Card */}
+        <div style={panelCardStyle}>
+          <div style={panelHeaderStyle}>
+            <BrainCircuit size={14} />
+            {t("LLM Model", "LLM 모델")}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: 12 }}>
+            {t(
+              "Select the Ollama model used for chat, table generation, and Q&A. Guardian and OCR models are excluded from this list.",
+              "채팅, 테이블 생성, Q&A에 사용할 Ollama 모델을 선택하세요. Guardian 및 OCR 모델은 목록에서 제외됩니다.",
+            )}
+          </div>
+          {modelsError ? (
+            <div style={{ fontSize: 12.5, color: "var(--color-error, #ef4444)", marginBottom: 8 }}>
+              {t("Failed to connect to Ollama. Make sure it is running.", "Ollama 연결에 실패했습니다. 실행 중인지 확인하세요.")}
+            </div>
+          ) : null}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <select
+              value={activeModel?.model ?? ""}
+              onChange={(event) => {
+                const val = event.target.value;
+                if (val) {
+                  setLlmModel.mutate(val);
+                  setFeedback(t(`LLM model changed to ${val}`, `LLM 모델을 ${val}(으)로 변경했습니다.`));
+                }
+              }}
+              disabled={modelsLoading || llmModels.length === 0}
+              style={{
+                flex: 1,
+                height: 38,
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--color-border-subtle)",
+                background: "var(--color-bg-surface)",
+                padding: "0 12px",
+                fontSize: 13,
+                color: "var(--color-text-primary)",
+                outline: "none",
+              }}
+            >
+              {modelsLoading ? (
+                <option value="">{t("Loading models...", "모델 로딩 중...")}</option>
+              ) : llmModels.length === 0 ? (
+                <option value="">{t("No models available", "사용 가능한 모델 없음")}</option>
+              ) : (
+                llmModels.map((m) => (
+                  <option key={m.name} value={m.name}>
+                    {m.name}{" "}
+                    ({(m.size / 1e9).toFixed(1)} GB)
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              onClick={() => refetchModels()}
+              disabled={modelsLoading}
+              title={t("Refresh model list", "모델 목록 새로고침")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 38,
+                height: 38,
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--color-border-subtle)",
+                background: "var(--color-bg-elevated)",
+                color: "var(--color-text-secondary)",
+                cursor: modelsLoading ? "progress" : "pointer",
+                flexShrink: 0,
+              }}
+            >
+              <RefreshCw size={14} />
+            </button>
+          </div>
+          {activeModel ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--color-text-muted)" }}>
+              <span style={{ fontWeight: 600 }}>
+                {t("Source:", "소스:")}
+              </span>
+              <span>
+                {activeModel.source === "user"
+                  ? t("User selection", "사용자 선택")
+                  : activeModel.source === "env"
+                    ? t("Environment variable", "환경변수")
+                    : t("Default", "기본값")}
+              </span>
+            </div>
+          ) : null}
         </div>
       </div>
 

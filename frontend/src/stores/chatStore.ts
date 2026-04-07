@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { ChatPipelineStage } from "@/types/desktop";
+import type { ConversationType } from "@/types/chat";
 
 interface ChatState {
   activeConversationId: string | null;
@@ -8,6 +9,7 @@ interface ChatState {
   isStreaming: boolean;
   scopeFolderId: string | null;
   scopeAll: boolean;
+  conversationType: ConversationType;
 
   // Pipeline stage tracking
   pipelineStage: ChatPipelineStage | null;
@@ -23,6 +25,7 @@ interface ChatState {
   clearPipeline: () => void;
   setScopeFolderId: (id: string | null) => void;
   setScopeAll: (all: boolean) => void;
+  setConversationType: (type: ConversationType) => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -32,6 +35,7 @@ export const useChatStore = create<ChatState>((set) => ({
   isStreaming: false,
   scopeFolderId: null,
   scopeAll: true,
+  conversationType: "table",
   pipelineStage: null,
   pipelineMessage: "",
   pipelineDetail: "",
@@ -84,4 +88,5 @@ export const useChatStore = create<ChatState>((set) => ({
 
   setScopeFolderId: (id) => set({ scopeFolderId: id, scopeAll: id === null }),
   setScopeAll: (all) => set({ scopeAll: all, scopeFolderId: all ? null : null }),
+  setConversationType: (type) => set({ conversationType: type }),
 }));

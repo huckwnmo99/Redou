@@ -14,6 +14,8 @@ import type {
   ChatErrorEvent,
   ChatStatusEvent,
   RedouDesktopApi,
+  OllamaModel,
+  LlmModelInfo,
 } from "@/types/desktop";
 
 // ============================================================
@@ -24,6 +26,11 @@ export const chatKeys = {
   conversations: ["chat-conversations"] as const,
   messages: (convId: string) => ["chat-messages", convId] as const,
   table: (tableId: string) => ["chat-table", tableId] as const,
+};
+
+export const llmKeys = {
+  models: ["llm-models"] as const,
+  activeModel: ["llm-active-model"] as const,
 };
 
 // ============================================================
@@ -123,7 +130,9 @@ export function useSendChatMessage() {
       const tempConvId = params.conversationId ?? "pending";
       startStreaming(tempConvId);
 
-      const result = await api.chat.sendMessage(params) as unknown as {
+      // Include mode from chatStore if not explicitly provided
+      const mode = params.mode ?? useChatStore.getState().conversationType;
+      const result = await api.chat.sendMessage({ ...params, mode }) as unknown as {
         conversationId: string;
         messageId?: string;
         hasTable?: boolean;
@@ -271,4 +280,52 @@ export function useChatStreamBridge() {
       unsubStatus();
     };
   }, [queryClient]);
+}
+
+// ============================================================
+// LLM Model Selection Hooks
+// ============================================================
+
+export function useLlmModels() {
+  return useQuery({
+    queryKey: llmKeys.models,
+    queryFn: async (): Promise<OllamaModel[]> => {
+      const api = getDesktopApi();
+      if (!api) return [];
+      const result = await api.llm.listModels();
+      if (!result.success) throw new Error(result.error ?? "Failed to list models");
+      return result.data ?? [];
+    },
+    staleTime: 30_000, // Refresh every 30s
+  });
+}
+
+export function useActiveLlmModel() {
+  return useQuery({
+    queryKey: llmKeys.activeModel,
+    queryFn: async (): Promise<LlmModelInfo | null> => {
+      const api = getDesktopApi();
+      if (!api) return null;
+      const result = await api.llm.getModel();
+      if (!result.success) throw new Error(result.error ?? "Failed to get model");
+      return result.data ?? null;
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function useSetLlmModel() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (model: string) => {
+      const api = requireDesktopApi();
+      const result = await api.llm.setModel({ model });
+      if (!result.success) throw new Error(result.error ?? "Failed to set model");
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: llmKeys.activeModel });
+    },
+  });
 }

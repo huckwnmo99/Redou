@@ -2,8 +2,8 @@
 // Orchestrator: analyzes intent, generates RAG queries, defines table spec
 // Table Agent: extracts data from RAG results into structured tables
 
-const OLLAMA_BASE_URL = process.env.OLLAMA_HOST || "http://localhost:11434";
-const LLM_MODEL = process.env.REDOU_LLM_MODEL || "gpt-oss:120b";
+import { getActiveModel, OLLAMA_BASE_URL } from "./llm-chat.mjs";
+
 const LLM_CTX = parseInt(process.env.REDOU_LLM_CTX, 10) || 131072;
 
 function safeParseLlmJson(raw, context) {
@@ -256,7 +256,7 @@ export async function generateOrchestratorPlan(history, paperList, previousTable
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: LLM_MODEL,
+      model: getActiveModel(),
       messages,
       stream: false,
       format: ORCHESTRATOR_SCHEMA,
@@ -327,7 +327,7 @@ ${ragContext}`;
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: LLM_MODEL,
+      model: getActiveModel(),
       messages,
       stream: false,
       format: TABLE_OUTPUT_SCHEMA,
@@ -384,7 +384,7 @@ export async function extractMatrixFromHtml(htmlSnippet, abortSignal) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: LLM_MODEL,
+      model: getActiveModel(),
       messages: [
         { role: "system", content: EXTRACTOR_SYSTEM_PROMPT },
         { role: "user", content: `Parse this HTML table:\n\n${htmlSnippet}` },

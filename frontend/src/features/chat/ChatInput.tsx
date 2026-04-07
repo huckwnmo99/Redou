@@ -2,15 +2,17 @@ import { useCallback, useRef, useState } from "react";
 import { Send, Square } from "lucide-react";
 import { localeText } from "@/lib/locale";
 import { useUIStore } from "@/stores/uiStore";
+import type { ConversationType } from "@/types/chat";
 
 interface ChatInputProps {
   onSend: (message: string) => void;
   onAbort: () => void;
   isStreaming: boolean;
   disabled?: boolean;
+  conversationType?: ConversationType;
 }
 
-export function ChatInput({ onSend, onAbort, isStreaming, disabled }: ChatInputProps) {
+export function ChatInput({ onSend, onAbort, isStreaming, disabled, conversationType = "table" }: ChatInputProps) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const locale = useUIStore((s) => s.locale);
@@ -60,7 +62,9 @@ export function ChatInput({ onSend, onAbort, isStreaming, disabled }: ChatInputP
         value={text}
         onChange={handleInput}
         onKeyDown={handleKeyDown}
-        placeholder={t("Ask about your papers...", "논문에 대해 질문하세요...")}
+        placeholder={conversationType === "qa"
+          ? t("Ask a question about your papers...", "논문에 대해 자유롭게 질문하세요...")
+          : t("Describe the comparison table you need...", "필요한 비교 테이블을 설명해주세요...")}
         disabled={disabled || isStreaming}
         rows={1}
         style={{

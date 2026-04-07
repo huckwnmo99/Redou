@@ -1,10 +1,23 @@
-// LLM Chat Module — Ollama gpt-oss:120b + Granite Guardian 3.3 8B
+// LLM Chat Module — Ollama LLM (user-selectable) + Granite Guardian 3.3 8B
 // Handles: streaming chat, JSON table generation, groundedness verification
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_HOST || "http://localhost:11434";
-const LLM_MODEL = process.env.REDOU_LLM_MODEL || "gpt-oss:120b";
+const DEFAULT_MODEL = process.env.REDOU_LLM_MODEL || "gpt-oss:120b";
 const GUARDIAN_MODEL = process.env.REDOU_GUARDIAN_MODEL || "granite3-guardian:8b";
 const LLM_CTX = parseInt(process.env.REDOU_LLM_CTX, 10) || 131072;
+
+// --- Active model (mutable, runtime-changeable) ---
+let _activeModel = DEFAULT_MODEL;
+
+/** Get the currently active LLM model name. */
+export function getActiveModel() {
+  return _activeModel;
+}
+
+/** Set the active LLM model. Pass null/undefined to revert to default. */
+export function setActiveModel(model) {
+  _activeModel = model || DEFAULT_MODEL;
+}
 
 // ============================================================
 // Streaming chat (clarification phase)
@@ -22,7 +35,7 @@ export async function* streamChat(messages, abortSignal) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: LLM_MODEL,
+      model: getActiveModel(),
       messages,
       stream: true,
       options: { num_ctx: LLM_CTX, temperature: 0.3 },
@@ -103,7 +116,7 @@ export async function checkGroundedness(sourceText, claim) {
 // ============================================================
 
 /**
- * Check if the LLM (gpt-oss:120b) is available in Ollama.
+ * Check if the currently selected LLM model is available in Ollama.
  */
 export async function isLlmAvailable() {
   try {
@@ -112,7 +125,10 @@ export async function isLlmAvailable() {
     });
     if (!res.ok) return false;
     const json = await res.json();
-    return json.models?.some((m) => m.name.startsWith("gpt-oss")) ?? false;
+    const active = getActiveModel();
+    // Match by base name (before the colon tag) for flexibility
+    const baseName = active.split(":")[0];
+    return json.models?.some((m) => m.name.startsWith(baseName)) ?? false;
   } catch {
     return false;
   }
@@ -137,6 +153,7 @@ export async function isGuardianAvailable() {
 }
 
 export {
-  LLM_MODEL,
+  OLLAMA_BASE_URL,
+  DEFAULT_MODEL,
   GUARDIAN_MODEL,
 };

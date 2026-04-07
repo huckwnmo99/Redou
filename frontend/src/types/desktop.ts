@@ -86,6 +86,7 @@ export interface ChatSendMessageParams {
   message: string;
   scopeFolderId?: string | null;
   scopeAll?: boolean;
+  mode?: "table" | "qa";
 }
 
 export interface ChatAbortParams {
@@ -119,7 +120,19 @@ export interface ChatErrorEvent {
   error: string;
 }
 
-export type ChatPipelineStage = "orchestrating" | "searching" | "parsing" | "assembling" | "verifying";
+export interface OllamaModel {
+  name: string;
+  size: number;
+  modified_at: string;
+  details?: Record<string, unknown> | null;
+}
+
+export interface LlmModelInfo {
+  model: string;
+  source: "user" | "env" | "default";
+}
+
+export type ChatPipelineStage = "orchestrating" | "searching" | "parsing" | "assembling" | "verifying" | "answering";
 
 export interface ChatStatusEvent {
   conversationId: string;
@@ -173,6 +186,11 @@ export interface RedouDesktopApi {
     sendMessage: (args: ChatSendMessageParams) => Promise<DbResult<{ conversationId: string }>>;
     abort: (args: ChatAbortParams) => Promise<DbResult>;
     exportCsv: (args: ChatExportCsvParams) => Promise<DbResult<{ filePath: string }>>;
+  };
+  llm: {
+    listModels: () => Promise<DbResult<OllamaModel[]>>;
+    getModel: () => Promise<DbResult<LlmModelInfo>>;
+    setModel: (args: { model: string }) => Promise<DbResult<{ model: string }>>;
   };
   openExternal: (url: string) => Promise<void>;
   getFilePathForDrop: (file: File) => string;

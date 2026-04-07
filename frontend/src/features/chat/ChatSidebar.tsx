@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { MessageSquarePlus, Trash2, Pencil, Check, X, FolderTree } from "lucide-react";
+import { MessageSquarePlus, Trash2, Pencil, Check, X, FolderTree, Table2, MessageCircleQuestion } from "lucide-react";
 import {
   useChatConversations,
   useDeleteConversation,
@@ -118,6 +118,26 @@ function ConversationItem({
         if (!isActive) e.currentTarget.style.background = "transparent";
       }}
     >
+      {/* Conversation type badge */}
+      <span
+        title={conversation.conversation_type === "qa" ? "Q&A" : t("Table", "테이블")}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 20,
+          height: 20,
+          borderRadius: "var(--radius-xs)",
+          background: conversation.conversation_type === "qa"
+            ? "rgba(37, 99, 235, 0.1)"
+            : "rgba(15, 118, 110, 0.1)",
+          flexShrink: 0,
+        }}
+      >
+        {conversation.conversation_type === "qa"
+          ? <MessageCircleQuestion size={11} color="var(--color-accent)" />
+          : <Table2 size={11} color="var(--color-success)" />}
+      </span>
       <span
         style={{
           flex: 1,

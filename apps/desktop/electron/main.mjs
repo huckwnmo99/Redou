@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } from "electron";
 import path from "node:path";
 import { existsSync } from "node:fs";
@@ -13,8 +14,9 @@ import { waitForOAuthCallback, getOAuthCallbackUrl } from "./oauth-callback-serv
 import { extractTablesAndEquationsWithOcr, isOllamaAvailable, enhanceEquationsWithUniMERNet } from "./ocr-extraction.mjs";
 import { isMineruAvailable, parsePdf, parseMineruResult, flattenTableHtml, flattenEquationLatex, saveFigureImages, saveTableImages } from "./mineru-client.mjs";
 import { isGrobidAvailable, extractMetadataAndReferences, linkReferencesToExistingPapers } from "./grobid-client.mjs";
-import { streamChat, checkGroundedness, isLlmAvailable, isGuardianAvailable } from "./llm-chat.mjs";
+import { streamChat, checkGroundedness, isLlmAvailable, isGuardianAvailable, getActiveModel, setActiveModel, OLLAMA_BASE_URL } from "./llm-chat.mjs";
 import { generateOrchestratorPlan, generateTableFromSpec, extractMatrixFromHtml } from "./llm-orchestrator.mjs";
+import { generateQaResponse, formatSourceAttribution } from "./llm-qa.mjs";
 import { parseAllHtmlTables } from "./html-table-parser.mjs";
 
 // ============================================================
@@ -2480,6 +2482,22 @@ app.whenReady().then(async () => {
   });
 
   await ensureDir(LIBRARY_ROOT);
+  // Load user-selected LLM model from DB
+  try {
+    const { data: pref } = await supabase
+      .from("user_workspace_preferences")
+      .select("llm_model")
+      .limit(1)
+      .maybeSingle();
+    if (pref?.llm_model) {
+      setActiveModel(pref.llm_model);
+      console.log(`[LLM] Loaded user model from DB: ${getActiveModel()}`);
+    } else {
+      console.log(`[LLM] No user preference found, using default: ${getActiveModel()}`);
+    }
+  } catch (err) {
+    console.warn(`[LLM] Failed to load model preference from DB:`, err.message);
+  }
   createMainWindow();
   await resetStaleRunningJobs();
   await requeueOutdatedPapers();
@@ -2769,9 +2787,98 @@ function assembleRagContext(chunks, figures, paperRefMap, parsedMatrices) {
   return result;
 }
 
+// --- Q&A Pipeline Handler ---
+async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAll, abortController) {
+  console.log("[Chat/QA] Starting Q&A pipeline...");
+
+  // Stage 1: RAG search
+  broadcastToWindows(IPC_EVENTS.CHAT_STATUS, { conversationId: convId, stage: "searching", message: "관련 논문 데이터 검색 중..." });
+
+  let filterPaperIds = null;
+  if (!scopeAll && scopeFolderId) {
+    filterPaperIds = await getPaperIdsInFolderTree(scopeFolderId);
+  }
+
+  // Use the user's message directly as the search query (simplified vs table pipeline)
+  const searchQueries = [{ query: message, intent: "qa" }];
+  const keyTerms = extractKeyTerms(message);
+  const ragResults = await runMultiQueryRag(searchQueries, keyTerms, filterPaperIds);
+
+  // If no results, inform user
+  if (ragResults.chunks.length === 0 && ragResults.figures.length === 0) {
+    const noDataMsg = "관련 데이터를 찾지 못했습니다. 요청을 더 구체적으로 해주시거나, 해당 주제의 논문이 라이브러리에 있는지 확인해주세요.";
+    const { data: errMsg } = await supabase
+      .from("chat_messages")
+      .insert({ conversation_id: convId, role: "assistant", content: noDataMsg, message_type: "text" })
+      .select("id")
+      .single();
+    await supabase.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
+    broadcastToWindows(IPC_EVENTS.CHAT_COMPLETE, { conversationId: convId, messageId: errMsg.id, hasTable: false });
+    return { conversationId: convId, messageId: errMsg.id, hasTable: false };
+  }
+
+  // Collect paper metadata
+  const paperIds = [...new Set([
+    ...ragResults.chunks.map((c) => c.paper_id),
+    ...ragResults.figures.map((f) => f.paper_id),
+  ])];
+  const { data: papers } = await supabase.from("papers").select("id, title, authors, publication_year, doi").in("id", paperIds);
+  const paperMetadata = (papers ?? []).map((p) => ({
+    paperId: p.id,
+    title: p.title ?? "Untitled",
+    authors: Array.isArray(p.authors) ? p.authors.map((a) => a.family ?? a.name ?? "").join(", ") : "",
+    year: p.publication_year ?? 0,
+    doi: p.doi ?? "",
+  }));
+
+  // Build paper ref map (for assembleRagContext)
+  const paperRefMap = new Map();
+  paperMetadata.forEach((p, i) => paperRefMap.set(p.paperId, { refNo: i + 1, title: p.title }));
+
+  // Assemble RAG context (text-heavy, no parsed matrices for Q&A)
+  const ragContext = assembleRagContext(ragResults.chunks, ragResults.figures, paperRefMap, []);
+
+  // Stage 2: Q&A answering (streaming)
+  broadcastToWindows(IPC_EVENTS.CHAT_STATUS, { conversationId: convId, stage: "answering", message: "답변 생성 중..." });
+  console.log("[Chat/QA] Streaming Q&A response...");
+
+  let fullResponse = "";
+  for await (const token of generateQaResponse(ragContext, history, paperMetadata, abortController.signal)) {
+    fullResponse += token;
+    broadcastToWindows(IPC_EVENTS.CHAT_TOKEN, { conversationId: convId, token });
+  }
+
+  // Post-process: ensure source attribution
+  const { text: finalText, referencedPaperIds } = formatSourceAttribution(fullResponse, paperMetadata);
+
+  // Save assistant message
+  const { data: msg } = await supabase
+    .from("chat_messages")
+    .insert({
+      conversation_id: convId,
+      role: "assistant",
+      content: finalText,
+      message_type: "text",
+      metadata: {
+        source_chunk_ids: ragResults.chunks.map((c) => c.chunk_id),
+        referenced_paper_ids: referencedPaperIds,
+      },
+    })
+    .select("id")
+    .single();
+
+  await supabase.from("chat_conversations").update({ phase: "follow_up", updated_at: new Date().toISOString() }).eq("id", convId);
+
+  broadcastToWindows(IPC_EVENTS.CHAT_COMPLETE, { conversationId: convId, messageId: msg.id, hasTable: false });
+  console.log(`[Chat/QA] Response complete. ${referencedPaperIds.length} papers referenced.`);
+
+  return { conversationId: convId, messageId: msg.id, hasTable: false };
+}
+
 // --- CHAT_SEND_MESSAGE (Multi-agent pipeline) ---
-ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, message, scopeFolderId, scopeAll }) => {
+ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, message, scopeFolderId, scopeAll, mode }) => {
   let convId = conversationId;
+  let conversationType = mode || "table"; // default to table for backward compatibility
 
   try {
     // 1. Create or load conversation
@@ -2784,14 +2891,15 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
       const title = message.slice(0, 40) + (message.length > 40 ? "…" : "");
       const { data: conv } = await supabase
         .from("chat_conversations")
-        .insert({ owner_user_id: ownerId, title, phase: "follow_up", scope_folder_id: scopeFolderId ?? null, scope_all: scopeAll ?? true })
+        .insert({ owner_user_id: ownerId, title, phase: "follow_up", scope_folder_id: scopeFolderId ?? null, scope_all: scopeAll ?? true, conversation_type: conversationType })
         .select("id")
         .single();
       convId = conv.id;
     } else {
-      const { data: conv } = await supabase.from("chat_conversations").select("id, scope_folder_id, scope_all").eq("id", convId).single();
+      const { data: conv } = await supabase.from("chat_conversations").select("id, scope_folder_id, scope_all, conversation_type").eq("id", convId).single();
       if (!scopeFolderId && conv.scope_folder_id) scopeFolderId = conv.scope_folder_id;
       if (scopeAll === undefined) scopeAll = conv.scope_all;
+      conversationType = conv.conversation_type || "table"; // use stored type for existing conversations
     }
 
     // 2. Insert user message
@@ -2813,6 +2921,13 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     // Setup abort controller
     const abortController = new AbortController();
     chatAbortControllers.set(convId, abortController);
+
+    // ===== Q&A Pipeline Branch =====
+    if (conversationType === "qa") {
+      return await handleQaPipeline(convId, message, history, scopeFolderId, scopeAll, abortController);
+    }
+
+    // ===== Table Pipeline (existing) =====
 
     // Fetch paper list for Orchestrator context
     const { data: allPapers } = await supabase.from("papers").select("id, title, authors, publication_year");
@@ -3236,7 +3351,90 @@ ipcMain.handle(IPC_CHANNELS.CHAT_EXPORT_CSV, async (_event, { tableId }) => {
   return { success: true, filePath };
 });
 
+// --- LLM Model Selection IPC Handlers ---
 
+// Models to exclude from the user-facing list (Guardian, OCR)
+const LLM_EXCLUDED_MODEL_PREFIXES = ["granite3-guardian", "glm-ocr"];
+
+ipcMain.handle(IPC_CHANNELS.LLM_LIST_MODELS, async () => {
+  try {
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return { success: false, error: `Ollama responded with ${res.status}` };
+    const json = await res.json();
+    const models = (json.models ?? [])
+      .filter((m) => !LLM_EXCLUDED_MODEL_PREFIXES.some((prefix) => m.name.startsWith(prefix)))
+      .map((m) => ({
+        name: m.name,
+        size: m.size,
+        modified_at: m.modified_at,
+        details: m.details ?? null,
+      }));
+    return { success: true, data: models };
+  } catch (err) {
+    return { success: false, error: err.message || "Ollama 연결 실패" };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.LLM_GET_MODEL, async () => {
+  try {
+    const model = getActiveModel();
+    // Determine source: check DB first, then env, then default
+    const { data: pref } = await supabase
+      .from("user_workspace_preferences")
+      .select("llm_model")
+      .limit(1)
+      .maybeSingle();
+    let source = "default";
+    if (pref?.llm_model) {
+      source = "user";
+    } else if (process.env.REDOU_LLM_MODEL) {
+      source = "env";
+    }
+    return { success: true, data: { model, source } };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.LLM_SET_MODEL, async (_event, { model }) => {
+  try {
+    // Upsert into user_workspace_preferences
+    const { data: existing } = await supabase
+      .from("user_workspace_preferences")
+      .select("id")
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      await supabase
+        .from("user_workspace_preferences")
+        .update({ llm_model: model || null })
+        .eq("id", existing.id);
+    } else {
+      // Get user ID for insert
+      const { data: appUser } = await supabase
+        .from("app_users")
+        .select("id")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (appUser?.id) {
+        await supabase
+          .from("user_workspace_preferences")
+          .insert({ user_id: appUser.id, llm_model: model || null });
+      }
+    }
+
+    // Update runtime variable
+    setActiveModel(model);
+    console.log(`[LLM] Active model changed to: ${getActiveModel()}`);
+    return { success: true, data: { model: getActiveModel() } };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
 
 
 

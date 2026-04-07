@@ -37,6 +37,10 @@ export const IPC_CHANNELS = {
   CHAT_SEND_MESSAGE: 'chat:send-message',
   CHAT_ABORT: 'chat:abort',
   CHAT_EXPORT_CSV: 'chat:export-csv',
+
+  LLM_LIST_MODELS: 'llm:list-models',
+  LLM_GET_MODEL: 'llm:get-model',
+  LLM_SET_MODEL: 'llm:set-model',
 };
 
 /** main -> renderer (mainWindow.webContents.send) */
