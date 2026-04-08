@@ -9,6 +9,7 @@
  */
 
 import * as mupdf from "mupdf";
+import { flattenTableHtml } from "./mineru-client.mjs";
 
 const OLLAMA_BASE = process.env.OLLAMA_HOST || "http://localhost:11434";
 const GLM_OCR_MODEL = process.env.REDOU_OCR_MODEL || "glm-ocr";
@@ -464,6 +465,65 @@ export async function extractTablesAndEquationsWithOcr(pdfBuffer, options = {}) 
   console.log(`[ocr-extract] Done: ${uniqueTables.length} tables, ${uniqueEquations.length} equations`);
 
   return { tables: uniqueTables, equations: uniqueEquations, ocrUsed: true };
+}
+
+/* ------------------------------------------------------------------ */
+/*  V2 empty-table OCR fallback (full-page GLM-OCR)                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * V2에서 MinerU가 table_body 추출 실패한 테이블을 GLM-OCR로 보강.
+ * @param {Buffer} pdfBuffer
+ * @param {Array<{figureNo: string, page: number}>} emptyTables
+ * @returns {Promise<Array<{figureNo: string, page: number, summaryText: string, plainText: string}>>}
+ */
+export async function enhanceEmptyTablesWithOcr(pdfBuffer, emptyTables) {
+  const available = await isOllamaAvailable();
+  if (!available) {
+    console.log("[ocr-extract] Ollama/GLM-OCR not available, skipping V2 empty-table fallback");
+    return [];
+  }
+
+  if (!emptyTables || emptyTables.length === 0) return [];
+
+  // Group tables by page
+  const byPage = new Map();
+  for (const t of emptyTables) {
+    if (!t.page) continue;
+    if (!byPage.has(t.page)) byPage.set(t.page, []);
+    byPage.get(t.page).push(t);
+  }
+
+  const results = [];
+
+  for (const [page, tables] of byPage) {
+    try {
+      const { result } = await callWithScaleRetry(pdfBuffer, page, FULLPAGE_TABLE_PROMPT);
+      const ocrTables = parseAllTablesFromResponse(result);
+
+      let consumed = 0;
+      for (const t of tables) {
+        if (consumed >= ocrTables.length) break;
+        const candidate = ocrTables[consumed];
+        consumed++;
+        if (validateTableHtml(candidate)) {
+          results.push({
+            figureNo: t.figureNo,
+            page,
+            summaryText: candidate,
+            plainText: flattenTableHtml(candidate),
+          });
+          console.log(`[ocr-extract] V2 fallback: ${t.figureNo} on page ${page} enhanced via full-page OCR`);
+        } else {
+          console.warn(`[ocr-extract] V2 fallback: ${t.figureNo} on page ${page} OCR returned shell table, skipping`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[ocr-extract] V2 fallback failed for page ${page}:`, err.message);
+    }
+  }
+
+  return results;
 }
 
 /* ------------------------------------------------------------------ */
