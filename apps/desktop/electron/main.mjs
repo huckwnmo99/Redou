@@ -18,6 +18,7 @@ import { streamChat, checkGroundedness, isLlmAvailable, isGuardianAvailable, get
 import { generateOrchestratorPlan, generateTableFromSpec, extractMatrixFromHtml } from "./llm-orchestrator.mjs";
 import { generateQaResponse, formatSourceAttribution } from "./llm-qa.mjs";
 import { parseAllHtmlTables } from "./html-table-parser.mjs";
+import { rerankChunks, isRerankerAvailable } from "./reranker-worker.mjs";
 
 // ============================================================
 // Paths
@@ -94,7 +95,7 @@ let embeddingInFlight = false;
 
 // Bump this number whenever extraction logic changes (new item types, better parsing, etc.)
 // Papers with extraction_version < CURRENT_EXTRACTION_VERSION will be auto-requeued on startup.
-const CURRENT_EXTRACTION_VERSION = 23;
+const CURRENT_EXTRACTION_VERSION = 24;
 const DB_QUERY_TABLES = new Set([
   "app_users",
   "papers",
@@ -146,6 +147,19 @@ const DB_MUTATE_TABLES = new Set([
   "chat_messages",
   "chat_generated_tables",
 ]);
+
+// --- Contextual chunking helpers ---
+const MAX_TITLE_LEN = 200;
+const MAX_SECTION_LEN = 100;
+
+function buildContextualText(paperTitle, sectionName, chunkText) {
+  const title = (paperTitle ?? "Untitled").slice(0, MAX_TITLE_LEN);
+  if (sectionName) {
+    const section = sectionName.slice(0, MAX_SECTION_LEN);
+    return `[Paper: ${title} | Section: ${section}] ${chunkText}`;
+  }
+  return `[Paper: ${title}] ${chunkText}`;
+}
 
 function resolvePackagedRendererPath() {
   if (existsSync(frontendDistPath)) {
@@ -1580,7 +1594,7 @@ async function processEmbeddingJob(job) {
   // Fetch all chunks for this paper
   const { data: chunks, error: chunkError } = await supabase
     .from("paper_chunks")
-    .select("id, text")
+    .select("id, text, section_id")
     .eq("paper_id", job.paper_id)
     .order("chunk_order", { ascending: true });
 
@@ -1634,7 +1648,23 @@ async function processEmbeddingJob(job) {
     message: `Generating embeddings for ${chunksToEmbed.length} chunks...`,
   });
 
-  const texts = chunksToEmbed.map((c) => c.text);
+  // Load paper title and section map for contextual prefix
+  const { data: paperMeta } = await supabase
+    .from("papers")
+    .select("title")
+    .eq("id", job.paper_id)
+    .single();
+  const paperTitle = paperMeta?.title ?? "Untitled";
+
+  const { data: sections } = await supabase
+    .from("paper_sections")
+    .select("id, section_name")
+    .eq("paper_id", job.paper_id);
+  const sectionMap = new Map((sections ?? []).map((s) => [s.id, s.section_name]));
+
+  const texts = chunksToEmbed.map((c) =>
+    buildContextualText(paperTitle, sectionMap.get(c.section_id), c.text)
+  );
   const embeddings = await generateEmbeddings(texts, (done, total) => {
     const progress = 15 + Math.round((done / total) * 70);
     broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
@@ -2723,6 +2753,27 @@ function rrfFusion(vectorChunks, bm25Chunks, mode = "table", k = 60) {
   return scored.slice(0, 40);
 }
 
+// --- Reranker: cross-encoder re-scoring after RRF fusion ---
+const RERANKER_TOPK = { table: 15, qa: 10 };
+
+async function rerankChunksIfAvailable(query, chunks, mode) {
+  const topK = RERANKER_TOPK[mode] ?? 15;
+  try {
+    const available = await isRerankerAvailable();
+    if (!available) {
+      console.log("[reranker] Not available, using RRF order");
+      return chunks.slice(0, topK);
+    }
+    const start = Date.now();
+    const result = await rerankChunks(query, chunks, topK);
+    console.log(`[reranker] Reranked ${chunks.length} → ${result.length} chunks in ${Date.now() - start}ms`);
+    return result;
+  } catch (err) {
+    console.warn("[reranker] Failed, falling back to RRF order:", err.message);
+    return chunks.slice(0, topK);
+  }
+}
+
 // --- Multi-query RAG: run multiple embedding searches and merge results ---
 async function runMultiQueryRag(searchQueries, keywordHints, filterPaperIds, mode = "table") {
   const vectorChunkMap = new Map(); // chunkId → chunk (keep highest similarity)
@@ -2795,9 +2846,13 @@ async function runMultiQueryRag(searchQueries, keywordHints, filterPaperIds, mod
   // RRF fusion replaces rerankChunksByKeywords
   const rankedChunks = rrfFusion(allVectorChunks, allBm25Chunks, mode);
 
-  console.log(`[Chat/RAG] ${searchQueries.length} queries → ${allVectorChunks.length} vector + ${allBm25Chunks.length} BM25 chunks, ${allFigures.length} figures → top ${rankedChunks.length} (mode=${mode})`);
+  // Reranker: cross-encoder re-scoring for higher-quality top-K
+  const originalQuery = searchQueries.map(sq => sq.query).join(" ");
+  const rerankedChunks = await rerankChunksIfAvailable(originalQuery, rankedChunks, mode);
 
-  return { chunks: rankedChunks, figures: allFigures };
+  console.log(`[Chat/RAG] ${searchQueries.length} queries → ${allVectorChunks.length} vector + ${allBm25Chunks.length} BM25 chunks, ${allFigures.length} figures → RRF ${rankedChunks.length} → reranked ${rerankedChunks.length} (mode=${mode})`);
+
+  return { chunks: rerankedChunks, figures: allFigures };
 }
 
 // --- Clean up cell values from Table Agent (fix common LLM formatting issues) ---

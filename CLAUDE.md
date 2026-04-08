@@ -26,7 +26,7 @@ Redou는 연구 논문 읽기 & 관리 데스크탑 앱이다. Electron이 React
 | 스킬 | 에이전트 | 모델 | 역할 |
 |------|----------|------|------|
 | `/plan` | planner | opus | 기능 분석 → `docs/features/new/` 또는 `docs/features/fix/` 계획서 작성 |
-| `/develop` | developer | opus | 계획서 기반 코드 구현 |
+| `/develop` | developer | sonnet (기본), opus (복잡한 구현 시 사용자 허가 후) | 계획서 기반 코드 구현 |
 | `/test` | tester | sonnet | 빌드/타입/린트/테스트 검증 + 자동 수정 |
 | `/review` | reviewer | opus | Codex + Claude 이중 리뷰 → PR 생성 |
 | `/fix` | fixer | opus | 소규모 수정: 원인 파악 → 수정 → 자체 검증 |
