@@ -2753,6 +2753,44 @@ function rrfFusion(vectorChunks, bm25Chunks, mode = "table", k = 60) {
   return scored.slice(0, 40);
 }
 
+// --- RRF Fusion for Figures (BM25 + Vector) ---
+function rrfFusionFigures(vectorFigures, bm25Figures, k = 60) {
+  const wBM25 = 0.6;
+  const wVector = 0.4;
+  const TABLE_BOOST = 0.005;
+  const MISSING_RANK = 1000;
+
+  // Build rank maps (figure_id → rank, 0-based)
+  const vectorRankMap = new Map();
+  vectorFigures.forEach((f, idx) => vectorRankMap.set(f.figure_id, idx));
+
+  const bm25RankMap = new Map();
+  bm25Figures.forEach((f, idx) => bm25RankMap.set(f.figure_id, idx));
+
+  // Union of all figure_ids — prefer vector copy for similarity field
+  const figObjMap = new Map();
+  for (const f of vectorFigures) figObjMap.set(f.figure_id, f);
+  for (const f of bm25Figures) {
+    if (!figObjMap.has(f.figure_id)) figObjMap.set(f.figure_id, f);
+  }
+
+  // Compute RRF score for each figure
+  const scored = [];
+  for (const [figId, fig] of figObjMap) {
+    const vRank = vectorRankMap.has(figId) ? vectorRankMap.get(figId) : MISSING_RANK;
+    const bRank = bm25RankMap.has(figId) ? bm25RankMap.get(figId) : MISSING_RANK;
+    let rrfScore = wVector * (1 / (k + vRank)) + wBM25 * (1 / (k + bRank));
+    // Boost tables (item_type='table') for table generation pipeline
+    if (fig.item_type === "table") rrfScore += TABLE_BOOST;
+    scored.push({ ...fig, _rrfScore: rrfScore });
+  }
+
+  // Sort by RRF score descending
+  scored.sort((a, b) => b._rrfScore - a._rrfScore);
+
+  return scored;
+}
+
 // --- Reranker: cross-encoder re-scoring after RRF fusion ---
 const RERANKER_TOPK = { table: 15, qa: 10 };
 
@@ -2778,7 +2816,8 @@ async function rerankChunksIfAvailable(query, chunks, mode) {
 async function runMultiQueryRag(searchQueries, keywordHints, filterPaperIds, mode = "table") {
   const vectorChunkMap = new Map(); // chunkId → chunk (keep highest similarity)
   const bm25ChunkMap = new Map(); // chunkId → chunk (keep highest bm25_rank)
-  const figureMap = new Map(); // figureId → figure
+  const vectorFigureMap = new Map(); // figureId → figure (vector search)
+  const bm25FigureMap = new Map(); // figureId → figure (BM25 search, table mode only)
 
   // Build BM25 query text from keywordHints
   const bm25HintSuffix = (keywordHints ?? []).join(" ");
@@ -2789,8 +2828,8 @@ async function runMultiQueryRag(searchQueries, keywordHints, filterPaperIds, mod
     // BM25 query text = search query + keyword hints
     const bm25QueryText = (sq.query + " " + bm25HintSuffix).trim();
 
-    // Run vector search, BM25 search, and figure search in parallel
-    const [vectorResult, bm25Result, figureResult] = await Promise.all([
+    // Run vector search, BM25 search, figure search (+ figure BM25 in table mode) in parallel
+    const promises = [
       supabase.rpc("match_chunks", {
         query_embedding: emb,
         match_threshold: 0.2,
@@ -2809,7 +2848,22 @@ async function runMultiQueryRag(searchQueries, keywordHints, filterPaperIds, mod
         filter_item_types: ["table", "figure", "equation"],
         filter_paper_ids: filterPaperIds,
       }),
-    ]);
+    ];
+    // In table mode, also run BM25 search on figures (tables only)
+    if (mode === "table") {
+      promises.push(
+        supabase.rpc("match_figures_bm25", {
+          query_text: bm25QueryText,
+          match_count: 30,
+          filter_item_types: ["table"],
+          filter_paper_ids: filterPaperIds,
+        })
+      );
+    }
+
+    const results = await Promise.all(promises);
+    const [vectorResult, bm25Result, figureResult] = results;
+    const figureBm25Result = mode === "table" ? results[3] : null;
 
     // Accumulate vector chunks
     if (vectorResult.error) console.error("[Chat/RAG] match_chunks error:", vectorResult.error.message);
@@ -2829,22 +2883,43 @@ async function runMultiQueryRag(searchQueries, keywordHints, filterPaperIds, mod
       }
     }
 
-    // Accumulate figures
+    // Accumulate vector figures
     if (figureResult.error) console.error("[Chat/RAG] match_figures error:", figureResult.error.message);
     for (const f of figureResult.data ?? []) {
-      const existing = figureMap.get(f.figure_id);
+      const existing = vectorFigureMap.get(f.figure_id);
       if (!existing || (f.similarity > existing.similarity)) {
-        figureMap.set(f.figure_id, f);
+        vectorFigureMap.set(f.figure_id, f);
+      }
+    }
+
+    // Accumulate BM25 figures (table mode only)
+    if (figureBm25Result) {
+      if (figureBm25Result.error) console.error("[Chat/RAG] match_figures_bm25 error:", figureBm25Result.error.message);
+      for (const f of figureBm25Result.data ?? []) {
+        const existing = bm25FigureMap.get(f.figure_id);
+        if (!existing || (f.bm25_rank > existing.bm25_rank)) {
+          bm25FigureMap.set(f.figure_id, f);
+        }
       }
     }
   }
 
   const allVectorChunks = [...vectorChunkMap.values()];
   const allBm25Chunks = [...bm25ChunkMap.values()];
-  const allFigures = [...figureMap.values()];
+  const allVectorFigures = [...vectorFigureMap.values()];
+  const allBm25Figures = [...bm25FigureMap.values()];
 
-  // RRF fusion replaces rerankChunksByKeywords
+  // RRF fusion for chunks
   const rankedChunks = rrfFusion(allVectorChunks, allBm25Chunks, mode);
+
+  // RRF fusion for figures (table mode) or plain vector figures (qa mode)
+  let allFigures;
+  if (mode === "table" && allBm25Figures.length > 0) {
+    allFigures = rrfFusionFigures(allVectorFigures, allBm25Figures);
+    console.log(`[Chat/RAG] Figure RRF: ${allVectorFigures.length} vector + ${allBm25Figures.length} BM25 → ${allFigures.length} fused`);
+  } else {
+    allFigures = allVectorFigures;
+  }
 
   // Reranker: cross-encoder re-scoring for higher-quality top-K
   const originalQuery = searchQueries.map(sq => sq.query).join(" ");
@@ -2870,8 +2945,8 @@ function cleanCellValue(cell) {
 // --- Assemble RAG context string from chunks, figures, and parsed matrices ---
 // Three sections: (1) parsed matrices (pre-cleaned TSV), (2) OCR HTML (raw), (3) text chunks.
 // Budget caps prevent context window overflow (LLM_CTX ≈ 131K tokens ≈ 400K chars).
-const OCR_BUDGET = 60000;    // chars for raw OCR HTML tables
-const MATRIX_BUDGET = 30000; // chars for parsed matrix TSV
+const OCR_BUDGET = 70000;    // chars for raw OCR HTML tables
+const MATRIX_BUDGET = 35000; // chars for parsed matrix TSV
 const TOTAL_BUDGET = 120000; // overall cap
 
 function assembleRagContext(chunks, figures, paperRefMap, parsedMatrices) {
@@ -2898,7 +2973,7 @@ function assembleRagContext(chunks, figures, paperRefMap, parsedMatrices) {
   // --- Section 2: OCR HTML tables (raw — for data LLM can't get from parsed matrices) ---
   const ocrEntries = figures
     .filter((f) => f.summary_text && f.summary_text.length > 30)
-    .sort((a, b) => (b.summary_text?.length ?? 0) - (a.summary_text?.length ?? 0))
+    .sort((a, b) => (b._rrfScore ?? 0) - (a._rrfScore ?? 0))
     .map((f) => {
       const ref = paperRefMap.get(f.paper_id);
       const refLabel = ref ? `[${ref.refNo}] ${ref.title}` : f.paper_id;
@@ -2931,7 +3006,7 @@ function assembleRagContext(chunks, figures, paperRefMap, parsedMatrices) {
   if (ocrTables) {
     result += `=== OCR 추출 테이블 (원본 HTML — 파싱 테이블에 없는 데이터 확인용) ===\n${ocrTables}\n\n`;
   }
-  result += `=== 관련 텍스트 (보조) ===\n${textChunksStr}`;
+  result += `=== 관련 텍스트 (테이블에 없는 보충 데이터) ===\n${textChunksStr}`;
   return result;
 }
 
@@ -3187,6 +3262,7 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
         summary_text: f.summary_text,
         page: f.page,
         similarity: 0,
+        _rrfScore: 0,
       });
       backfillCount++;
     }
