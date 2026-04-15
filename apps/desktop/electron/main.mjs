@@ -1495,13 +1495,16 @@ async function processImportPdfJob(job) {
           }
         } else {
           // Both OCR failed — check if existing heuristic caption is garbage and clear it
-          const { data: existing } = await supabase
-            .from("figures")
-            .select("caption")
-            .eq("paper_id", job.paper_id)
-            .eq("figure_no", eq.figureNo)
-            .eq("item_type", "equation")
-            .single();
+          let existing = null;
+          try {
+            existing = unwrapSingle(await supabase
+              .from("figures")
+              .select("caption")
+              .eq("paper_id", job.paper_id)
+              .eq("figure_no", eq.figureNo)
+              .eq("item_type", "equation")
+              .single(), "equation-duplicate-check");
+          } catch { /* 행 없음 = 중복 아님 */ }
           if (existing?.caption) {
             const raw = existing.caption.replace(/^\$\$|\$\$$/g, "").trim();
             // Very short, no LaTeX commands → broken heuristic text, clear it
@@ -1656,12 +1659,16 @@ async function processEmbeddingJob(job) {
   });
 
   // Load paper title and section map for contextual prefix
-  const { data: paperMeta } = await supabase
-    .from("papers")
-    .select("title")
-    .eq("id", job.paper_id)
-    .single();
-  const paperTitle = paperMeta?.title ?? "Untitled";
+  let paperTitle = "Untitled";
+  try {
+    const paperMeta = unwrapSingle(await supabase
+      .from("papers").select("title")
+      .eq("id", job.paper_id)
+      .single(), "embedding-paper-title");
+    paperTitle = paperMeta.title ?? "Untitled";
+  } catch (e) {
+    console.warn("[Embedding] paper title lookup failed:", e.message);
+  }
 
   const { data: sections } = await supabase
     .from("paper_sections")
@@ -1718,12 +1725,15 @@ async function processEmbeddingJob(job) {
       progress: 92, message: "논문 단위 임베딩 생성 중...",
     });
 
-    const { data: paper } = await supabase
-      .from("papers")
-      .select("title, abstract, embedding")
-      .eq("id", job.paper_id)
-      .single();
-
+    let paper = null;
+    try {
+      paper = unwrapSingle(await supabase
+        .from("papers").select("title, abstract, embedding")
+        .eq("id", job.paper_id)
+        .single(), "doc-embedding-paper");
+    } catch (e) {
+      console.warn("[Embedding] paper lookup failed:", e.message);
+    }
     if (paper && !paper.embedding) {
       const paperText = `${paper.title || ""} ${paper.abstract || ""}`.trim();
       if (paperText.length > 10) {
@@ -3964,13 +3974,16 @@ ipcMain.handle(IPC_CHANNELS.CHAT_ABORT, (_event, { conversationId }) => {
 
 // --- CHAT_EXPORT_CSV ---
 ipcMain.handle(IPC_CHANNELS.CHAT_EXPORT_CSV, async (_event, { tableId }) => {
-  const { data: table } = await supabase
-    .from("chat_generated_tables")
-    .select("table_title, headers, rows, source_refs")
-    .eq("id", tableId)
-    .single();
-
-  if (!table) return { success: false, error: "Table not found" };
+  let table;
+  try {
+    table = unwrapSingle(await supabase
+      .from("chat_generated_tables")
+      .select("table_title, headers, rows, source_refs")
+      .eq("id", tableId)
+      .single(), "csv-export-table");
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
 
   // Build CSV string with BOM for Korean Excel compatibility
   const escape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;

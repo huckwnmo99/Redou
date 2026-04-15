@@ -2,16 +2,9 @@
 // Orchestrator: analyzes intent, generates RAG queries, defines table spec
 // Table Agent: extracts data from RAG results into structured tables
 
-import { getActiveModel, OLLAMA_BASE_URL } from "./llm-chat.mjs";
+import { getActiveModel, OLLAMA_BASE_URL, ollamaSignal } from "./llm-chat.mjs";
 
 const LLM_CTX = parseInt(process.env.REDOU_LLM_CTX, 10) || 131072;
-
-/** Ollama fetch용 타임아웃 시그널. 기존 signal이 있으면 합성, 없으면 단독 사용. */
-function ollamaSignal(existingSignal, timeoutMs = 300_000) {
-  const timeoutSig = AbortSignal.timeout(timeoutMs);
-  if (existingSignal) return AbortSignal.any([existingSignal, timeoutSig]);
-  return timeoutSig;
-}
 
 function safeParseLlmJson(raw, context) {
   try {

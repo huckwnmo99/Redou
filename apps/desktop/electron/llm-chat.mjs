@@ -168,4 +168,5 @@ export {
   OLLAMA_BASE_URL,
   DEFAULT_MODEL,
   GUARDIAN_MODEL,
+  ollamaSignal,
 };
