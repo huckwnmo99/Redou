@@ -95,15 +95,15 @@
 
 ## 작업 분해
 
-1. [ ] DB 마이그레이션 — `chat_generated_tables.metadata` JSONB
-2. [ ] `llm-orchestrator.mjs` — SRAG 추출 에이전트
+1. [x] DB 마이그레이션 — `chat_generated_tables.metadata` JSONB
+2. [x] `llm-orchestrator.mjs` — SRAG 추출 에이전트
    - PAPER_EXTRACTION_SCHEMA
    - EXTRACTION_AGENT_SYSTEM_PROMPT
    - extractColumnsFromPaper()
-3. [ ] `main.mjs` — assemblePerPaperContext(), groupBy()
-4. [ ] `main.mjs` — Stage 3b/3c 파이프라인 교체 + mergeExtractionResults() + fallback
-5. [ ] `main.mjs` — import 업데이트
-6. [ ] Frontend — ChatPipelineStage + TABLE_STAGES 수정
+3. [x] `main.mjs` — assemblePerPaperContext(), groupBy()
+4. [x] `main.mjs` — Stage 3b/3c 파이프라인 교체 + mergeExtractionResults() + fallback
+5. [x] `main.mjs` — import 업데이트
+6. [x] Frontend — ChatPipelineStage + TABLE_STAGES 수정
 7. [ ] 통합 테스트
 
 ## 영향 범위

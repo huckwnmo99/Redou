@@ -1,10 +1,11 @@
-import { Search, BrainCircuit, Table2, ShieldCheck, Check, Code, MessageCircleQuestion } from "lucide-react";
+import { Search, BrainCircuit, Table2, ShieldCheck, Check, Code, FileSearch, MessageCircleQuestion } from "lucide-react";
 import type { ChatPipelineStage } from "@/types/desktop";
 
 /** Pipeline stages shown in the full stepper (after orchestrator decides to generate a table) */
 const TABLE_STAGES: { key: ChatPipelineStage; icon: typeof Search; label: string }[] = [
   { key: "searching", icon: Search, label: "논문 데이터 검색 중..." },
   { key: "parsing", icon: Code, label: "OCR 테이블 파싱 중..." },
+  { key: "extracting", icon: FileSearch, label: "논문별 데이터 추출 중..." },
   { key: "assembling", icon: Table2, label: "테이블 생성 중..." },
   { key: "verifying", icon: ShieldCheck, label: "데이터 검증 중..." },
 ];

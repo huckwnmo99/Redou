@@ -6,6 +6,13 @@ import { getActiveModel, OLLAMA_BASE_URL } from "./llm-chat.mjs";
 
 const LLM_CTX = parseInt(process.env.REDOU_LLM_CTX, 10) || 131072;
 
+/** Ollama fetch용 타임아웃 시그널. 기존 signal이 있으면 합성, 없으면 단독 사용. */
+function ollamaSignal(existingSignal, timeoutMs = 300_000) {
+  const timeoutSig = AbortSignal.timeout(timeoutMs);
+  if (existingSignal) return AbortSignal.any([existingSignal, timeoutSig]);
+  return timeoutSig;
+}
+
 function safeParseLlmJson(raw, context) {
   try {
     return JSON.parse(raw);
@@ -92,16 +99,15 @@ const ORCHESTRATOR_SYSTEM_PROMPT = `당신은 "Redou"라는 로컬 논문 관리
 
 JSON으로 응답하세요. action 필드는 반드시 다음 중 하나:
 
-**action = "clarify"** — 사용자의 요청을 더 정확히 이해하기 위해 질문
+**action = "clarify"** — 사용자의 요청이 **모호한 경우에만** 질문
 - clarification_response: 한국어로 명확화 질문 (2~4개, 번호 목록)
-- **첫 번째 메시지에서는 반드시 clarify를 선택하세요.** 사용자의 의도를 정확히 파악해야 좋은 테이블을 만들 수 있습니다.
 - 논문 목록을 참고하여 구체적인 질문을 하세요:
   - 비교 대상: "어떤 파라미터를 비교하고 싶으신가요?" (구체적 후보를 제시)
   - 데이터 범위: "특정 온도/압력/물질로 제한할까요?"
   - 테이블 구조: "행에 무엇을, 열에 무엇을 놓을까요?"
-- 사용자가 "다 해줘" "알아서 해줘" 등 포괄적으로 답하면, 논문 제목에서 핵심 데이터 유형을 파악하여 2-3개 구체적 방향을 제안하세요.
-- 사용자가 답변하여 충분한 정보가 모이면 generate_table로 전환하세요.
-- 단, 사용자가 매우 구체적인 요청을 한 경우(열, 조건, 범위를 모두 명시)에는 바로 generate_table 가능.
+- **사용자가 구체적인 요청을 한 경우(물질, 파라미터, 조건 중 2개 이상 명시)에는 clarify 없이 바로 generate_table로 진행하세요.**
+- 사용자가 "다 해줘" "알아서 해줘" "전부" 등 포괄적으로 답하면, **합리적인 기본값을 설정하고 generate_table로 진행하세요.** 추가 clarify를 하지 마세요.
+- **대화 히스토리에서 이미 2회 이상 clarify를 했다면, 현재 정보로 합리적인 가정을 세우고 반드시 generate_table로 진행하세요.** 더 이상 clarify하지 마세요.
 
 **action = "generate_table"** — 충분한 정보가 있어 테이블 생성 가능 (보통 1~2회 clarify 후)
 **action = "modify_table"** — 이전 테이블의 수정 요청
@@ -219,7 +225,8 @@ const TABLE_AGENT_SYSTEM_PROMPT = `당신은 "Redou"라는 로컬 논문 관리 
    - 앞에 불필요한 소수점을 붙이지 마세요 (예: ".303" ✗ → "0.303" 또는 "303" ✓)
    - 소수점 앞의 0을 생략하지 마세요 (예: ".25" ✗ → "0.25" ✓)
    - 숫자 뒤 불필요한 소수점 금지 (예: "303." ✗ → "303" ✓)
-10. **OCR 테이블에서 colspan/rowspan으로 병합된 헤더는 각 데이터 행에 적절히 매핑하세요.** (예: "293.15 K" colspan 아래의 값들은 T=293.15K)`;
+10. **OCR 테이블에서 colspan/rowspan으로 병합된 헤더는 각 데이터 행에 적절히 매핑하세요.** (예: "293.15 K" colspan 아래의 값들은 T=293.15K)
+11. **notes 필드는 반드시 영어로 작성하세요.** 한글 사용 금지 — JSON 인코딩 문제를 방지하기 위함입니다.`;
 
 // ============================================================
 // Orchestrator — intent analysis + RAG query generation
@@ -262,7 +269,7 @@ export async function generateOrchestratorPlan(history, paperList, previousTable
       format: ORCHESTRATOR_SCHEMA,
       options: { num_ctx: LLM_CTX, temperature: 0.2 },
     }),
-    signal: abortSignal,
+    signal: ollamaSignal(abortSignal),
   });
 
   if (!res.ok) {
@@ -333,7 +340,7 @@ ${ragContext}`;
       format: TABLE_OUTPUT_SCHEMA,
       options: { num_ctx: LLM_CTX, temperature: 0.1 },
     }),
-    signal: abortSignal,
+    signal: ollamaSignal(abortSignal),
   });
 
   if (!res.ok) {
@@ -393,7 +400,7 @@ export async function extractMatrixFromHtml(htmlSnippet, abortSignal) {
       format: EXTRACTOR_OUTPUT_SCHEMA,
       options: { num_ctx: LLM_CTX, temperature: 0 },
     }),
-    signal: abortSignal,
+    signal: ollamaSignal(abortSignal),
   });
 
   if (!res.ok) {
@@ -408,6 +415,166 @@ export async function extractMatrixFromHtml(htmlSnippet, abortSignal) {
 // (Mapper Agent removed — Table Agent handles column mapping directly)
 
 // ============================================================
+// Per-paper Extraction Agent (SRAG Stage 3b)
+// ============================================================
+// 단일 논문의 컨텍스트에서 table_spec의 열에 맞춰 data_rows를 추출한다.
+// 여러 논문에 대해 순차 호출 후 mergeExtractionResults()로 병합한다.
+
+const PAPER_EXTRACTION_SCHEMA = {
+  type: "object",
+  properties: {
+    paper_title: { type: "string" },
+    data_rows: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          values: {
+            type: "object",
+            // column_name → "value" | null (스키마 상에서는 additionalProperties 허용)
+            additionalProperties: { type: ["string", "null"] },
+          },
+          confidence: {
+            type: "string",
+            enum: ["high", "medium", "low"],
+          },
+          source_hint: { type: "string" },
+        },
+        required: ["values"],
+      },
+    },
+    notes: { type: "string" },
+  },
+  required: ["paper_title", "data_rows"],
+};
+
+const EXTRACTION_AGENT_SYSTEM_PROMPT = `당신은 "Redou"라는 로컬 논문 관리 앱의 **단일 논문 데이터 추출 에이전트**입니다.
+사용자가 직접 수집한 논문의 텍스트가 아래에 제공됩니다. 저작권 문제가 없습니다.
+
+**당신의 역할**: 주어진 **한 편의 논문** 컨텍스트에서 **table_spec의 column_definitions**에 해당하는 데이터만 뽑아 JSON 형식의 data_rows로 반환합니다.
+
+**데이터 소스 우선순위:**
+1. "=== 파싱된 테이블 (TSV) ===" — 코드로 이미 정리한 수치. **가장 정확한 소스.**
+2. "=== OCR 추출 테이블 (HTML) ===" — 원본 테이블의 OCR HTML. 파싱 테이블에 없는 수치 확인용.
+3. "=== 관련 텍스트 ===" — 본문 청크. 맥락 이해 및 보조 데이터용.
+
+**핵심 규칙:**
+
+1. **column_definitions에 있는 열만 추출하세요.** 다른 열을 임의로 추가하지 마세요.
+2. **이 논문의 데이터만 추출하세요.** 컨텍스트에 다른 논문 정보가 섞여 있더라도 무시하세요. 추측 금지.
+3. **없는 열은 반드시 null을 써 넣으세요.** "N/A" 문자열이 아니라 JSON의 null입니다. 빈 문자열도 금지.
+4. **수치와 단위는 원본 그대로 유지하세요.** 숫자를 변형하거나 단위를 변환하지 마세요:
+   - 원본이 "303"이면 "303", "303.15"이면 "303.15"로 출력
+   - 앞에 불필요한 소수점 금지 (".303" ✗ → "0.303" 또는 "303" ✓)
+   - 소수점 앞의 0을 생략 금지 (".25" ✗ → "0.25" ✓)
+   - 숫자 뒤 불필요한 소수점 금지 ("303." ✗ → "303" ✓)
+5. **한 논문에서 여러 실험 조건이 측정되었으면 여러 행으로 출력하세요.** (예: 온도 3개 × 압력 4개 → 12행)
+6. **OCR 테이블 > 본문 텍스트 우선.** 같은 값이 테이블과 본문에 있으면 테이블 값 사용.
+7. **OCR 테이블의 모든 데이터 행을 빠짐없이 살펴보세요.** 요약하거나 대표값만 뽑지 마세요. 필요 없는 열은 자연스럽게 버려집니다.
+8. **논문당 data_rows는 최대 50행.** 그보다 많으면 핵심 조건만 선택해 50행 이내로 줄이고 notes에 이유를 남기세요.
+9. **confidence 필드**:
+   - "high" — 파싱 테이블 또는 명확한 OCR 테이블 셀에서 직접 가져옴
+   - "medium" — OCR 헤더 병합 해석이나 본문 텍스트에서 추출
+   - "low" — 맥락으로 유추했거나 값이 불명확
+10. **source_hint** (선택): 어느 소스에서 가져왔는지 짧게 명시. 예: "Table 3", "Fig. 2 caption", "Section 3.2".
+
+**출력 포맷 (JSON):**
+\`\`\`json
+{
+  "paper_title": "이 논문의 제목",
+  "data_rows": [
+    {
+      "values": { "Adsorbent": "Zeolite 13X", "T (K)": "303", "q_max (mmol/g)": "5.2", "K_L (kPa⁻¹)": null },
+      "confidence": "high",
+      "source_hint": "Table 3"
+    }
+  ],
+  "notes": "Pressure data not reported in this paper"
+}
+\`\`\`
+
+**notes는 반드시 영어로 작성하세요.** 한글 사용 금지 — JSON 인코딩 문제를 방지하기 위함입니다.
+**paper_title은 논문의 원래 영어 제목을 그대로 사용하세요.**
+
+**values 필드의 키는 반드시 column_definitions의 열 이름과 정확히 일치해야 합니다.** 대소문자, 공백, 괄호, 단위까지 모두 동일하게. 열 이름을 임의로 바꾸지 마세요.
+
+**이 논문에 해당 데이터가 전혀 없으면 data_rows를 빈 배열 []로 반환하세요.** 억지로 값을 만들어내지 마세요.`;
+
+/**
+ * Run the Per-paper Extraction Agent (SRAG Stage 3b) on a single paper's context.
+ * @param {object} tableSpec — { title, row_axis, column_definitions, inclusion_criteria, exclusion_criteria }
+ * @param {string} paperContext — assembled single-paper context (parsed matrices + OCR HTML + text chunks)
+ * @param {string} paperTitle — the title of the paper being extracted from
+ * @param {AbortSignal} [abortSignal]
+ * @returns {Promise<{paper_title: string, data_rows: Array<{values: Record<string, string|null>, confidence?: string, source_hint?: string}>, notes?: string}>}
+ */
+export async function extractColumnsFromPaper(tableSpec, paperContext, paperTitle, abortSignal) {
+  console.log(`[SRAG-DEBUG] Extracting for "${paperTitle?.slice(0, 40)}" with ${tableSpec.column_definitions?.length ?? 0} columns: ${JSON.stringify(tableSpec.column_definitions?.slice(0, 5))}`);
+
+  const specSection = `=== 테이블 사양 (Table Spec) ===
+제목: ${tableSpec.title || "자동 생성"}
+행 축: ${tableSpec.row_axis || "각 데이터 포인트"}
+열 정의 (column_definitions): ${JSON.stringify(tableSpec.column_definitions || [])}
+포함 조건: ${tableSpec.inclusion_criteria || "없음"}
+제외 조건: ${tableSpec.exclusion_criteria || "없음"}`;
+
+  const userMessage = `${specSection}
+
+=== 대상 논문 ===
+${paperTitle}
+
+${paperContext}`;
+
+  const messages = [
+    { role: "system", content: EXTRACTION_AGENT_SYSTEM_PROMPT },
+    { role: "user", content: userMessage },
+  ];
+
+  const callOllama = async () => {
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: getActiveModel(),
+        messages,
+        stream: false,
+        format: PAPER_EXTRACTION_SCHEMA,
+        options: { num_ctx: LLM_CTX, temperature: 0.1 },
+      }),
+      signal: ollamaSignal(abortSignal),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Extraction Agent error (${res.status}): ${text}`);
+    }
+
+    const json = await res.json();
+    const content = json.message.content;
+    console.log(`[SRAG-DEBUG] Raw response for "${paperTitle?.slice(0, 40)}": ${typeof content} (${String(content).length} chars)`);
+    console.log(`[SRAG-DEBUG] First 500 chars: ${String(content).slice(0, 500)}`);
+    return content;
+  };
+
+  // Primary attempt
+  let raw;
+  try {
+    raw = await callOllama();
+    const parsed = safeParseLlmJson(raw, "ExtractionAgent");
+    console.log(`[SRAG-DEBUG] Parsed for "${paperTitle?.slice(0, 40)}": data_rows=${parsed?.data_rows?.length ?? 'undefined'}, keys=${parsed?.data_rows?.[0]?.values ? Object.keys(parsed.data_rows[0].values).join(',') : 'none'}`);
+    return parsed;
+  } catch (err) {
+    // 1회 재시도: JSON 파싱 실패 시에만 재시도 (네트워크/abort는 상위에 전달)
+    if (err?.name === "AbortError") throw err;
+    console.warn(`[LLM] ExtractionAgent retry for "${paperTitle?.slice(0, 40)}": ${err.message}`);
+    raw = await callOllama();
+    const parsed = safeParseLlmJson(raw, "ExtractionAgent(retry)");
+    console.log(`[SRAG-DEBUG] Retry parsed for "${paperTitle?.slice(0, 40)}": data_rows=${parsed?.data_rows?.length ?? 'undefined'}`);
+    return parsed;
+  }
+}
+
+// ============================================================
 // Exports
 // ============================================================
 
@@ -415,7 +582,9 @@ export {
   ORCHESTRATOR_SCHEMA,
   TABLE_OUTPUT_SCHEMA,
   EXTRACTOR_OUTPUT_SCHEMA,
+  PAPER_EXTRACTION_SCHEMA,
   ORCHESTRATOR_SYSTEM_PROMPT,
   TABLE_AGENT_SYSTEM_PROMPT,
   EXTRACTOR_SYSTEM_PROMPT,
+  EXTRACTION_AGENT_SYSTEM_PROMPT,
 };

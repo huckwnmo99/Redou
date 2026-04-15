@@ -1,6 +1,13 @@
 // LLM Chat Module — Ollama LLM (user-selectable) + Granite Guardian 3.3 8B
 // Handles: streaming chat, JSON table generation, groundedness verification
 
+/** Ollama fetch용 타임아웃 시그널. 기존 signal이 있으면 합성, 없으면 단독 사용. */
+function ollamaSignal(existingSignal, timeoutMs = 300_000) {
+  const timeoutSig = AbortSignal.timeout(timeoutMs);
+  if (existingSignal) return AbortSignal.any([existingSignal, timeoutSig]);
+  return timeoutSig;
+}
+
 const OLLAMA_BASE_URL = process.env.OLLAMA_HOST || "http://localhost:11434";
 const DEFAULT_MODEL = process.env.REDOU_LLM_MODEL || "gpt-oss:120b";
 const GUARDIAN_MODEL = process.env.REDOU_GUARDIAN_MODEL || "granite3-guardian:8b";
@@ -40,7 +47,7 @@ export async function* streamChat(messages, abortSignal) {
       stream: true,
       options: { num_ctx: LLM_CTX, temperature: 0.3 },
     }),
-    signal: abortSignal,
+    signal: ollamaSignal(abortSignal),
   });
 
   if (!res.ok) {
@@ -74,11 +81,10 @@ export async function* streamChat(messages, abortSignal) {
 /**
  * Check if a claim is grounded in the source text using granite3-guardian.
  *
- * granite3-guardian uses a special protocol:
- * - system: "groundedness" activates groundedness-checking mode
- * - role "context": the source text
- * - role "assistant": the claim to verify
- * - Response: "Yes" = ungrounded (harmful), "No" = grounded (safe/verified)
+ * Uses standard Ollama /api/chat protocol:
+ * - role "system": groundedness check instructions
+ * - role "user": context + claim in structured format
+ * - Response: "Yes" = ungrounded, "No" = grounded (verified)
  */
 export async function checkGroundedness(sourceText, claim) {
   const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
@@ -86,14 +92,20 @@ export async function checkGroundedness(sourceText, claim) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: GUARDIAN_MODEL,
-      system: "groundedness",
       messages: [
-        { role: "context", content: sourceText },
-        { role: "assistant", content: claim },
+        {
+          role: "system",
+          content: "You are a groundedness-checking assistant. Given a Context and a Claim, determine whether the Claim is fully supported by the Context. Answer only \"Yes\" if the claim is NOT grounded (ungrounded/unsupported), or \"No\" if the claim IS grounded (supported by the context). Do not explain.",
+        },
+        {
+          role: "user",
+          content: `Context:\n${sourceText}\n\nClaim: ${claim}`,
+        },
       ],
       stream: false,
       options: { temperature: 0, num_ctx: 16384 },
     }),
+    signal: ollamaSignal(null),
   });
 
   if (!res.ok) {
@@ -102,8 +114,8 @@ export async function checkGroundedness(sourceText, claim) {
 
   const json = await res.json();
   const answer = json.message.content.trim().toLowerCase();
-  // "No" = not harmful = grounded = verified
-  // "Yes" = harmful = ungrounded = unverified
+  // "No" = grounded = verified
+  // "Yes" = ungrounded = unverified
   const isGrounded = answer.startsWith("no");
   return {
     status: isGrounded ? "verified" : "unverified",
@@ -121,7 +133,7 @@ export async function checkGroundedness(sourceText, claim) {
 export async function isLlmAvailable() {
   try {
     const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, {
-      signal: AbortSignal.timeout(3000),
+      signal: ollamaSignal(null, 10_000),
     });
     if (!res.ok) return false;
     const json = await res.json();
@@ -140,7 +152,7 @@ export async function isLlmAvailable() {
 export async function isGuardianAvailable() {
   try {
     const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, {
-      signal: AbortSignal.timeout(3000),
+      signal: ollamaSignal(null, 10_000),
     });
     if (!res.ok) return false;
     const json = await res.json();

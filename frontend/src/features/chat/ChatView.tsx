@@ -21,6 +21,7 @@ export function ChatView() {
     conversationType,
     pipelineStage,
     pipelineMessage,
+    pendingUserMessage,
     setConversationType,
   } = useChatStore();
 
@@ -203,6 +204,7 @@ export function ChatView() {
         isStreaming={isStreaming}
         pipelineStage={pipelineStage}
         pipelineMessage={pipelineMessage}
+        pendingUserMessage={pendingUserMessage}
         onNavigateToPaper={handleNavigateToPaper}
       />
 

@@ -129,6 +129,8 @@ export function useSendChatMessage() {
       // Start streaming BEFORE the IPC call (handler blocks until LLM finishes)
       const tempConvId = params.conversationId ?? "pending";
       startStreaming(tempConvId);
+      // Show user message immediately (optimistic update)
+      useChatStore.getState().setPendingUserMessage(params.message);
 
       // Include mode from chatStore if not explicitly provided
       const mode = params.mode ?? useChatStore.getState().conversationType;
@@ -145,8 +147,12 @@ export function useSendChatMessage() {
     onSuccess: (data) => {
       // Update conversation ID if it was newly created
       useChatStore.getState().setActiveConversationId(data.conversationId);
+      useChatStore.getState().clearPendingUserMessage();
       queryClient.invalidateQueries({ queryKey: chatKeys.conversations });
       queryClient.invalidateQueries({ queryKey: chatKeys.messages(data.conversationId) });
+    },
+    onError: () => {
+      useChatStore.getState().clearPendingUserMessage();
     },
   });
 }

@@ -31,6 +31,10 @@ Redou는 연구 논문 읽기 & 관리 데스크탑 앱이다. Electron이 React
 | `/review` | reviewer | opus | Codex + Claude 이중 리뷰 → PR 생성 |
 | `/fix` | fixer | opus | 소규모 수정: 원인 파악 → 수정 → 자체 검증 |
 
+### 하네스 관리
+모든 에이전트는 작업 완료 시 `docs/harness/`를 갱신할 책임이 있다.
+하네스는 프로젝트의 단일 진실 원천(Single Source of Truth)이다.
+
 ### 사용자 개입 지점
 1. `/plan` 계획서 승인/수정
 2. `/review` PR merge 판단
@@ -42,11 +46,13 @@ Idea (리서치/토의) → backlog (할 일 등록) → /plan (계획서 작성
 사용자가 "이거 구현하자"라고 하기 전까지는 아이디어 토의 단계. 구현 결정 후 `/plan`부터 시작.
 
 ### 참조 문서
-- 로드맵: `docs/ROADMAP.md`
+- 기능 하네스 (최우선): `docs/harness/` — 전체 기능 명세, 현재 상태, 데이터 흐름
+  - `main/` — 에이전트 필수 읽기 (overview, flows, feature-status)
+  - `detail/` — 작업 대상 영역별 상세
 - 아이디어/백로그: `docs/backlog/`
 - 리서치/제안서: `docs/01-Idea/`
 - 기능 계획서: `docs/features/new/`, 수정 계획서: `docs/features/fix/`
-- 프로젝트 구조: `docs/PROJECT_STRUCTURE.md`
+- 로드맵 (참고용): `docs/ROADMAP.md`
 - 에이전트 정의: `.claude/agents/`
 - 스킬 정의: `.claude/skills/`
 
@@ -136,6 +142,8 @@ docs/              → 프로젝트 구조, 기능 계획서, 설계 문서
 - **메인 에이전트는 코드를 직접 수정하지 않는다.** 모든 코드 변경(Edit, Write)은 반드시 서브에이전트(`/plan`, `/develop`, `/fix`, `/test`, `/review`)를 통해서만 수행한다.
 - **서브에이전트가 중단/실패해도 메인 에이전트가 대신 작업하지 않는다.** 새 서브에이전트를 띄워서 이어서 진행한다.
 - **워크플로우 단계를 건너뛰지 않는다.** `/plan` 없이 `/develop` 금지, `/test` 없이 `/review` 금지.
+- **코드 변경 전 반드시 `/plan` 계획서가 존재해야 한다.** general-purpose 에이전트로 코드를 수정하는 것은 금지. 코드 변경은 반드시 developer(`/develop`) 또는 fixer(`/fix`) 서브에이전트를 통해서만 수행하며, 이들은 `docs/features/new/` 또는 `docs/features/fix/`에 승인된 계획서가 있어야만 작업을 시작한다.
+- **진단용 로깅 추가도 예외 없이 `/plan` → `/fix` 워크플로우를 따른다.** "작은 변경"이라는 이유로 워크플로우를 건너뛰지 않는다.
 - 메인 에이전트의 역할은 **오케스트레이션**(서브에이전트 호출, 사용자와 소통, 상태 확인)에 한정한다.
 
 ## Conventions
@@ -146,4 +154,5 @@ docs/              → 프로젝트 구조, 기능 계획서, 설계 문서
 - 추출 로직 변경 시 `CURRENT_EXTRACTION_VERSION` (main.mjs) 반드시 증가.
 - DB 테이블 추가 시 `main.mjs`의 `DB_QUERY_TABLES`/`DB_MUTATE_TABLES` 화이트리스트 갱신.
 - 모든 작업(기능/수정)은 `/plan`을 먼저 거쳐 `docs/features/new/` 또는 `docs/features/fix/`에 계획서 작성 후 진행.
+- 기능 추가/수정 시 `docs/harness/` 관련 파일도 함께 갱신. 하네스가 코드와 괴리되면 안 됨.
 - 사용자 언어: 한국어. 한국어로 응답할 것.

@@ -15,7 +15,7 @@ import { extractTablesAndEquationsWithOcr, isOllamaAvailable, enhanceEquationsWi
 import { isMineruAvailable, parsePdf, parseMineruResult, flattenTableHtml, flattenEquationLatex, saveFigureImages, saveTableImages } from "./mineru-client.mjs";
 import { isGrobidAvailable, extractMetadataAndReferences, linkReferencesToExistingPapers } from "./grobid-client.mjs";
 import { streamChat, checkGroundedness, isLlmAvailable, isGuardianAvailable, getActiveModel, setActiveModel, OLLAMA_BASE_URL } from "./llm-chat.mjs";
-import { generateOrchestratorPlan, generateTableFromSpec, extractMatrixFromHtml } from "./llm-orchestrator.mjs";
+import { generateOrchestratorPlan, generateTableFromSpec, extractMatrixFromHtml, extractColumnsFromPaper } from "./llm-orchestrator.mjs";
 import { generateQaResponse, formatSourceAttribution } from "./llm-qa.mjs";
 import { parseAllHtmlTables } from "./html-table-parser.mjs";
 import { rerankChunks, isRerankerAvailable } from "./reranker-worker.mjs";
@@ -285,6 +285,13 @@ function sleep(ms) {
 
 function getErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+// Supabase single() 결과를 throw-on-error로 강제. 호출 측에서 구조분해 없이 사용.
+function unwrapSingle({ data, error }, label) {
+  if (error) throw new Error(`[supabase] ${label}: ${error.message}`);
+  if (!data) throw new Error(`[supabase] ${label}: no row returned`);
+  return data;
 }
 
 function normalizePaperTitle(value) {
@@ -2819,14 +2826,12 @@ async function runMultiQueryRag(searchQueries, keywordHints, filterPaperIds, mod
   const vectorFigureMap = new Map(); // figureId → figure (vector search)
   const bm25FigureMap = new Map(); // figureId → figure (BM25 search, table mode only)
 
-  // Build BM25 query text from keywordHints
-  const bm25HintSuffix = (keywordHints ?? []).join(" ");
-
   for (const sq of searchQueries) {
     const emb = await generateEmbedding(sq.query, "query");
 
-    // BM25 query text = search query + keyword hints
-    const bm25QueryText = (sq.query + " " + bm25HintSuffix).trim();
+    // BM25 query text = search query only (keyword_hints는 Orchestrator가 이미 search_queries에 반영.
+    // 합치면 OR tsquery에서 불필요한 단어가 늘어 랭킹 품질 저하)
+    const bm25QueryText = sq.query;
 
     // Run vector search, BM25 search, figure search (+ figure BM25 in table mode) in parallel
     const promises = [
@@ -3010,6 +3015,253 @@ function assembleRagContext(chunks, figures, paperRefMap, parsedMatrices) {
   return result;
 }
 
+// --- Assemble per-paper RAG context string (SRAG Stage 3b 입력) ---
+// assembleRagContext()의 단일 논문 버전. 한 편의 논문 컨텍스트만으로 추출 에이전트를 호출할 때 사용.
+// 예산: 논문당 30K chars (전체 TOTAL_BUDGET의 약 25%).
+const PER_PAPER_MATRIX_BUDGET = 12000;
+const PER_PAPER_OCR_BUDGET = 14000;
+const PER_PAPER_TOTAL_BUDGET = 30000;
+
+function assemblePerPaperContext({ chunks, figures, parsedTables, paperTitle }) {
+  // --- Section 1: Parsed matrices (TSV) for this paper ---
+  let matrixStr = "";
+  if (parsedTables && parsedTables.length > 0) {
+    const parts = [];
+    for (const t of parsedTables) {
+      const headerLine = (t.headers ?? []).join(" | ");
+      const rowLines = (t.rows ?? []).map((r) => (Array.isArray(r) ? r.join(" | ") : String(r))).join("\n");
+      const entry = `[${t.caption || ""}]\n${headerLine}\n${rowLines}`;
+      parts.push(entry);
+    }
+    matrixStr = parts.join("\n\n");
+    if (matrixStr.length > PER_PAPER_MATRIX_BUDGET) {
+      matrixStr = matrixStr.slice(0, PER_PAPER_MATRIX_BUDGET) + "\n... (truncated)";
+    }
+  }
+
+  // --- Section 2: OCR HTML tables for this paper (RRF 내림차순) ---
+  const ocrEntries = (figures ?? [])
+    .filter((f) => f.summary_text && f.summary_text.length > 30)
+    .sort((a, b) => (b._rrfScore ?? 0) - (a._rrfScore ?? 0))
+    .map((f) => `[${f.figure_no || ""}]\n${f.caption ?? ""}\n${f.summary_text}`);
+  let ocrTables = "";
+  for (const entry of ocrEntries) {
+    if (ocrTables.length + entry.length > PER_PAPER_OCR_BUDGET) break;
+    ocrTables += (ocrTables ? "\n\n" : "") + entry;
+  }
+
+  // --- Section 3: Text chunks for this paper (supplementary) ---
+  const usedBudget = matrixStr.length + ocrTables.length;
+  const chunkBudget = Math.max(3000, PER_PAPER_TOTAL_BUDGET - usedBudget);
+  let textChunksStr = "";
+  const sortedChunks = (chunks ?? []).slice().sort((a, b) => (b._rrfScore ?? 0) - (a._rrfScore ?? 0));
+  for (let i = 0; i < sortedChunks.length; i++) {
+    const entry = `[Chunk ${i + 1}]\n${sortedChunks[i].text}\n\n`;
+    if (textChunksStr.length + entry.length > chunkBudget) break;
+    textChunksStr += entry;
+  }
+
+  let result = "";
+  if (matrixStr) {
+    result += `=== 파싱된 테이블 (TSV — 가장 정확한 소스) ===\n${matrixStr}\n\n`;
+  }
+  if (ocrTables) {
+    result += `=== OCR 추출 테이블 (HTML — 파싱 테이블에 없는 데이터 확인용) ===\n${ocrTables}\n\n`;
+  }
+  if (textChunksStr) {
+    result += `=== 관련 텍스트 (본문 청크 — 보조 데이터) ===\n${textChunksStr}`;
+  }
+
+  console.log(
+    `[Chat/PerPaper] "${(paperTitle || "").slice(0, 40)}" context: matrices ${matrixStr.length}, OCR ${ocrTables.length}, chunks ${textChunksStr.length} chars`
+  );
+
+  return result;
+}
+
+// --- Generic groupBy helper ---
+function groupBy(items, keyFn) {
+  const map = new Map();
+  for (const item of items ?? []) {
+    const key = keyFn(item);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(item);
+  }
+  return map;
+}
+
+// --- Normalize column key for fuzzy matching between LLM output and spec ---
+// 유니코드 특수문자를 ASCII로 정규화 (LLM JSON 인코딩 손실 방지)
+// Ollama가 ² (U+00B2) 등의 유니코드 문자를 JSON 응답에서 깨뜨리는 문제 대응.
+function sanitizeColumnNames(columns) {
+  if (!Array.isArray(columns)) return columns;
+  const replacements = [
+    [/\u00B2/g, "2"],   // ²  → 2  (superscript two)
+    [/\u00B3/g, "3"],   // ³  → 3  (superscript three)
+    [/\u207B\u00B9/g, "-1"], // ⁻¹ → -1
+    [/\u207B/g, "-"],   // ⁻  → -  (superscript minus)
+    [/\u2070/g, "0"],   // ⁰  → 0
+    [/\u00B9/g, "1"],   // ¹  → 1
+    [/\u2074/g, "4"],   // ⁴  → 4
+    [/\u2075/g, "5"],   // ⁵  → 5
+    [/\u2076/g, "6"],   // ⁶  → 6
+    [/\u2077/g, "7"],   // ⁷  → 7
+    [/\u2078/g, "8"],   // ⁸  → 8
+    [/\u2079/g, "9"],   // ⁹  → 9
+    [/\u2080/g, "0"],   // ₀  → 0  (subscript)
+    [/\u2081/g, "1"],   // ₁  → 1
+    [/\u2082/g, "2"],   // ₂  → 2
+    [/\u2083/g, "3"],   // ₃  → 3
+    [/\u2084/g, "4"],   // ₄  → 4
+    [/\u00B0/g, "deg"], // °  → deg
+    [/\u00B1/g, "+-"],  // ±  → +-
+    [/\u00D7/g, "x"],   // ×  → x
+    [/\u00B7/g, "."],   // ·  → .
+    [/\u03B1/g, "alpha"], // α → alpha
+    [/\u03B2/g, "beta"],  // β → beta
+    [/\u03B3/g, "gamma"], // γ → gamma
+    [/\u03B4/g, "delta"], // δ → delta
+    [/\u0394/g, "Delta"], // Δ → Delta
+    [/\u03BC/g, "mu"],    // μ → mu
+    [/\u03C0/g, "pi"],    // π → pi
+  ];
+  return columns.map((col) => {
+    let s = String(col);
+    for (const [re, rep] of replacements) s = s.replace(re, rep);
+    return s;
+  });
+}
+
+function normalizeColumnKey(name) {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/[\s_\-\(\)\[\]{}.,;:/\\]+/g, "")
+    .trim();
+}
+
+// --- Merge per-paper extraction results into a unified table (SRAG Stage 3c) ---
+// Code-only merge — no LLM call.
+// - extractionResults: [{paperId, paperTitle, extraction: {data_rows, ...}, success, ...}]
+// - tableSpec: { title, column_definitions, ... }
+// - paperMetadata: [{paperId, title, authors, year, doi, journal}]
+// - paperRefMap: Map<paperId, {refNo, title}>
+// Returns: { tableJson, nullSummary }
+function mergeExtractionResults(extractionResults, tableSpec, paperMetadata, paperRefMap) {
+  const headers = Array.isArray(tableSpec.column_definitions) ? tableSpec.column_definitions.slice() : [];
+  const normalizedHeaders = headers.map((h) => normalizeColumnKey(h));
+
+  const rows = [];
+  const nullDetails = []; // [{paperId, paperTitle, column, rowIndex}]
+  const usedPaperIds = new Set();
+  let totalNulls = 0;
+  let totalCells = 0;
+  let droppedRowCount = 0;
+
+  for (const result of extractionResults) {
+    if (!result.success) continue;
+    const dataRows = result.extraction?.data_rows ?? [];
+    if (!Array.isArray(dataRows) || dataRows.length === 0) continue;
+
+    const ref = paperRefMap.get(result.paperId);
+    const refNo = ref?.refNo ?? null;
+    const refTag = refNo ? ` [${refNo}]` : "";
+
+    // 논문당 최대 50행 제한 (프롬프트에도 명시했지만 방어적)
+    const safeDataRows = dataRows.slice(0, 50);
+
+    for (let ri = 0; ri < safeDataRows.length; ri++) {
+      const dataRow = safeDataRows[ri];
+      const values = dataRow?.values || {};
+
+      // values 키를 normalized 매핑으로 변환 (헤더와 fuzzy 매칭)
+      const normalizedValues = new Map();
+      for (const [k, v] of Object.entries(values)) {
+        normalizedValues.set(normalizeColumnKey(k), v);
+      }
+
+      const row = [];
+      const perRowNullColumns = [];
+      for (let ci = 0; ci < headers.length; ci++) {
+        const col = headers[ci];
+        const nKey = normalizedHeaders[ci];
+        const raw = normalizedValues.has(nKey) ? normalizedValues.get(nKey) : undefined;
+        totalCells++;
+
+        if (raw === null || raw === undefined || raw === "" || raw === "N/A") {
+          row.push("N/A");
+          perRowNullColumns.push({ column: col, columnIndex: ci });
+          totalNulls++;
+        } else {
+          // 참조번호 자동 부여: 이미 [n]이 붙어 있으면 중복 부여하지 않음
+          const value = String(raw);
+          const hasRefTag = /\[\d+\]/.test(value);
+          row.push(hasRefTag || !refTag ? value : `${value}${refTag}`);
+        }
+      }
+
+      // N/A 비율이 50% 초과이면 행 폐기
+      const naCount = perRowNullColumns.length;
+      if (headers.length > 0 && naCount / headers.length > 0.5) {
+        droppedRowCount++;
+        continue;
+      }
+
+      rows.push(row);
+      usedPaperIds.add(result.paperId);
+
+      // nullSummary용 세부 기록 (살아남은 행만)
+      const outRowIndex = rows.length - 1;
+      for (const nullCol of perRowNullColumns) {
+        nullDetails.push({
+          paperId: result.paperId,
+          paperTitle: result.paperTitle,
+          column: nullCol.column,
+          columnIndex: nullCol.columnIndex,
+          rowIndex: outRowIndex,
+        });
+      }
+    }
+  }
+
+  // references: 데이터에 실제 사용된 논문만 포함, refNo 기준 정렬
+  const doiLookup = new Map(paperMetadata.map((p) => [p.paperId, p.doi]));
+  const references = paperMetadata
+    .filter((p) => usedPaperIds.has(p.paperId))
+    .map((p) => {
+      const ref = paperRefMap.get(p.paperId);
+      return {
+        refNo: String(ref?.refNo ?? ""),
+        paperId: p.paperId,
+        title: p.title,
+        authors: p.authors,
+        year: p.year,
+        doi: doiLookup.get(p.paperId) || "",
+      };
+    })
+    .sort((a, b) => (parseInt(a.refNo, 10) || 0) - (parseInt(b.refNo, 10) || 0));
+
+  const tableJson = {
+    title: tableSpec.title || "비교 테이블",
+    headers,
+    rows,
+    references,
+    notes: "",
+  };
+
+  const nullSummary = {
+    totalNulls,
+    totalCells,
+    droppedRowCount,
+    details: nullDetails,
+  };
+
+  console.log(
+    `[Chat/Merge] rows=${rows.length}, cells=${totalCells}, nulls=${totalNulls}, droppedRows=${droppedRowCount}`
+  );
+
+  return { tableJson, nullSummary };
+}
+
 // --- Q&A Pipeline Handler ---
 async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAll, abortController) {
   console.log("[Chat/QA] Starting Q&A pipeline...");
@@ -3030,11 +3282,11 @@ async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAl
   // If no results, inform user
   if (ragResults.chunks.length === 0 && ragResults.figures.length === 0) {
     const noDataMsg = "관련 데이터를 찾지 못했습니다. 요청을 더 구체적으로 해주시거나, 해당 주제의 논문이 라이브러리에 있는지 확인해주세요.";
-    const { data: errMsg } = await supabase
+    const errMsg = unwrapSingle(await supabase
       .from("chat_messages")
       .insert({ conversation_id: convId, role: "assistant", content: noDataMsg, message_type: "text" })
       .select("id")
-      .single();
+      .single(), "chat_messages insert (qa/no-data)");
     await supabase.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
     broadcastToWindows(IPC_EVENTS.CHAT_COMPLETE, { conversationId: convId, messageId: errMsg.id, hasTable: false });
     return { conversationId: convId, messageId: errMsg.id, hasTable: false };
@@ -3075,7 +3327,7 @@ async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAl
   const { text: finalText, referencedPaperIds } = formatSourceAttribution(fullResponse, paperMetadata);
 
   // Save assistant message
-  const { data: msg } = await supabase
+  const msg = unwrapSingle(await supabase
     .from("chat_messages")
     .insert({
       conversation_id: convId,
@@ -3088,7 +3340,7 @@ async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAl
       },
     })
     .select("id")
-    .single();
+    .single(), "chat_messages insert (qa/final)");
 
   await supabase.from("chat_conversations").update({ phase: "follow_up", updated_at: new Date().toISOString() }).eq("id", convId);
 
@@ -3112,14 +3364,16 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
       }
       const ownerId = appUser.id;
       const title = message.slice(0, 40) + (message.length > 40 ? "…" : "");
-      const { data: conv } = await supabase
+      const conv = unwrapSingle(await supabase
         .from("chat_conversations")
         .insert({ owner_user_id: ownerId, title, phase: "follow_up", scope_folder_id: scopeFolderId ?? null, scope_all: scopeAll ?? true, conversation_type: conversationType })
         .select("id")
-        .single();
+        .single(), "chat_conversations insert");
       convId = conv.id;
     } else {
-      const { data: conv } = await supabase.from("chat_conversations").select("id, scope_folder_id, scope_all, conversation_type").eq("id", convId).single();
+      const { data: conv, error: convErr } = await supabase.from("chat_conversations").select("id, scope_folder_id, scope_all, conversation_type").eq("id", convId).maybeSingle();
+      if (convErr) throw new Error(`[supabase] chat_conversations load: ${convErr.message}`);
+      if (!conv) throw new Error(`[supabase] chat_conversations load: 존재하지 않는 대화입니다 (${convId})`);
       if (!scopeFolderId && conv.scope_folder_id) scopeFolderId = conv.scope_folder_id;
       if (scopeAll === undefined) scopeAll = conv.scope_all;
       conversationType = conv.conversation_type || "table"; // use stored type for existing conversations
@@ -3176,6 +3430,30 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     const plan = await generateOrchestratorPlan(history, paperList, previousTable, abortController.signal);
     console.log(`[Chat] Orchestrator result: action=${plan.action}, queries=${plan.search_queries?.length ?? 0}`);
 
+    // ===== Clarify guardrail: force generate_table after 3+ clarifies =====
+    if (plan.action === "clarify") {
+      const clarifyCount = history.filter((m) => m.role === "assistant" && m.message_type === "text").length;
+      if (clarifyCount >= 3) {
+        console.log(`[Chat] Clarify guardrail triggered: ${clarifyCount} prior clarifies → forcing generate_table`);
+        plan.action = "generate_table";
+        // Build fallback search queries from the last user message
+        const lastUserMsg = [...history].reverse().find((m) => m.role === "user");
+        if (lastUserMsg && !plan.search_queries?.length) {
+          plan.search_queries = [{ query: lastUserMsg.content, intent: "user request fallback" }];
+        }
+        if (!plan.keyword_hints) plan.keyword_hints = [];
+        if (!plan.table_spec) {
+          plan.table_spec = {
+            title: "자동 생성 테이블",
+            row_axis: "각 데이터 포인트",
+            column_definitions: [],
+            inclusion_criteria: "",
+            exclusion_criteria: "",
+          };
+        }
+      }
+    }
+
     // ===== Handle clarify action =====
     if (plan.action === "clarify") {
       // Clear pipeline — clarify doesn't need the full stepper
@@ -3186,11 +3464,11 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
       for (const token of tokens) {
         broadcastToWindows(IPC_EVENTS.CHAT_TOKEN, { conversationId: convId, token });
       }
-      const { data: msg } = await supabase
+      const msg = unwrapSingle(await supabase
         .from("chat_messages")
         .insert({ conversation_id: convId, role: "assistant", content: clarificationText, message_type: "text" })
         .select("id")
-        .single();
+        .single(), "chat_messages insert (clarify)");
       await supabase.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
       broadcastToWindows(IPC_EVENTS.CHAT_COMPLETE, { conversationId: convId, messageId: msg.id, hasTable: false });
       return { conversationId: convId, messageId: msg.id, hasTable: false };
@@ -3215,11 +3493,11 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     // If no RAG results found, inform user
     if (ragResults.chunks.length === 0 && ragResults.figures.length === 0) {
       const noDataMsg = "관련 데이터를 찾지 못했습니다. 요청을 더 구체적으로 해주시거나, 해당 주제의 논문이 라이브러리에 있는지 확인해주세요.";
-      const { data: errMsg } = await supabase
+      const errMsg = unwrapSingle(await supabase
         .from("chat_messages")
         .insert({ conversation_id: convId, role: "assistant", content: noDataMsg, message_type: "text" })
         .select("id")
-        .single();
+        .single(), "chat_messages insert (table/no-data)");
       await supabase.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
       broadcastToWindows(IPC_EVENTS.CHAT_COMPLETE, { conversationId: convId, messageId: errMsg.id, hasTable: false });
       return { conversationId: convId, messageId: errMsg.id, hasTable: false };
@@ -3365,21 +3643,163 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
 
     console.log(`[Chat] Stage 3a: Parsed ${codeParseCount} tables (code) + ${llmParseCount} tables (LLM) from ${parsedMatrices.length} papers`);
 
-    // ===== Stage 3: Table Agent — LLM-based data extraction =====
-    broadcastToWindows(IPC_EVENTS.CHAT_STATUS, { conversationId: convId, stage: "assembling", message: "테이블 생성 중..." });
-    console.log("[Chat] Stage 3: Table Agent — generating table from RAG context + parsed matrices...");
+    // ===== Stage 3b: Per-paper Extraction (SRAG) =====
+    // 각 논문을 독립적으로 LLM에 보내 column_definitions에 맞는 데이터를 뽑아낸다.
+    // 순차 실행 (Ollama 단일 인스턴스 — 병렬 이득 없음).
+    const stage3bStart = Date.now();
 
-    const ragContext = assembleRagContext(ragResults.chunks, ragResults.figures, paperRefMap, parsedMatrices);
-    let tableJson = await generateTableFromSpec(tableSpec, ragContext, paperMetadata, abortController.signal);
+    // 유니코드 특수문자를 ASCII로 정규화 (LLM이 인코딩 깨뜨리는 것 방지)
+    if (tableSpec.column_definitions) {
+      tableSpec.column_definitions = sanitizeColumnNames(tableSpec.column_definitions);
+    }
+
+    const columnDefs = Array.isArray(tableSpec.column_definitions) ? tableSpec.column_definitions : [];
+    console.log(`[SRAG-DEBUG] columnDefs: ${JSON.stringify(columnDefs)}`);
+    const parsedTablesByPaper = new Map(parsedMatrices.map((pm) => [pm.paperId, pm.tables]));
+
+    const extractionResults = []; // [{paperId, paperTitle, extraction, success, error?, ms}]
+    let extractionSuccessCount = 0;
+    let extractionFailCount = 0;
+    let extractionFallbackNeeded = false;
+
+    if (columnDefs.length > 0 && allPaperIds.length > 0) {
+      for (let i = 0; i < allPaperIds.length; i++) {
+        const pid = allPaperIds[i];
+        const pMeta = paperMetadata.find((p) => p.paperId === pid);
+        if (!pMeta) continue;
+
+        broadcastToWindows(IPC_EVENTS.CHAT_STATUS, {
+          conversationId: convId,
+          stage: "extracting",
+          message: `논문별 데이터 추출 중... (${i + 1}/${allPaperIds.length})`,
+          detail: pMeta.title?.slice(0, 60) ?? "",
+        });
+
+        const paperContext = assemblePerPaperContext({
+          chunks: chunksByPaper.get(pid) ?? [],
+          figures: figuresByPaper.get(pid) ?? [],
+          parsedTables: parsedTablesByPaper.get(pid) ?? [],
+          paperTitle: pMeta.title,
+        });
+
+        // 논문에 사용 가능한 컨텍스트가 전혀 없으면 건너뛴다 (빈 결과로 기록)
+        if (!paperContext || paperContext.trim().length === 0) {
+          extractionResults.push({
+            paperId: pid,
+            paperTitle: pMeta.title,
+            extraction: { paper_title: pMeta.title, data_rows: [] },
+            success: true,
+            ms: 0,
+          });
+          continue;
+        }
+
+        const t0 = Date.now();
+        try {
+          // 논문당 최대 60초 타임아웃 (abortController와 합성)
+          const timeoutController = new AbortController();
+          const timeoutId = setTimeout(() => timeoutController.abort(), 60000);
+          const onAbort = () => timeoutController.abort();
+          abortController.signal.addEventListener("abort", onAbort);
+
+          let extraction;
+          try {
+            extraction = await extractColumnsFromPaper(
+              tableSpec,
+              paperContext,
+              pMeta.title,
+              timeoutController.signal
+            );
+          } finally {
+            clearTimeout(timeoutId);
+            abortController.signal.removeEventListener("abort", onAbort);
+          }
+
+          extractionResults.push({
+            paperId: pid,
+            paperTitle: pMeta.title,
+            extraction,
+            success: true,
+            ms: Date.now() - t0,
+          });
+          extractionSuccessCount++;
+        } catch (err) {
+          // 상위 abort는 그대로 전파
+          if (abortController.signal.aborted) throw err;
+          console.error(`[Chat] Stage 3b extraction failed for "${pMeta.title?.slice(0, 40)}":`, err.message);
+          extractionResults.push({
+            paperId: pid,
+            paperTitle: pMeta.title,
+            extraction: { paper_title: pMeta.title, data_rows: [] },
+            success: false,
+            error: err.message,
+            ms: Date.now() - t0,
+          });
+          extractionFailCount++;
+        }
+      }
+
+      // 전체 실패 판단: 성공 논문이 하나도 없으면 single-call fallback 사용
+      if (extractionSuccessCount === 0 && extractionFailCount > 0) {
+        extractionFallbackNeeded = true;
+      }
+    } else {
+      // column_definitions가 비어 있으면 (orchestrator가 채우지 않았으면) 기존 single-call fallback 사용
+      extractionFallbackNeeded = true;
+    }
+
+    const stage3bMs = Date.now() - stage3bStart;
+    console.log(
+      `[Chat] Stage 3b: Per-paper extraction → ${extractionSuccessCount} success, ${extractionFailCount} fail, ${stage3bMs}ms (fallback=${extractionFallbackNeeded})`
+    );
+
+    // ===== Stage 3c: Merge + Table Assembly (코드 병합 or fallback) =====
+    broadcastToWindows(IPC_EVENTS.CHAT_STATUS, { conversationId: convId, stage: "assembling", message: "테이블 생성 중..." });
+
+    let tableJson;
+    let extractionMode;
+    let nullSummary = null;
+
+    if (!extractionFallbackNeeded) {
+      console.log("[Chat] Stage 3c: Merging per-paper extractions (code-only, no LLM)...");
+      const merged = mergeExtractionResults(extractionResults, tableSpec, paperMetadata, paperRefMap);
+      tableJson = merged.tableJson;
+      nullSummary = merged.nullSummary;
+      extractionMode = "per_paper";
+
+      // 정상 모드에서도 rows가 완전히 비어 있으면 single-call fallback로 재시도
+      if (!tableJson.rows || tableJson.rows.length === 0) {
+        console.warn("[Chat] Stage 3c: merged result empty — falling back to single-call Table Agent");
+        extractionFallbackNeeded = true;
+      }
+    }
+
+    if (extractionFallbackNeeded) {
+      console.log("[Chat] Stage 3c: Fallback — single-call Table Agent on combined RAG context...");
+      const ragContext = assembleRagContext(ragResults.chunks, ragResults.figures, paperRefMap, parsedMatrices);
+      tableJson = await generateTableFromSpec(tableSpec, ragContext, paperMetadata, abortController.signal);
+      extractionMode = "single_call_fallback";
+    }
 
     // Post-process: clean cell values (fix LLM formatting artifacts)
     if (tableJson.rows) {
       tableJson.rows = tableJson.rows.map((row) => row.map((cell) => cleanCellValue(cell)));
     }
-    console.log(`[Chat] Stage 3: Table Agent → ${tableJson.rows?.length ?? 0} rows, ${tableJson.references?.length ?? 0} references`);
+    console.log(
+      `[Chat] Stage 3c: Table → ${tableJson.rows?.length ?? 0} rows, ${tableJson.references?.length ?? 0} references (mode=${extractionMode})`
+    );
+
+    // SRAG 추출 메타데이터 (Step 4 Agentic 재검색 입력 등에 사용)
+    const extractionMetadata = {
+      extractionMode,
+      stage3bMs,
+      perPaperTiming: extractionResults.map((r) => ({ paperId: r.paperId, ms: r.ms, success: r.success })),
+      partialFailures: extractionResults.filter((r) => !r.success).map((r) => ({ paperId: r.paperId, paperTitle: r.paperTitle, error: r.error })),
+      nullSummary,
+    };
 
     // Insert assistant message
-    const { data: msg } = await supabase
+    const msg = unwrapSingle(await supabase
       .from("chat_messages")
       .insert({
         conversation_id: convId,
@@ -3389,7 +3809,7 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
         metadata: { source_chunk_ids: ragResults.chunks.map((c) => c.chunk_id) },
       })
       .select("id")
-      .single();
+      .single(), "chat_messages insert (table_report)");
 
     // Update phase + timestamp
     await supabase.from("chat_conversations").update({ phase: "follow_up", updated_at: new Date().toISOString() }).eq("id", convId);
@@ -3415,7 +3835,7 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     }
 
     // Insert generated table
-    const { data: tableRow } = await supabase
+    const tableRow = unwrapSingle(await supabase
       .from("chat_generated_tables")
       .insert({
         message_id: msg.id,
@@ -3424,9 +3844,10 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
         headers: tableJson.headers,
         rows: tableJson.rows,
         source_refs: sourceRefs,
+        metadata: extractionMetadata,
       })
       .select("id")
-      .single();
+      .single(), "chat_generated_tables insert");
     const tableId = tableRow.id;
 
     // Update message metadata with tableId
@@ -3448,10 +3869,10 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
         console.log("[Chat] Stage 4: Guardian — verifying data...");
 
         const allSourceTexts = [
-          ...ragResults.figures.filter((f) => f.summary_text).map((f) => `${f.caption ?? ""}\n${f.summary_text}`),
-          ...ragResults.chunks.slice(0, 20).map((c) => c.text),
+          ...ragResults.figures.filter((f) => f.summary_text).map((f) => `${f.caption ?? ""}\n${f.summary_text}`.slice(0, 1000)),
+          ...ragResults.chunks.slice(0, 20).map((c) => c.text.slice(0, 800)),
         ];
-        const combinedSource = allSourceTexts.join("\n\n").slice(0, 16000);
+        const combinedSource = allSourceTexts.join("\n\n").slice(0, 12000);
 
         // Collect all numeric cells to verify
         const cellsToVerify = [];
@@ -3479,7 +3900,14 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
           const batch = sampled.slice(i, i + BATCH_SIZE);
           const results = await Promise.all(
             batch.map((cell) => {
-              const claim = `The value of ${tableJson.headers[cell.col]} is ${cell.cleanValue}`;
+              // Build claim with identifying columns (first 2 cols) for better Guardian accuracy
+              const identParts = tableJson.headers.slice(0, 2)
+                .map((h, idx) => tableJson.rows[cell.row]?.[idx])
+                .filter(Boolean)
+                .join(", ");
+              const claim = identParts
+                ? `For ${identParts}, the value of ${tableJson.headers[cell.col]} is ${cell.cleanValue}`
+                : `The value of ${tableJson.headers[cell.col]} is ${cell.cleanValue}`;
               return checkGroundedness(combinedSource, claim)
                 .then((res) => ({ row: cell.row, col: cell.col, ...res }))
                 .catch(() => ({ row: cell.row, col: cell.col, status: "unverified", evidence: "error" }));
@@ -3506,12 +3934,17 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     broadcastToWindows(IPC_EVENTS.CHAT_ERROR, { conversationId: convId, error: err.message });
 
     if (convId) {
-      await supabase.from("chat_messages").insert({
-        conversation_id: convId,
-        role: "assistant",
-        content: err.message,
-        message_type: "error",
-      }).catch(() => {});
+      try {
+        const { error: logErr } = await supabase.from("chat_messages").insert({
+          conversation_id: convId,
+          role: "assistant",
+          content: err.message,
+          message_type: "error",
+        });
+        if (logErr) console.warn("[Chat] failed to persist error message:", logErr.message);
+      } catch (logCrash) {
+        console.warn("[Chat] failed to persist error message (exception):", logCrash.message);
+      }
     }
     return { conversationId: convId, error: err.message };
   } finally {

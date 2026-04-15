@@ -132,7 +132,14 @@ export interface LlmModelInfo {
   source: "user" | "env" | "default";
 }
 
-export type ChatPipelineStage = "orchestrating" | "searching" | "parsing" | "assembling" | "verifying" | "answering";
+export type ChatPipelineStage =
+  | "orchestrating"
+  | "searching"
+  | "parsing"
+  | "extracting"
+  | "assembling"
+  | "verifying"
+  | "answering";
 
 export interface ChatStatusEvent {
   conversationId: string;

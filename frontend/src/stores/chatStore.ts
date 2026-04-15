@@ -16,6 +16,9 @@ interface ChatState {
   pipelineMessage: string;
   pipelineDetail: string;
 
+  // Optimistic user message (shown immediately while LLM is processing)
+  pendingUserMessage: string | null;
+
   setActiveConversationId: (id: string | null) => void;
   appendToken: (token: string) => void;
   startStreaming: (conversationId: string) => void;
@@ -26,6 +29,8 @@ interface ChatState {
   setScopeFolderId: (id: string | null) => void;
   setScopeAll: (all: boolean) => void;
   setConversationType: (type: ConversationType) => void;
+  setPendingUserMessage: (msg: string | null) => void;
+  clearPendingUserMessage: () => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -39,6 +44,7 @@ export const useChatStore = create<ChatState>((set) => ({
   pipelineStage: null,
   pipelineMessage: "",
   pipelineDetail: "",
+  pendingUserMessage: null,
 
   setActiveConversationId: (id) => set({ activeConversationId: id }),
 
@@ -89,4 +95,6 @@ export const useChatStore = create<ChatState>((set) => ({
   setScopeFolderId: (id) => set({ scopeFolderId: id, scopeAll: id === null }),
   setScopeAll: (all) => set({ scopeAll: all, scopeFolderId: all ? null : null }),
   setConversationType: (type) => set({ conversationType: type }),
+  setPendingUserMessage: (msg) => set({ pendingUserMessage: msg }),
+  clearPendingUserMessage: () => set({ pendingUserMessage: null }),
 }));

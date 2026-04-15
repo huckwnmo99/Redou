@@ -23,6 +23,10 @@
 
 ## 진행 중
 
+- [ ] 📋 chat 파이프라인 Supabase null 처리 + query builder `.catch()` 오용 수정 → [계획서](features/fix/02-chat-supabase-null-handling.md)
+  - `main.mjs` 채팅 핸들러의 `.single()` null 미체크 8지점 + 3856 라인의 `.catch()` 오용 수정. SRAG 통합 테스트 차단 해제.
+- [ ] 📋 채팅 UI 텍스트 선택 불가 + 사용자 메시지 지연 표시 수정 → [계획서](features/fix/03-chat-ui-text-select-and-optimistic.md)
+  - 사용자 버블 `::selection` 색상 문제 + optimistic update 미구현. 프론트엔드 4~5개 파일 수정.
 
 ---
 
