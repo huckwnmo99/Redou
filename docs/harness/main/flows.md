@@ -13,27 +13,16 @@
   │   └─ 반환: { paperId, fileId }
   │
   ├─ 폴링 루프 (2.5초 간격, processNextQueuedJob)
-  │   └─ processImportPdfJob(job) [main.mjs:1163]
+  │   └─ processImportPdfJob(job) [main.mjs]
   │       │
-  │       ├─ [V2 시도] MinerU 가용 여부 확인
+  │       ├─ [단일 파이프라인] MinerU 필수 / GROBID 선택(degraded mode)
+  │       │   ├─ MinerU 미가용 시 → throw (사용자 친화적 에러 메시지)
+  │       │   ├─ GROBID 미가용 시 → 경고 로그 후 진행 (메타데이터 일부 누락)
   │       │   ├─ MinerU parsePdf → 구조화 JSON+마크다운+이미지
   │       │   ├─ GROBID extractMetadataAndReferences → 메타데이터+참고문헌
   │       │   ├─ persistV2Results → DB 저장 (sections, chunks, figures, tables, equations, references)
-  │       │   ├─ 빈 테이블 OCR 폴백 (enhanceEmptyTablesWithOcr via GLM-OCR)
-  │       │   └─ V2 성공 시 → embedding 큐 등록 후 종료
-  │       │
-  │       ├─ [V1 폴백] MinerU 불가 또는 V2 실패 시
-  │       │   ├─ extractHeuristicPaperData (pdf-heuristics.mjs:2230)
-  │       │   │   ├─ pdfjs 텍스트 추출 + 레이아웃 분석 (2단 감지)
-  │       │   │   ├─ 섹션 헤딩 감지 + 청킹
-  │       │   │   ├─ Figure/Table/Equation 휴리스틱 감지
-  │       │   │   └─ 이미지 추출 (extractFigureImagesFromPdf)
-  │       │   ├─ persistHeuristicExtraction → DB 저장 [main.mjs:520]
-  │       │   ├─ GLM-OCR (extractTablesAndEquationsWithOcr)
-  │       │   │   ├─ 테이블 → HTML 구조화
-  │       │   │   └─ 수식 → LaTeX
-  │       │   └─ UniMERNet (enhanceEquationsWithUniMERNet)
-  │       │       └─ 수식 이미지 크롭 → 고품질 LaTeX
+  │       │   ├─ 빈 테이블 OCR 보강 (enhanceEmptyTablesWithOcr via GLM-OCR)
+  │       │   └─ embedding 큐 등록 후 종료
   │       │
   │       └─ embedding 큐 등록 (job_type: generate_embeddings)
   │
@@ -51,7 +40,7 @@
       └─ JOB_FAILED (에러)
 ```
 
-**관련 파일**: `main.mjs` (오케스트레이션), `pdf-heuristics.mjs` (V1 추출), `mineru-client.mjs` (V2), `grobid-client.mjs` (메타데이터), `ocr-extraction.mjs` (OCR), `embedding-worker.mjs` (임베딩)
+**관련 파일**: `main.mjs` (오케스트레이션), `pdf-heuristics.mjs` (inspectPdfMetadata + extractFigureImagesFromPdf), `mineru-client.mjs` (PDF 파싱), `grobid-client.mjs` (메타데이터), `ocr-extraction.mjs` (빈 테이블 GLM-OCR), `embedding-worker.mjs` (임베딩)
 
 ## 2. 시맨틱 검색
 

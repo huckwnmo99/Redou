@@ -1,15 +1,15 @@
 # 기능 상태 매트릭스
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+> 하네스 버전: v1.1 | 최종 갱신: 2026-04-18
 
 ## 전체 기능 매트릭스
 
 | 기능 | 상태 | 관련 detail | 비고 |
 |------|------|------------|------|
-| PDF 임포트 + 파일 관리 | ✅ 구현됨 | electron/pdf-pipeline.md | V1(휴리스틱)+V2(MinerU+GROBID) |
-| 텍스트 추출 + 섹션/청킹 | ✅ 구현됨 | electron/pdf-pipeline.md | pdfjs + MinerU |
-| Figure/Table/Equation 감지 | ✅ 구현됨 | electron/pdf-pipeline.md | 휴리스틱 + MinerU |
-| 테이블 OCR (HTML) | ✅ 구현됨 | electron/pdf-pipeline.md | GLM-OCR |
-| 수식 OCR (LaTeX) | ✅ 구현됨 | electron/pdf-pipeline.md | UniMERNet + GLM-OCR 병합 |
+| PDF 임포트 + 파일 관리 | ✅ 구현됨 | electron/pdf-pipeline.md | V2 단일 (MinerU+GROBID). MinerU 필수, GROBID 선택(degraded mode) |
+| 텍스트 추출 + 섹션/청킹 | ✅ 구현됨 | electron/pdf-pipeline.md | MinerU |
+| Figure/Table/Equation 감지 | ✅ 구현됨 | electron/pdf-pipeline.md | MinerU |
+| 테이블 OCR (HTML) | ✅ 구현됨 | electron/pdf-pipeline.md | GLM-OCR (빈 테이블 보강용, V2 후속 스테이지) |
+| 수식 OCR (LaTeX) | ✅ 구현됨 | electron/pdf-pipeline.md | MinerU 기본 LaTeX (UniMERNet/GLM-OCR 수식 보강 제거됨 — 옵션 A) |
 | 메타데이터 추출 (GROBID) | ✅ 구현됨 | electron/pdf-pipeline.md | 제목, 저자, DOI, 참고문헌 |
 | 시맨틱 임베딩 (2048-dim VL) | ✅ 구현됨 | electron/embedding.md | nvidia/llama-nemotron-embed-vl-1b-v2 |
 | Contextual Chunking | ✅ 구현됨 | electron/embedding.md | `[Paper: X \| Section: Y]` 접두어 |
@@ -58,6 +58,7 @@
 | Step 5 | HyDE | 💡 아이디어 |
 | Step 6 | 인용 네트워크 / GraphRAG / 멀티홉 | 💡 아이디어 |
 | Step 7 | Agentic RAG 통합 | 💡 아이디어 |
+| 리팩토링 | PDF 파이프라인 V2 단일화 (V1 휴리스틱 폴백 제거) | ✅ 완료 (CURRENT_EXTRACTION_VERSION=25, MinerU 필수 throw, V1 코드 전체 삭제) |
 
 ## 최근 변경 (커밋 기준)
 

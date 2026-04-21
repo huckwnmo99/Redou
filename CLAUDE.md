@@ -6,30 +6,32 @@ Redou는 연구 논문 읽기 & 관리 데스크탑 앱이다. Electron이 React
 
 ## Development Workflow
 
+> **역할 분리 원칙**
+> - **Claude** = Orchestrator — 계획, 설계 분석, 검증, 리뷰, 사용자 소통
+> - **Codex** = Developer — 모든 실제 코드 작성/수정
+
 ### 새 기능 추가
 
 ```
-/plan → (승인) → /develop → /test → /review → (PR merge)
+/plan (Claude 설계) → (승인) → codex:rescue (Codex 구현) → /test → /review → (PR merge)
 ```
 
 ### 수정 (버그, UI 조정, 타입 오류)
 
 ```
-/plan → (planner가 규모 판단)
-  ├─ 소규모 → /fix → /review → (PR merge)
-  └─ 대규모 → (사용자 허가) → /develop → /test → /review → (PR merge)
+소규모 → codex:rescue (직접 수정 + 자체 검증)
+대규모 → /plan (Claude 설계) → (승인) → codex:rescue (Codex 구현) → /test → /review → (PR merge)
 ```
-모든 수정은 `/plan`을 먼저 거친다. planner가 `docs/features/fix/{이름}.md`를 작성하고 경로를 안내한다.
+소규모 수정은 `codex:rescue`를 직접 사용한다. 6개 파일 이상이거나 DB 변경이 필요하면 `/plan`부터 시작한다.
 
 ### 에이전트 구성
 
-| 스킬 | 에이전트 | 모델 | 역할 |
-|------|----------|------|------|
-| `/plan` | planner | opus | 기능 분석 → `docs/features/new/` 또는 `docs/features/fix/` 계획서 작성 |
-| `/develop` | developer | sonnet (기본), opus (복잡한 구현 시 사용자 허가 후) | 계획서 기반 코드 구현 |
-| `/test` | tester | sonnet | 빌드/타입/린트/테스트 검증 + 자동 수정 |
-| `/review` | reviewer | opus | Codex + Claude 이중 리뷰 → PR 생성 |
-| `/fix` | fixer | opus | 소규모 수정: 원인 파악 → 수정 → 자체 검증 |
+| 도구 | 주체 | 모델 | 역할 |
+|------|------|------|------|
+| `/plan` | Claude (planner) | opus | 기능 분석 → `docs/features/new/` 또는 `docs/features/fix/` 계획서 작성 |
+| `codex:rescue` | **Codex CLI** | — | **모든 코드 구현/수정** — 계획서 기반 구현 또는 소규모 직접 수정 |
+| `/test` | Claude (tester) | sonnet | 빌드/타입/린트/테스트 검증 + 오류 분석 |
+| `/review` | Claude (reviewer) | opus | 코드 리뷰 → PR 생성 |
 
 ### 하네스 관리
 모든 에이전트는 작업 완료 시 `docs/harness/`를 갱신할 책임이 있다.
@@ -41,9 +43,16 @@ Redou는 연구 논문 읽기 & 관리 데스크탑 앱이다. Electron이 React
 
 ### 전체 흐름
 ```
-Idea (리서치/토의) → backlog (할 일 등록) → /plan (계획서 작성) → /develop or /fix → /test → /review
+Idea (리서치/토의)
+    → backlog 등록
+    → /plan (Claude 설계·계획서 작성)
+    → codex:rescue (Codex 구현)
+    → /test (Claude 검증)
+    → /review (Claude 리뷰 + PR)
+
+소규모 수정: codex:rescue 직행
 ```
-사용자가 "이거 구현하자"라고 하기 전까지는 아이디어 토의 단계. 구현 결정 후 `/plan`부터 시작.
+사용자가 "이거 구현하자"라고 하기 전까지는 아이디어 토의 단계. 구현 결정 후 `/plan`부터 시작. 소규모 수정은 `codex:rescue` 직행.
 
 ### 참조 문서
 - 기능 하네스 (최우선): `docs/harness/` — 전체 기능 명세, 현재 상태, 데이터 흐름
@@ -139,12 +148,12 @@ docs/              → 프로젝트 구조, 기능 계획서, 설계 문서
 
 ## 절대 규칙 (위반 금지)
 
-- **메인 에이전트는 코드를 직접 수정하지 않는다.** 모든 코드 변경(Edit, Write)은 반드시 서브에이전트(`/plan`, `/develop`, `/fix`, `/test`, `/review`)를 통해서만 수행한다.
-- **서브에이전트가 중단/실패해도 메인 에이전트가 대신 작업하지 않는다.** 새 서브에이전트를 띄워서 이어서 진행한다.
-- **워크플로우 단계를 건너뛰지 않는다.** `/plan` 없이 `/develop` 금지, `/test` 없이 `/review` 금지.
-- **코드 변경 전 반드시 `/plan` 계획서가 존재해야 한다.** general-purpose 에이전트로 코드를 수정하는 것은 금지. 코드 변경은 반드시 developer(`/develop`) 또는 fixer(`/fix`) 서브에이전트를 통해서만 수행하며, 이들은 `docs/features/new/` 또는 `docs/features/fix/`에 승인된 계획서가 있어야만 작업을 시작한다.
-- **진단용 로깅 추가도 예외 없이 `/plan` → `/fix` 워크플로우를 따른다.** "작은 변경"이라는 이유로 워크플로우를 건너뛰지 않는다.
-- 메인 에이전트의 역할은 **오케스트레이션**(서브에이전트 호출, 사용자와 소통, 상태 확인)에 한정한다.
+- **Claude는 코드를 직접 수정하지 않는다.** 모든 코드 변경은 반드시 **`codex:rescue`(Codex)**를 통해서만 수행한다.
+- **Codex가 중단/실패해도 Claude가 대신 코드를 작성하지 않는다.** `codex:rescue`를 재호출하거나 사용자에게 보고한다.
+- **대규모 변경은 반드시 `/plan` 계획서가 선행해야 한다.** 계획서 없이 Codex에 대규모 구현을 위임하지 않는다.
+- **소규모 수정(버그, UI, 타입 오류 등)은 `codex:rescue` 직행.** 6개 파일 이상이거나 DB 변경이 필요하면 `/plan` 먼저.
+- **워크플로우 단계를 건너뛰지 않는다.** `/plan` 없이 대규모 구현 위임 금지, `/test` 없이 `/review` 금지.
+- Claude 메인 에이전트의 역할은 **오케스트레이션**(계획 수립, Codex 위임, 검증, 사용자 소통)에 한정한다.
 
 ## Conventions
 

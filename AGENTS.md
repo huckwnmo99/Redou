@@ -81,6 +81,7 @@ Read this file before starting work. Update it when you finish.
 - Fixed Electron preload script: converted from ESM `import` to CJS `require()` with inlined IPC channel constants so `window.redouDesktop` is properly exposed.
 - Fixed Vite `base` config: added `base: "./"` so built assets use relative paths, enabling Electron `file://` loading.
 - Fixed `formatAuthors()` crash in PaperCard, PaperListItem, RightInspector: added empty array guard.
+- Presentation assets now include a standalone future-direction HTML slide that explains the planned ontology and Graph RAG expansion as a visual knowledge-graph workflow for lectures and demos.
 
 ### Verified Today (2026-03-11)
 - `frontend`: `npm run build` passes with semantic search integration.
@@ -109,6 +110,7 @@ Read this file before starting work. Update it when you finish.
 ### Shared Docs
 - `README.md`
 - `AGENTS.md`
+- `docs/presentation_assets/redou-agent/redou-ontology-future-slide.html`
 - `docs/planning/product_decision_template.md`
 - `docs/planning/implementation_plan.md`
 - `docs/planning/selected_design_direction.md`
@@ -176,7 +178,8 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Status | Date | Agent | Scope | Files | Out of Scope | Dependency |
 |--------|------|-------|-------|-------|--------------|------------|
-| IN PROGRESS | 2026-03-11 | Codex | Move Phase 3 extraction from heuristic text parsing toward layout-aware ordering with OCR-ready scanned-PDF hooks and worker messaging | AGENTS.md, pps/desktop/electron/pdf-heuristics.mjs, pps/desktop/electron/main.mjs, rontend/src/types/desktop.ts | Cloud OCR provider integration, embeddings, retrieval, detached panels | Local desktop build and Supabase available |
+| DONE | 2026-04-18 | Codex | Implement V2-only PDF processing pipeline from `docs/features/new/08-pipeline-v2-only.md` | `apps/desktop/electron/main.mjs`, `apps/desktop/electron/pdf-heuristics.mjs`, `apps/desktop/electron/ocr-extraction.mjs`, `docs/harness/**`, `AGENTS.md` | DB schema changes, IPC channel renames, removing `enhanceEmptyTablesWithOcr`, removing import metadata/figure-image helpers | MinerU required, GROBID degraded mode allowed |
+| DONE | 2026-04-18 | Codex | Move Phase 3 extraction from heuristic text parsing toward layout-aware ordering with OCR-ready scanned-PDF hooks and worker messaging | AGENTS.md, pps/desktop/electron/pdf-heuristics.mjs, pps/desktop/electron/main.mjs, rontend/src/types/desktop.ts | Cloud OCR provider integration, embeddings, retrieval, detached panels | Local desktop build and Supabase available |
 | READY FOR ASSIGNMENT | 2026-03-10 | Desktop/Platform Agent | Wire `frontend` to `window.redouDesktop` and define the migration path away from `apps/desktop/src` legacy renderer | `apps/desktop/electron/**`, `apps/desktop/src/types/**`, `frontend/src/**` | Paper data migration, PDF.js, retrieval | Data layer contracts should stay stable |
 
 ---
@@ -216,18 +219,25 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 | 2026-03-10 | Codex | Forced the auth intro panel copy into English while leaving the right-side login form and behavior unchanged | `frontend/src/features/auth/AuthView.tsx`, `AGENTS.md` |
 | 2026-03-11 | Codex | Fixed imported-paper scope and ingestion quality: folder views now show direct membership only, Add Paper inspects PDFs for cleaner pre-import metadata, the desktop worker now upgrades filename-like titles from extracted document titles, and the current locally imported paper was reprocessed with the improved heuristic | `frontend/src/lib/supabasePaperRepository.ts`, `frontend/src/features/search/searchModel.ts`, `frontend/src/features/import/ImportPdfDialog.tsx`, `frontend/src/lib/desktop.ts`, `frontend/src/types/desktop.ts`, `apps/desktop/electron/preload.mjs`, `apps/desktop/electron/types/ipc-channels.mjs`, `apps/desktop/electron/main.mjs`, `apps/desktop/electron/pdf-heuristics.mjs`, `AGENTS.md` |
 | 2026-03-11 | Codex | Added drag-and-drop paper movement from library cards/list rows into folder-tree targets, backed by a folder-move mutation so dropped papers switch folders instead of duplicating across many folders | frontend/src/features/library/drag.ts, frontend/src/features/library/PaperCard.tsx, frontend/src/features/library/PaperListItem.tsx, frontend/src/features/library/CategoryTree.tsx, frontend/src/lib/queries.ts, frontend/src/lib/supabasePaperRepository.ts, AGENTS.md |
+| 2026-04-15 | Codex | Rebuilt the first lecture hero SVG so the left message block, top flow cards, connector arrows, and bottom outputs follow a tighter alignment grid with more consistent typography | `docs/presentation_assets/redou-agent/slide-01-hero-illustration.svg`, `AGENTS.md` |
+| 2026-04-15 | Codex | Added separate Q&A mode and Table mode SVG diagrams in the same visual system as the OCR augmentation flow so the two agent branches can be explained independently in class | `docs/presentation_assets/redou-agent/visual-05-qa-mode.svg`, `docs/presentation_assets/redou-agent/visual-06-table-mode.svg`, `AGENTS.md` |
+| 2026-04-15 | Codex | Updated the Q&A and Table mode SVGs to show which steps reuse the same active LLM and which step switches to a separate guardian model, using explicit labeled ranges and color-coded badges | `docs/presentation_assets/redou-agent/visual-05-qa-mode.svg`, `docs/presentation_assets/redou-agent/visual-06-table-mode.svg`, `AGENTS.md` |
+| 2026-04-16 | Codex | Created a standalone one-page HTML slide that introduces the future ontology and Graph RAG direction as a visual knowledge-graph workflow, including linked concept nodes, relation-based retrieval, and a lecture-friendly summary message | `docs/presentation_assets/redou-agent/redou-ontology-future-slide.html`, `AGENTS.md` |
+| 2026-04-16 | Codex | Simplified the ontology and Graph RAG future slide into a diagram-first lecture asset with a larger graph board, short chips, and minimal captions so the flow reads mostly from visuals | `docs/presentation_assets/redou-agent/redou-ontology-future-slide.html`, `AGENTS.md` |
+| 2026-04-16 | Codex | Performed a screenshot-based visual pass on the ontology and Graph RAG slide, then reworked the board so the in-graph numbered badges align with the footer steps and the visual flow reads as one connected path | `docs/presentation_assets/redou-agent/redou-ontology-future-slide.html`, `AGENTS.md` |
+| 2026-04-21 | Codex | Completed C3-C11 V2-only cleanup: rewrote PDF pipeline harness docs, corrected external service degraded-mode notes, removed requested dead code, guarded GROBID calls by availability, added GLM-OCR timeout, and deleted the stray desktop npm file | `apps/desktop/electron/main.mjs`, `apps/desktop/electron/pdf-heuristics.mjs`, `apps/desktop/electron/ocr-extraction.mjs`, `docs/harness/detail/electron/pdf-pipeline.md`, `docs/harness/detail/electron/main-process.md`, `docs/harness/detail/services/external.md`, `apps/desktop/npm`, `AGENTS.md` |
 
 ---
 
 ## 9. Latest Handoff
 
 ```md
-DONE | Codex - Imported-paper scope and metadata cleanup
-- Done: changed folder views and search folder scope to direct membership only, added pre-import PDF inspection for cleaner titles/years, improved desktop extraction title heuristics, and reprocessed the latest local paper so the stored record now uses the extracted title/year instead of the filename slug
-- Changed files: frontend/src/lib/supabasePaperRepository.ts, frontend/src/features/search/searchModel.ts, frontend/src/features/import/ImportPdfDialog.tsx, frontend/src/lib/desktop.ts, frontend/src/types/desktop.ts, apps/desktop/electron/preload.mjs, apps/desktop/electron/types/ipc-channels.mjs, apps/desktop/electron/main.mjs, apps/desktop/electron/pdf-heuristics.mjs, AGENTS.md
-- Verified: frontend `npm run build` passes, apps/desktop `npm run build` passes, `node --check` passes for main.mjs and pdf-heuristics.mjs, and the latest local paper now shows the extracted title `Optimization and kinetic analysis on the sulfuric acid ? Catalyzed depolymerization of wheat straw` with publication year 2015
-- Risks: extraction is still a first-pass heuristic, so some PDFs will still need OCR/layout-aware parsing to get perfect section boundaries and cleaner abstract text
-- Next: continue improving first-page abstract/section detection and move the worker from heuristic parsing toward layout-aware or OCR-backed extraction
+DONE | Codex - C3-C11 V2-only pipeline cleanup
+- Done: rewrote `docs/harness/detail/electron/pdf-pipeline.md` from current `main.mjs` functions/line numbers, updated external/main-process harness wording to V2-only behavior, removed requested dead code from `ocr-extraction.mjs` and `pdf-heuristics.mjs`, made GROBID extraction conditional on health-check availability, added a 60s GLM-OCR fetch timeout, and deleted `apps/desktop/npm`
+- Changed files: `apps/desktop/electron/main.mjs`, `apps/desktop/electron/pdf-heuristics.mjs`, `apps/desktop/electron/ocr-extraction.mjs`, `docs/harness/detail/electron/pdf-pipeline.md`, `docs/harness/detail/electron/main-process.md`, `docs/harness/detail/services/external.md`, `apps/desktop/npm`, `AGENTS.md`
+- Verified: `node --check apps/desktop/electron/main.mjs`, `node --check apps/desktop/electron/pdf-heuristics.mjs`, and `node --check apps/desktop/electron/ocr-extraction.mjs` all pass
+- Risks: this was syntax-level verification only; full Electron import/extraction runtime was not manually exercised in-window
+- Next: run an Electron import against a real PDF with MinerU available and GROBID unavailable to confirm degraded mode behavior end to end
 ```
 
 ## 10. Known Issues & Potential Bugs

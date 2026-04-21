@@ -1,87 +1,75 @@
-# PDF 처리 파이프라인
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+# PDF Pipeline
+> 하네스 버전: v2.0 | 최종 갱신: 2026-04-21
 
 ## 개요
-PDF 임포트 시 텍스트 추출, 구조화(섹션/청크), Figure/Table/Equation 감지, OCR 보강을 수행한다. V2(MinerU+GROBID)를 우선 시도하고 실패 시 V1(pdfjs 휴리스틱+OCR)로 폴백한다.
+현재 Electron PDF 처리는 V2 단일 파이프라인이다. 구조 추출은 MinerU가 담당하며, MinerU가 없거나 MinerU 추출이 실패하면 PDF 임포트 작업은 실패한다. GROBID는 메타데이터와 참고문헌 품질을 높이는 선택 서비스이며, 미가용 시 MinerU 결과만 저장하는 degraded mode로 진행한다. V1 휴리스틱 구조 추출, Tesseract OCR 폴백, V1 figure/table/equation 후보 추출 함수는 더 이상 파이프라인의 일부가 아니다.
 
 ## 핵심 파일
-| 파일 | 역할 | 줄 수 |
-|------|------|-------|
-| `apps/desktop/electron/main.mjs` | 파이프라인 오케스트레이션 (processImportPdfJob) | 해당 구간 ~400줄 |
-| `apps/desktop/electron/pdf-heuristics.mjs` | V1: pdfjs 텍스트 추출, 레이아웃 분석, figure/table/equation 휴리스틱 감지 | ~2303 |
-| `apps/desktop/electron/mineru-client.mjs` | V2: MinerU API → 마크다운+JSON+이미지 | ~456 |
-| `apps/desktop/electron/grobid-client.mjs` | GROBID API → TEI XML (메타데이터+참고문헌) | ~297 |
-| `apps/desktop/electron/ocr-extraction.mjs` | GLM-OCR (테이블→HTML, 수식→LaTeX), UniMERNet (수식→LaTeX) | ~1016 |
+| 파일 | 역할 | 현재 줄 수 |
+|------|------|------------|
+| `apps/desktop/electron/main.mjs` | 작업 큐, V2 파이프라인 오케스트레이션, DB 저장, embedding 큐 등록 | 3519 |
+| `apps/desktop/electron/mineru-client.mjs` | MinerU health check, PDF 구조 추출, MinerU 결과 파싱, 이미지 저장 | 456 |
+| `apps/desktop/electron/grobid-client.mjs` | GROBID health check, TEI 메타데이터/참고문헌 파싱, 기존 논문 링크 | 297 |
+| `apps/desktop/electron/pdf-heuristics.mjs` | 임포트 전 PDF 메타데이터 미리보기와 V2 figure 이미지 보강만 유지 | 1280 |
+| `apps/desktop/electron/ocr-extraction.mjs` | MinerU가 비워 둔 table body에 대한 GLM-OCR 보강만 유지 | 226 |
 
-## 주요 함수/컴포넌트
+## main.mjs 주요 함수
+| 함수/상수 | 줄 | 역할 |
+|-----------|----|------|
+| `CURRENT_EXTRACTION_VERSION` | 99 | 현재 추출 버전. 낮은 버전의 기존 논문은 재처리 대상 |
+| `mergeMetadata(...)` | 413 | GROBID metadata, MinerU section title, 기존 paper row를 병합 |
+| `persistV2Results(...)` | 424 | V2 결과를 `paper_sections`, `paper_chunks`, `figures`, `paper_references`, `papers`, `paper_summaries`에 저장 |
+| `upsertPaperSummaryV2(...)` | 687 | V2 section 결과 기반 시스템 요약 생성/갱신 |
+| `processWithMineruGrobid(...)` | 734 | MinerU 필수 실행, GROBID 조건부 실행, V2 결과 파싱/저장 |
+| `updateJobStatus(...)` | 799 | `processing_jobs` 상태 갱신 공통 헬퍼 |
+| `processImportPdfJob(...)` | 806 | PDF import job 본체. MinerU/GROBID 가용성 확인, V2 실행, OCR 보강, embedding job 큐 등록 |
+| `processEmbeddingJob(...)` | 989 | chunk/paper/figure/table/equation embedding 생성 |
+| `tryStartExtractionJob(...)` | 1265 | queued extraction job 하나를 running으로 전환하고 `processImportPdfJob` 실행 |
+| `tryStartEmbeddingJob(...)` | 1314 | queued `generate_embeddings` job 하나를 실행 |
+| `processNextQueuedJob()` | 1363 | extraction과 embedding 큐를 각각 한 개씩 시도 |
+| `startProcessingLoop()` | 1368 | 2.5초 간격으로 큐 폴링 시작 |
+| `resetStaleRunningJobs()` | 1380 | 앱 재시작 후 stale running job을 queued로 되돌림 |
 
-### main.mjs
+## V2 실행 흐름
+1. `tryStartExtractionJob()`가 `processing_jobs`에서 `generate_embeddings`가 아닌 queued job을 하나 가져온다.
+2. `processImportPdfJob()`가 paper row와 primary `paper_files` row를 로드하고 저장된 PDF 경로를 검증한다.
+3. `processImportPdfJob()`가 `isMineruAvailable()`과 `isGrobidAvailable()`을 동시에 확인한다.
+4. MinerU가 미가용이면 즉시 오류를 던져 임포트 job을 실패 처리한다. V1 폴백은 없다.
+5. GROBID가 미가용이면 warning만 남기고 `processWithMineruGrobid(..., grobidAvailable: false)`로 진행한다.
+6. `processWithMineruGrobid()`는 `parsePdf()`를 반드시 실행하고, `grobidAvailable`이 true일 때만 `extractMetadataAndReferences()`를 실행한다. false이면 `Promise.resolve(null)`을 사용해 120초 GROBID 대기를 만들지 않는다.
+7. MinerU 결과는 `parseMineruResult()`로 sections, chunks, figures, tables, equations로 정규화된다.
+8. `mergeMetadata()`가 GROBID metadata가 있으면 우선 사용하고, 없으면 MinerU/기존 paper/fallback title 기준으로 paper metadata를 구성한다.
+9. `persistV2Results()`가 기존 extraction 산출물을 지운 뒤 V2 결과를 저장한다. figure 이미지는 MinerU 이미지 저장을 우선하고, 누락된 figure에 대해서만 `extractFigureImagesFromPdf()`를 보강용으로 사용한다.
+10. 저장 후 빈 table body가 있으면 `enhanceEmptyTablesWithOcr()`가 GLM-OCR로 table HTML/plain text를 보강한다. 이 단계는 V2 후처리이며 구조 추출 폴백이 아니다.
+11. chunk가 하나 이상이면 `generate_embeddings` job을 큐에 추가한다.
+12. `processEmbeddingJob()`가 chunk, paper, figure/table/equation embedding을 생성한다.
+
+## 서비스별 실패 동작
+| 서비스 | 현재 기준 |
+|--------|-----------|
+| MinerU | 필수. health check 실패 또는 `parsePdf()` 실패 시 import job 실패 |
+| GROBID | 선택. health check 실패 시 metadata/references 일부 누락 degraded mode로 진행 |
+| GLM-OCR/Ollama | 선택 후처리. 빈 table OCR 보강 실패는 non-fatal warning |
+| pdfjs/mupdf figure image extraction | 선택 보강. MinerU figure image 누락 시만 시도하고 실패는 non-fatal warning |
+| Embedding worker/vLLM | 별도 `generate_embeddings` job에서 처리. extraction 성공 자체를 되돌리지 않음 |
+
+## 보조 모듈 함수
 | 함수 | 줄 | 역할 |
-|------|------|------|
-| `processImportPdfJob(job)` | 1163 | 파이프라인 진입점: V2 시도 → V1 폴백 |
-| `persistHeuristicExtraction(...)` | 520 | V1 결과 DB 저장 (sections, chunks, figures, tables, equations) |
-| `persistV2Results(...)` | 778 | V2 결과 DB 저장 |
-| `processWithMineruGrobid(...)` | (위) | V2 파이프라인 실행 |
-| `crossValidateV2(parsed, pdfjsData)` | 759 | V2와 V1 결과 교차 검증 (경고 로그) |
-| `mergeMetadata(...)` | 748 | GROBID + MinerU 메타데이터 병합 |
-| `upsertCurrentPaperSummary(...)` | 474 | 자동 요약 생성/갱신 |
+|------|----|------|
+| `isMineruAvailable()` | mineru-client.mjs:22 | MinerU API health check |
+| `parsePdf(...)` | mineru-client.mjs:39 | MinerU PDF 구조 추출 요청 |
+| `parseMineruResult(...)` | mineru-client.mjs:92 | MinerU 응답을 Redou V2 구조로 변환 |
+| `saveFigureImages(...)` | mineru-client.mjs:392 | MinerU figure 이미지 저장 |
+| `saveTableImages(...)` | mineru-client.mjs:430 | MinerU table 이미지 저장 |
+| `isGrobidAvailable()` | grobid-client.mjs:21 | GROBID `/api/isalive` health check |
+| `extractMetadataAndReferences(...)` | grobid-client.mjs:37 | GROBID TEI metadata/reference 추출 |
+| `linkReferencesToExistingPapers(...)` | grobid-client.mjs:262 | 참고문헌과 기존 paper 매칭 |
+| `inspectPdfMetadata(...)` | pdf-heuristics.mjs:811 | 임포트 전 title/year/author preview |
+| `extractFigureImagesFromPdf(...)` | pdf-heuristics.mjs:853 | V2 figure 이미지 누락 시 pdfjs/mupdf 보강 |
+| `renderPageToPng(...)` | ocr-extraction.mjs:18 | GLM-OCR 입력용 페이지 렌더링 |
+| `enhanceEmptyTablesWithOcr(...)` | ocr-extraction.mjs:179 | V2 빈 table body OCR 보강 |
 
-### pdf-heuristics.mjs
-| 함수 | 줄 | 역할 |
-|------|------|------|
-| `extractHeuristicPaperData(pdfBuf, title, opts)` | 2230 | V1 메인: pdfjs → 섹션+청크+figures+tables+equations |
-| `inspectPdfMetadata(pdfBuf, fallbackTitle)` | 1760 | PDF 메타데이터 미리보기 (임포트 전) |
-| `extractFigureImagesFromPdf(pdfBuf, figures)` | 1802 | pdfjs operator list에서 이미지 추출 → PNG |
-
-### ocr-extraction.mjs
-| 함수 | 줄 | 역할 |
-|------|------|------|
-| `extractTablesAndEquationsWithOcr(pdfBuf, opts)` | 257 | GLM-OCR: 테이블→HTML, 수식→LaTeX |
-| `enhanceEmptyTablesWithOcr(pdfBuf, tables)` | 480 | V2 빈 테이블 OCR 폴백 |
-| `enhanceEquationsWithUniMERNet(pdfBuf, equations)` | 925 | UniMERNet: 수식 이미지 크롭 → LaTeX |
-| `renderPageToPng(pdfBuf, page, scale)` | 25 | 페이지 렌더링 (OCR 입력용) |
-| `cropEquationRegion(...)` | 599 | 수식 영역 크롭 |
-| `cropTableRegion(...)` | 692 | 테이블 영역 크롭 |
-
-### mineru-client.mjs
-| 함수 | 역할 |
-|------|------|
-| `parsePdf(pdfBuf, opts)` | MinerU API 호출 (PDF → 구조화 결과) |
-| `parseMineruResult(result)` | MinerU 출력 파싱 → sections/chunks/figures/tables/equations |
-| `flattenTableHtml(html)` | HTML 테이블 → plain text |
-| `flattenEquationLatex(latex)` | LaTeX 정리 |
-| `saveFigureImages(paperId, figures, root)` | MinerU 이미지 저장 |
-
-### grobid-client.mjs
-| 함수 | 역할 |
-|------|------|
-| `extractMetadataAndReferences(pdfBuf)` | GROBID TEI XML → {title, abstract, authors, doi, year, journal, references} |
-| `linkReferencesToExistingPapers(refs, supabase)` | 참고문헌 → 기존 DB 논문 매칭 (normalized_title) |
-
-## 데이터 흐름
-
-### V2 파이프라인 (MinerU + GROBID)
-1. `isMineruAvailable()` 확인
-2. `parsePdf()` → MinerU 구조화 결과
-3. `parseMineruResult()` → sections, chunks, figures, tables, equations
-4. `isGrobidAvailable()` → `extractMetadataAndReferences()` → 메타데이터+참고문헌
-5. `crossValidateV2()` → V1과 비교 로깅
-6. `persistV2Results()` → DB 저장
-7. 빈 테이블 OCR 폴백 (`enhanceEmptyTablesWithOcr`)
-8. embedding 큐 등록
-
-### V1 파이프라인 (휴리스틱 + OCR)
-1. `extractHeuristicPaperData()` → pdfjs 텍스트 추출
-2. `persistHeuristicExtraction()` → sections, chunks, figures, tables, equations DB 저장
-3. `extractTablesAndEquationsWithOcr()` → GLM-OCR (테이블 HTML, 수식 LaTeX)
-4. `enhanceEquationsWithUniMERNet()` → 고품질 LaTeX
-5. 수식 병합: UniMERNet(우선) + GLM-OCR(폴백), quality gate 적용
-6. embedding 큐 등록
-
-## 의존성
-- 이 모듈이 사용하는 것: Supabase DB, MinerU API, GROBID API, Ollama(GLM-OCR), UniMERNet API, pdfjs-dist
-- 이 모듈을 사용하는 것: main.mjs 폴링 루프
-
-## 현재 상태
-- 구현 완료: V1, V2, OCR 보강, 수식 병합 (UniMERNet + GLM-OCR)
-- V2는 MinerU 가용 시에만 동작. GROBID 없이도 V2 부분 동작 가능
+## 현재 유지/삭제 기준
+- 유지: MinerU V2 구조 추출, GROBID degraded metadata, MinerU image 저장, pdfjs/mupdf figure image 보강, GLM-OCR 빈 table 보강, embedding 큐.
+- 삭제됨: V1 휴리스틱 sections/chunks/figures/tables/equations 추출, optional Tesseract OCR 폴백, V1 table crop/UniMERNet cleanup 전용 dead code.
+- 금지: MinerU 미가용 시 V1으로 돌아가는 설명이나 구현을 추가하지 않는다.

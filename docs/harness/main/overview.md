@@ -46,9 +46,8 @@ V2/
 
 | 용어 | 설명 |
 |------|------|
-| `CURRENT_EXTRACTION_VERSION` | main.mjs 상수 (현재 24). 추출 로직 변경 시 증가 → 기존 논문 자동 재처리 |
-| Pipeline V1 | pdfjs 휴리스틱 + GLM-OCR + UniMERNet |
-| Pipeline V2 | MinerU + GROBID (가용 시) + OCR 폴백 |
+| `CURRENT_EXTRACTION_VERSION` | main.mjs 상수 (현재 25). 추출 로직 변경 시 증가 → 기존 논문 자동 재처리 |
+| PDF 처리 파이프라인 | MinerU + GROBID(선택, degraded mode) + GLM-OCR(빈 테이블 보강). MinerU 필수. |
 | RAG | Retrieval-Augmented Generation. 벡터+BM25 하이브리드 검색 → LLM 컨텍스트 |
 | RRF | Reciprocal Rank Fusion. 벡터/BM25 결과를 가중합으로 병합 |
 | SRAG | Structured RAG. 논문별 독립 추출 → 코드 병합 (per-paper extraction) |

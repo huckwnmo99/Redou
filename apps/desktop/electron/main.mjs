@@ -8,11 +8,11 @@ import { fileURLToPath } from "node:url";
 import { IPC_CHANNELS, IPC_EVENTS } from "./types/ipc-channels.mjs";
 import { createClient } from "@supabase/supabase-js";
 import zlib from "node:zlib";
-import { extractHeuristicPaperData, inspectPdfMetadata, extractFigureImagesFromPdf } from "./pdf-heuristics.mjs";
+import { inspectPdfMetadata, extractFigureImagesFromPdf } from "./pdf-heuristics.mjs";
 import { generateEmbedding, generateEmbeddings, generateImageEmbedding, MODEL_NAME, EMBEDDING_DIM } from "./embedding-worker.mjs";
 import { waitForOAuthCallback, getOAuthCallbackUrl } from "./oauth-callback-server.mjs";
-import { extractTablesAndEquationsWithOcr, isOllamaAvailable, enhanceEquationsWithUniMERNet, enhanceEmptyTablesWithOcr } from "./ocr-extraction.mjs";
-import { isMineruAvailable, parsePdf, parseMineruResult, flattenTableHtml, flattenEquationLatex, saveFigureImages, saveTableImages } from "./mineru-client.mjs";
+import { enhanceEmptyTablesWithOcr } from "./ocr-extraction.mjs";
+import { isMineruAvailable, parsePdf, parseMineruResult, saveFigureImages, saveTableImages } from "./mineru-client.mjs";
 import { isGrobidAvailable, extractMetadataAndReferences, linkReferencesToExistingPapers } from "./grobid-client.mjs";
 import { streamChat, checkGroundedness, isLlmAvailable, isGuardianAvailable, getActiveModel, setActiveModel, OLLAMA_BASE_URL } from "./llm-chat.mjs";
 import { generateOrchestratorPlan, generateTableFromSpec, extractMatrixFromHtml, extractColumnsFromPaper } from "./llm-orchestrator.mjs";
@@ -95,7 +95,8 @@ let embeddingInFlight = false;
 
 // Bump this number whenever extraction logic changes (new item types, better parsing, etc.)
 // Papers with extraction_version < CURRENT_EXTRACTION_VERSION will be auto-requeued on startup.
-const CURRENT_EXTRACTION_VERSION = 24;
+// v25: V2 single pipeline (MinerU + GROBID). V1 heuristic fallback removed.
+const CURRENT_EXTRACTION_VERSION = 25;
 const DB_QUERY_TABLES = new Set([
   "app_users",
   "papers",
@@ -405,349 +406,13 @@ async function ensurePaperSummary(paperId, userId) {
   }
 }
 
-function summarizeText(value, maxLength = 320) {
-  const normalized = value?.replace(/\s+/g, " ").trim() ?? "";
-  if (!normalized) {
-    return null;
-  }
-
-  return normalized.length > maxLength ? `${normalized.slice(0, maxLength).trimEnd()}...` : normalized;
-}
-
-function sectionTextByName(sections, names) {
-  for (const name of names) {
-    const section = sections.find((candidate) => candidate.sectionName === name);
-    if (section?.rawText) {
-      return section.rawText;
-    }
-  }
-
-  return null;
-}
-
-function describeExtractionMode(extracted) {
-  if (extracted.ocrUsed) {
-    return extracted.layoutMode === "ocr-text" ? "OCR-backed extraction" : "OCR-backed layout-aware extraction";
-  }
-
-  if (extracted.extractionMode === "layout-aware") {
-    return extracted.layoutMode === "two-column" ? "layout-aware two-column extraction" : "layout-aware PDF extraction";
-  }
-
-  return "heuristic PDF text extraction";
-}
-
-function buildHeuristicSummaryPayload(extracted) {
-  const extractionLabel = describeExtractionMode(extracted);
-  const objective = summarizeText(sectionTextByName(extracted.sections, ["Abstract", "Introduction"]) ?? extracted.abstractText, 380);
-  const methodFallback = extracted.ocrUsed
-    ? "OCR-backed extraction rasterized scanned pages with local desktop tools, recovered readable text, and staged an initial section/chunk structure from the imported file."
-    : extracted.extractionMode === "layout-aware"
-      ? "Layout-aware PDF extraction reordered readable page text, respected multi-column reading order when detected, and staged an initial section/chunk structure from the imported file."
-      : "Fallback heuristic PDF extraction parsed readable text blocks and staged an initial section/chunk structure from the imported file.";
-  const methodSummary = summarizeText(sectionTextByName(extracted.sections, ["Method", "Experiments"]) ?? methodFallback, 380);
-  const mainResults = summarizeText(
-    sectionTextByName(extracted.sections, ["Results", "Discussion"]) ?? extracted.figures[0]?.caption ?? extracted.abstractText,
-    380,
-  );
-  const limitationsFallback = extracted.ocrUsed
-    ? "This pass used local OCR and layout-aware ordering, but it still lacks precise bounding boxes, figure crops, and embeddings."
-    : extracted.extractionMode === "layout-aware"
-      ? "This pass uses layout-aware PDF.js text ordering, but scanned or image-only PDFs still need local OCR tools for fuller recovery."
-      : "This is still a fallback heuristic extraction from raw PDF text. Layout-aware parsing, OCR, and embeddings need further improvement.";
-  const limitations = summarizeText(sectionTextByName(extracted.sections, ["Conclusion"]) ?? limitationsFallback, 380);
-
-  return {
-    one_line_summary:
-      extracted.sections.length > 0 || extracted.figures.length > 0 || (extracted.tables && extracted.tables.length > 0)
-        ? `${extractionLabel} staged ${extracted.sections.length} sections, ${extracted.chunks.length} chunks, ${extracted.figures.length} figures, ${(extracted.tables ?? []).length} tables, and ${(extracted.equations ?? []).length} equations.`
-        : extracted.ocrAvailable
-          ? "Imported PDF is ready, but the document still needs stronger OCR recovery to expose richer structure."
-          : "Imported PDF is ready, but no strong text structure was detected yet.",
-    objective,
-    method_summary: methodSummary,
-    main_results: mainResults,
-    limitations,
-  };
-}
-
-async function upsertCurrentPaperSummary(paperId, userId, extracted) {
-  const summaryPayload = buildHeuristicSummaryPayload(extracted);
-  const { data: existing, error: existingError } = await supabase
-    .from("paper_summaries")
-    .select("id")
-    .eq("paper_id", paperId)
-    .eq("is_current", true)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (existingError) {
-    throw new Error(existingError.message);
-  }
-
-  if (existing?.id) {
-    const { error } = await supabase
-      .from("paper_summaries")
-      .update({
-        ...summaryPayload,
-        source_type: "system",
-        created_by_user_id: userId,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", existing.id);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    return;
-  }
-
-  const { error } = await supabase.from("paper_summaries").insert({
-    paper_id: paperId,
-    created_by_user_id: userId,
-    source_type: "system",
-    is_current: true,
-    ...summaryPayload,
-  });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-}
-
-async function persistHeuristicExtraction({ paperId, userId, sourceFileId, storedPath, paperTitle, currentAbstract, currentPublicationYear, onProgress }) {
-  const pdfBuffer = await fs.readFile(storedPath);
-  const extracted = await extractHeuristicPaperData(pdfBuffer, paperTitle, { pdfPath: storedPath });
-
-  const { error: deleteChunksError } = await supabase.from("paper_chunks").delete().eq("paper_id", paperId);
-  if (deleteChunksError) {
-    throw new Error(deleteChunksError.message);
-  }
-
-  const { error: deleteFiguresError } = await supabase.from("figures").delete().eq("paper_id", paperId);
-  if (deleteFiguresError) {
-    throw new Error(deleteFiguresError.message);
-  }
-
-  const { error: deleteSectionsError } = await supabase.from("paper_sections").delete().eq("paper_id", paperId);
-  if (deleteSectionsError) {
-    throw new Error(deleteSectionsError.message);
-  }
-
-  const { error: deleteRefsError } = await supabase.from("paper_references").delete().eq("paper_id", paperId);
-  if (deleteRefsError) {
-    throw new Error(deleteRefsError.message);
-  }
-
-  const sectionIdByOrder = new Map();
-
-  if (extracted.sections.length > 0) {
-    const { data: sectionRows, error: sectionError } = await supabase
-      .from("paper_sections")
-      .insert(
-        extracted.sections.map((section) => ({
-          paper_id: paperId,
-          section_name: section.sectionName,
-          section_order: section.sectionOrder,
-          page_start: section.pageStart ?? null,
-          page_end: section.pageEnd ?? null,
-          raw_text: section.rawText,
-          parser_confidence: section.parserConfidence,
-        })),
-      )
-      .select("id, section_order");
-
-    if (sectionError) {
-      throw new Error(sectionError.message);
-    }
-
-    for (const row of sectionRows ?? []) {
-      sectionIdByOrder.set(row.section_order, row.id);
-    }
-
-    onProgress?.({ progress: 54, message: `${extracted.sections.length} sections extracted.` });
-  }
-
-  if (extracted.chunks.length > 0) {
-    const { error: chunkError } = await supabase.from("paper_chunks").insert(
-      extracted.chunks.map((chunk) => ({
-        paper_id: paperId,
-        section_id: sectionIdByOrder.get(chunk.sectionOrder) ?? null,
-        chunk_order: chunk.chunkOrder,
-        page: chunk.page ?? null,
-        text: chunk.text,
-        token_count: chunk.tokenCount,
-        start_char_offset: chunk.startCharOffset,
-        end_char_offset: chunk.endCharOffset,
-        parser_confidence: chunk.parserConfidence,
-      })),
-    );
-
-    if (chunkError) {
-      throw new Error(chunkError.message);
-    }
-
-    onProgress?.({ progress: 57, message: `${extracted.chunks.length} text chunks extracted.` });
-  }
-
-  if (extracted.figures.length > 0) {
-    // Extract embedded figure images from the PDF
-    let figureImageMap = new Map();
-    try {
-      const figureImages = await extractFigureImagesFromPdf(pdfBuffer, extracted.figures);
-      if (figureImages.length > 0) {
-        const figureDir = path.join(LIBRARY_ROOT, "Figures", paperId);
-        await fs.mkdir(figureDir, { recursive: true });
-
-        for (const fi of figureImages) {
-          if (!fi.rgbaData || !fi.width || !fi.height) continue;
-          const safeName = fi.figureNo.replace(/[^a-zA-Z0-9]/g, "_");
-          const imagePath = path.join(figureDir, `${safeName}.png`);
-          const pngBuffer = encodeRgbaPng(fi.width, fi.height, fi.rgbaData);
-          await fs.writeFile(imagePath, pngBuffer);
-          figureImageMap.set(fi.figureNo, imagePath);
-        }
-
-        console.log("[figure-images] saved", figureImageMap.size, "figure images for paper", paperId);
-      }
-    } catch (imgErr) {
-      console.warn("[figure-images] extraction failed, continuing without images:", imgErr?.message ?? imgErr);
-    }
-
-    const { error: figureError } = await supabase.from("figures").insert(
-      extracted.figures.map((figure) => ({
-        paper_id: paperId,
-        source_file_id: sourceFileId,
-        figure_no: figure.figureNo,
-        caption: figure.caption,
-        page: figure.page ?? null,
-        image_path: figureImageMap.get(figure.figureNo) ?? null,
-        summary_text: figure.summaryText,
-        is_key_figure: figure.isKeyFigure,
-        is_presentation_candidate: figure.isPresentationCandidate,
-      })),
-    );
-
-    if (figureError) {
-      throw new Error(figureError.message);
-    }
-
-    onProgress?.({ progress: 62, message: `${extracted.figures.length} figures extracted.` });
-  }
-
-  // Persist extracted tables
-  if (extracted.tables && extracted.tables.length > 0) {
-    const { error: tableError } = await supabase.from("figures").insert(
-      extracted.tables.map((table) => ({
-        paper_id: paperId,
-        source_file_id: sourceFileId,
-        figure_no: table.figureNo,
-        caption: table.caption,
-        page: table.page ?? null,
-        image_path: null,
-        summary_text: table.summaryText,
-        is_key_figure: false,
-        is_presentation_candidate: table.isPresentationCandidate,
-        item_type: "table",
-      })),
-    );
-
-    if (tableError) {
-      throw new Error(tableError.message);
-    }
-
-    onProgress?.({ progress: 65, message: `${extracted.tables.length} tables extracted.` });
-  }
-
-  // Persist extracted equations
-  if (extracted.equations && extracted.equations.length > 0) {
-    const { error: equationError } = await supabase.from("figures").insert(
-      extracted.equations.map((eq) => ({
-        paper_id: paperId,
-        source_file_id: sourceFileId,
-        figure_no: eq.figureNo,
-        caption: eq.caption,
-        page: eq.page ?? null,
-        image_path: null,
-        summary_text: eq.summaryText,
-        is_key_figure: false,
-        is_presentation_candidate: false,
-        item_type: "equation",
-      })),
-    );
-
-    if (equationError) {
-      throw new Error(equationError.message);
-    }
-
-    onProgress?.({ progress: 68, message: `${extracted.equations.length} equations extracted.` });
-  }
-
-  const paperPatch = {
-    updated_at: new Date().toISOString(),
-    extraction_version: CURRENT_EXTRACTION_VERSION,
-  };
-  let shouldUpdatePaper = true;
-
-  if ((!currentAbstract || !currentAbstract.trim()) && extracted.abstractText) {
-    paperPatch.abstract = extracted.abstractText;
-    shouldUpdatePaper = true;
-  }
-
-  if (shouldReplacePaperTitle(paperTitle, extracted.derivedTitle)) {
-    paperPatch.title = extracted.derivedTitle.trim();
-    paperPatch.normalized_title = normalizePaperTitle(extracted.derivedTitle);
-    shouldUpdatePaper = true;
-  }
-
-  if (!currentPublicationYear && extracted.publicationYear) {
-    paperPatch.publication_year = extracted.publicationYear;
-    shouldUpdatePaper = true;
-  }
-
-  if (extracted.authors && extracted.authors.length > 0) {
-    paperPatch.authors = extracted.authors;
-    shouldUpdatePaper = true;
-  }
-
-  if (shouldUpdatePaper) {
-    const { error: paperUpdateError } = await supabase.from("papers").update(paperPatch).eq("id", paperId);
-
-    if (paperUpdateError) {
-      throw new Error(paperUpdateError.message);
-    }
-  }
-
-  await upsertCurrentPaperSummary(paperId, userId, extracted);
-
-  return {
-    extractedTextLength: extracted.extractedTextLength,
-    sectionCount: extracted.sections.length,
-    chunkCount: extracted.chunks.length,
-    figureCount: extracted.figures.length,
-    tableCount: (extracted.tables ?? []).length,
-    equationCount: (extracted.equations ?? []).length,
-    heuristicTables: extracted.tables ?? [],
-    heuristicEquations: extracted.equations ?? [],
-    resolvedTitle: paperPatch.title ?? null,
-    extractionMode: extracted.extractionMode ?? "heuristic-fallback",
-    layoutMode: extracted.layoutMode ?? "unknown",
-    ocrAvailable: Boolean(extracted.ocrAvailable),
-    ocrUsed: Boolean(extracted.ocrUsed),
-    ocrProvider: extracted.ocrProvider ?? null,
-    scannedLikelihood: extracted.scannedLikelihood ?? null,
-  };
-}
-
 // ============================================================
-// Pipeline V2: MinerU + GROBID
+// Pipeline: MinerU + GROBID
 // ============================================================
 
 function mergeMetadata({ grobid, mineruSections, fallbackTitle, currentPaper }) {
   const gm = grobid || {};
-  const title = gm.title || mineruSections?.[0]?.sectionName || fallbackTitle || "";
+  const title = gm.title || currentPaper?.title || fallbackTitle || mineruSections?.[0]?.sectionName || "";
   const abstract = gm.abstract || currentPaper?.abstract || "";
   const authors = (gm.authors && gm.authors.length > 0) ? gm.authors : (currentPaper?.authors || []);
   const doi = gm.doi || "";
@@ -756,35 +421,15 @@ function mergeMetadata({ grobid, mineruSections, fallbackTitle, currentPaper }) 
   return { title, abstract, authors, doi, year, journal };
 }
 
-function crossValidateV2(parsed, pdfjsData) {
-  if (!parsed || !pdfjsData) return;
-  const v2TableCount = parsed.tables?.length ?? 0;
-  const pdfjsTableCount = pdfjsData.tables?.length ?? 0;
-  if (pdfjsTableCount > 0 && v2TableCount === 0) {
-    console.warn(`[v2-crossval] MinerU found 0 tables but pdfjs heuristic found ${pdfjsTableCount}`);
-  }
-  const v2EqCount = parsed.equations?.length ?? 0;
-  const pdfjsEqCount = pdfjsData.equations?.length ?? 0;
-  if (pdfjsEqCount > 0 && v2EqCount === 0) {
-    console.warn(`[v2-crossval] MinerU found 0 equations but pdfjs heuristic found ${pdfjsEqCount}`);
-  }
-  const v2SectionCount = parsed.sections?.length ?? 0;
-  const pdfjsSectionCount = pdfjsData.sections?.length ?? 0;
-  if (Math.abs(v2SectionCount - pdfjsSectionCount) > 5) {
-    console.warn(`[v2-crossval] Section count mismatch: MinerU=${v2SectionCount}, pdfjs=${pdfjsSectionCount}`);
-  }
-}
-
 async function persistV2Results({
   paperId, userId, sourceFileId, metadata,
   sections, chunks, tables, equations, figures, references,
-  storedPath, mineruImages,
+  storedPath, mineruImages, grobid,
 }) {
   // Delete existing data for this paper
   await supabase.from("paper_chunks").delete().eq("paper_id", paperId);
   await supabase.from("figures").delete().eq("paper_id", paperId);
   await supabase.from("paper_sections").delete().eq("paper_id", paperId);
-  await supabase.from("paper_references").delete().eq("paper_id", paperId);
 
   // --- Sections ---
   const sectionIdByOrder = new Map();
@@ -979,7 +624,8 @@ async function persistV2Results({
   }
 
   // --- References ---
-  if (references.length > 0) {
+  if (references && references.length > 0) {
+    await supabase.from("paper_references").delete().eq("paper_id", paperId);
     const linkedRefs = await linkReferencesToExistingPapers(references, supabase);
     const { error: refError } = await supabase.from("paper_references").insert(
       linkedRefs.map((r) => ({
@@ -1026,7 +672,7 @@ async function persistV2Results({
   if (paperUpdateError) throw new Error(paperUpdateError.message);
 
   // --- Paper summary ---
-  await upsertPaperSummaryV2(paperId, userId, sections, metadata);
+  await upsertPaperSummaryV2(paperId, userId, sections, metadata, grobid);
 
   return {
     sectionCount: sections.length,
@@ -1034,17 +680,18 @@ async function persistV2Results({
     figureCount: figures.length,
     tableCount: tables.length,
     equationCount: equations.length,
-    referenceCount: references.length,
+    referenceCount: references?.length ?? 0,
   };
 }
 
-async function upsertPaperSummaryV2(paperId, userId, sections, metadata) {
+async function upsertPaperSummaryV2(paperId, userId, sections, metadata, grobid) {
   const sectionText = (names) => {
     const s = sections.find((sec) => names.some((n) => sec.sectionName.toLowerCase().includes(n.toLowerCase())));
     return s?.rawText?.slice(0, 380) || "";
   };
 
-  const oneLine = `V2 extraction: ${sections.length} sections, from MinerU+GROBID.`;
+  const sourceText = grobid ? "MinerU+GROBID" : "MinerU only (GROBID unavailable)";
+  const oneLine = `V2 extraction: ${sections.length} sections, from ${sourceText}.`;
   const objective = sectionText(["abstract", "introduction"]) || metadata.abstract?.slice(0, 380) || "";
   const methodSummary = sectionText(["method", "experiment", "material"]) || "";
   const mainResults = sectionText(["result", "discussion"]) || "";
@@ -1086,16 +733,20 @@ async function upsertPaperSummaryV2(paperId, userId, sections, metadata) {
 }
 
 async function processWithMineruGrobid({
-  paperId, userId, sourceFileId, storedPath, paperTitle, currentPaper, onProgress,
+  paperId, userId, sourceFileId, storedPath, paperTitle, currentPaper, grobidAvailable = true, onProgress,
 }) {
   const pdfBuffer = await fs.readFile(storedPath);
 
   // Phase 1: 병렬 추출 (MinerU + GROBID)
   onProgress?.({ progress: 15, message: "MinerU + GROBID 병렬 추출 중..." });
 
+  const grobidTask = grobidAvailable
+    ? extractMetadataAndReferences(pdfBuffer)
+    : Promise.resolve(null);
+
   const [mineruResult, grobidResult] = await Promise.allSettled([
     parsePdf(pdfBuffer, { backend: "pipeline", lang: "en" }),
-    extractMetadataAndReferences(pdfBuffer),
+    grobidTask,
   ]);
 
   const mineruOk = mineruResult.status === "fulfilled";
@@ -1111,21 +762,14 @@ async function processWithMineruGrobid({
   const parsed = parseMineruResult(mineruResult.value);
   const grobid = grobidOk ? grobidResult.value : null;
 
-  console.log(`[pipeline-v2] MinerU v${mineruResult.value.version}: ${parsed.sections.length} sections, ${parsed.tables.length} tables, ${parsed.equations.length} equations, ${parsed.figures.length} figures (${mineruResult.value.processingTime}ms)`);
+  console.log(`[pipeline] MinerU v${mineruResult.value.version}: ${parsed.sections.length} sections, ${parsed.tables.length} tables, ${parsed.equations.length} equations, ${parsed.figures.length} figures (${mineruResult.value.processingTime}ms)`);
   if (grobid) {
-    console.log(`[pipeline-v2] GROBID: ${grobid.references.length} references, title="${grobid.metadata.title?.slice(0, 50)}" (${grobid.processingTime}ms)`);
+    console.log(`[pipeline] GROBID: ${grobid.references.length} references, title="${grobid.metadata.title?.slice(0, 50)}" (${grobid.processingTime}ms)`);
+  } else {
+    console.warn("[pipeline] GROBID unavailable — proceeding with MinerU-only metadata (degraded mode)");
   }
 
-  // Phase 3: pdfjs 교차검증
-  onProgress?.({ progress: 45, message: "교차 검증 중..." });
-  try {
-    const pdfjsData = await extractHeuristicPaperData(pdfBuffer, paperTitle);
-    crossValidateV2(parsed, pdfjsData);
-  } catch (err) {
-    console.warn("[pipeline-v2] pdfjs cross-validation failed:", err.message);
-  }
-
-  // Phase 4: 메타데이터 병합
+  // Phase 3: 메타데이터 병합
   onProgress?.({ progress: 50, message: "메타데이터 병합 중..." });
   const metadata = mergeMetadata({
     grobid: grobid?.metadata,
@@ -1146,6 +790,7 @@ async function processWithMineruGrobid({
     references: grobid?.references ?? [],
     storedPath,
     mineruImages: mineruResult.value.images,
+    grobid,
   });
 
   onProgress?.({ progress: 70, message: `V2 추출 완료: ${result.sectionCount}섹션, ${result.tableCount}테이블, ${result.equationCount}수식, ${result.referenceCount}참고문헌` });
@@ -1213,338 +858,93 @@ async function processImportPdfJob(job) {
   const resolvedStoredPath = assertLibraryPath(primaryFile.stored_path ?? job.source_path, "Primary paper file path");
   await fs.access(resolvedStoredPath);
 
-  // --- Pipeline V2: try MinerU + GROBID first ---
-  let usedV2 = false;
-  const mineruAvailable = await isMineruAvailable();
-  if (mineruAvailable) {
-    try {
-      broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
-        jobId: job.id, paperId: job.paper_id, status: "running",
-        progress: 15, message: "Pipeline V2: MinerU + GROBID 시작...",
-      });
+  // --- Single pipeline: MinerU + GROBID (V2) ---
+  // MinerU is REQUIRED. GROBID is optional (degraded mode: warn and proceed).
+  const [mineruAvailable, grobidAvailable] = await Promise.all([
+    isMineruAvailable(),
+    isGrobidAvailable(),
+  ]);
 
-      const v2Result = await processWithMineruGrobid({
-        paperId: job.paper_id,
-        userId: job.user_id ?? null,
-        sourceFileId: primaryFile.id,
-        storedPath: resolvedStoredPath,
-        paperTitle: paperRow.title ?? "",
-        currentPaper: paperRow,
-        onProgress: ({ progress, message }) => {
-          broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
-            jobId: job.id, paperId: job.paper_id, status: "running", progress, message,
-          });
-        },
-      });
-
-      if (v2Result) {
-        usedV2 = true;
-        console.log(`[process] V2 pipeline succeeded: ${v2Result.sectionCount} sections, ${v2Result.tableCount} tables, ${v2Result.equationCount} equations, ${v2Result.referenceCount} references`);
-
-        broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
-          jobId: job.id, paperId: job.paper_id, status: "running",
-          progress: 75, message: `V2 완료: ${v2Result.sectionCount}섹션, ${v2Result.chunkCount}청크, ${v2Result.figureCount}그림, ${v2Result.tableCount}테이블, ${v2Result.equationCount}수식, ${v2Result.referenceCount}참고문헌`,
-        });
-
-        // Mark job succeeded and queue embeddings
-        await updateJobStatus(job.id, {
-          status: "succeeded",
-          finished_at: new Date().toISOString(),
-          error_message: null,
-        });
-
-        broadcastToWindows(IPC_EVENTS.JOB_COMPLETED, {
-          jobId: job.id, paperId: job.paper_id,
-          result: { paperId: job.paper_id, status: "succeeded", ...v2Result, pipelineVersion: "v2" },
-        });
-
-        // Queue embedding generation
-        if (v2Result.chunkCount > 0) {
-          await supabase.from("processing_jobs").insert({
-            paper_id: job.paper_id,
-            user_id: job.user_id,
-            job_type: "generate_embeddings",
-            status: "queued",
-            source_path: resolvedStoredPath,
-          });
-        }
-
-        // --- V2 빈 테이블 OCR 폴백 ---
-        try {
-          const { data: emptyTables } = await supabase
-            .from("figures")
-            .select("id, figure_no, page")
-            .eq("paper_id", job.paper_id)
-            .eq("item_type", "table")
-            .or("summary_text.is.null,summary_text.eq.");
-
-          if (emptyTables && emptyTables.length > 0) {
-            console.log(`[process] V2: ${emptyTables.length} tables with empty content, attempting GLM-OCR fallback...`);
-            const pdfBuffer = await fs.readFile(resolvedStoredPath);
-            const ocrResults = await enhanceEmptyTablesWithOcr(pdfBuffer,
-              emptyTables.map(t => ({ figureNo: t.figure_no, page: t.page }))
-            );
-            let updated = 0;
-            for (const r of ocrResults) {
-              const match = emptyTables.find(t => t.figure_no === r.figureNo);
-              if (match) {
-                const { error } = await supabase
-                  .from("figures")
-                  .update({ summary_text: r.summaryText, plain_text: r.plainText || null })
-                  .eq("id", match.id);
-                if (!error) updated++;
-              }
-            }
-            console.log(`[process] V2 OCR fallback: ${updated}/${emptyTables.length} tables enhanced`);
-          }
-        } catch (ocrErr) {
-          console.warn(`[process] V2 empty-table OCR fallback failed (non-fatal):`, ocrErr.message);
-        }
-
-        return; // V2 성공 — 여기서 종료
-      }
-    } catch (v2Err) {
-      console.warn(`[process] V2 pipeline failed, falling back to V1:`, v2Err.message);
-    }
-  } else {
-    console.log("[process] MinerU not available, using V1 pipeline");
+  if (!mineruAvailable) {
+    throw new Error(
+      "MinerU 서비스가 실행되지 않았습니다 (http://localhost:8001). " +
+      "PDF 임포트 전에 MinerU Docker 컨테이너를 시작해주세요.",
+    );
+  }
+  if (!grobidAvailable) {
+    console.warn("[process] GROBID unavailable — proceeding in degraded mode (metadata/references may be incomplete)");
   }
 
-  // --- Pipeline V1 fallback: heuristic + GLM-OCR + UniMERNet ---
   broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
-    jobId: job.id,
-    paperId: job.paper_id,
-    status: "running",
-    progress: 52,
-    message: "Running layout-aware extraction and checking OCR fallback for scanned pages.",
+    jobId: job.id, paperId: job.paper_id, status: "running",
+    progress: 15, message: "PDF 분석 중 (MinerU + GROBID)...",
   });
 
-  const extractionResult = await persistHeuristicExtraction({
+  const extractionResult = await processWithMineruGrobid({
     paperId: job.paper_id,
     userId: job.user_id ?? null,
     sourceFileId: primaryFile.id,
     storedPath: resolvedStoredPath,
     paperTitle: paperRow.title ?? "",
-    currentAbstract: paperRow.abstract ?? "",
-    currentPublicationYear: paperRow.publication_year ?? null,
+    currentPaper: paperRow,
+    grobidAvailable,
     onProgress: ({ progress, message }) => {
       broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
-        jobId: job.id,
-        paperId: job.paper_id,
-        status: "running",
-        progress,
-        message,
+        jobId: job.id, paperId: job.paper_id, status: "running", progress, message,
       });
     },
   });
 
-  await sleep(150);
-
-  // --- OCR-based table/equation extraction via GLM-OCR ---
-  let ocrTableCount = 0;
-  let ocrEquationCount = 0;
-  let glmEquationMap = null; // Map<figureNo, latex> — held for UniMERNet merge
-  try {
-    broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
-      jobId: job.id,
-      paperId: job.paper_id,
-      status: "running",
-      progress: 72,
-      message: "Running AI-based table and equation extraction (GLM-OCR)...",
-    });
-
-    const pdfBuffer = await fs.readFile(resolvedStoredPath);
-    const ocrResult = await extractTablesAndEquationsWithOcr(pdfBuffer, {
-      heuristicTables: extractionResult.heuristicTables,
-      heuristicEquations: extractionResult.heuristicEquations,
-    });
-
-    // --- Per-item merge: GLM-OCR results enhance heuristic baseline ---
-    if (ocrResult.ocrUsed) {
-      // Tables: update each matched table's summary_text with HTML
-      if (ocrResult.tables.length > 0) {
-        let tableUpdated = 0;
-        for (const t of ocrResult.tables) {
-          const { error } = await supabase
-            .from("figures")
-            .update({ summary_text: t.summaryText })
-            .eq("paper_id", job.paper_id)
-            .eq("figure_no", t.figureNo)
-            .eq("item_type", "table");
-          if (!error) tableUpdated++;
-        }
-        ocrTableCount = tableUpdated;
-        console.log(`[process] GLM-OCR enhanced ${tableUpdated}/${ocrResult.tables.length} tables with HTML`);
-
-        broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
-          jobId: job.id, paperId: job.paper_id, status: "running",
-          progress: 74, message: `${tableUpdated} tables enhanced with AI-OCR.`,
-        });
-      }
-
-      // Equations: store GLM-OCR LaTeX results for later merge with UniMERNet
-      if (ocrResult.equations.length > 0) {
-        glmEquationMap = new Map();
-        for (const eq of ocrResult.equations) {
-          glmEquationMap.set(eq.figureNo, eq.summaryText);
-        }
-        console.log(`[process] GLM-OCR extracted ${glmEquationMap.size} equations (held for UniMERNet merge)`);
-
-        broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
-          jobId: job.id, paperId: job.paper_id, status: "running",
-          progress: 76, message: `${glmEquationMap.size} equations extracted by GLM-OCR.`,
-        });
-      }
-    }
-  } catch (ocrErr) {
-    console.warn(`[process] OCR extraction failed (non-fatal):`, ocrErr.message);
+  if (!extractionResult) {
+    throw new Error(
+      "PDF 분석에 실패했습니다. MinerU가 PDF를 처리하지 못했습니다. " +
+      "PDF가 손상되었거나 지원되지 않는 형식일 수 있습니다.",
+    );
   }
 
-  // --- Equation enhancement: UniMERNet (primary) + GLM-OCR (fallback) ---
-  // UniMERNet produces high-quality LaTeX from cropped equation images.
-  // GLM-OCR reads the full page and extracts equations — less precise but no crop failures.
-  // Strategy: Use UniMERNet result when available and valid; fall back to GLM-OCR otherwise.
-  let unimernetEnhanced = 0;
-  let glmFallbackUsed = 0;
-  try {
-    const heuristicEqs = extractionResult.heuristicEquations ?? [];
-    if (heuristicEqs.length > 0) {
-      broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
-        jobId: job.id,
-        paperId: job.paper_id,
-        status: "running",
-        progress: 78,
-        message: `Enhancing ${heuristicEqs.length} equations with UniMERNet (image → LaTeX)...`,
-      });
-
-      const pdfBuf = await fs.readFile(resolvedStoredPath);
-      const enhanced = await enhanceEquationsWithUniMERNet(pdfBuf, heuristicEqs);
-
-      // Build a set of UniMERNet-enhanced equation numbers for tracking
-      const unimernetResults = new Map();
-      for (const { figureNo, latex } of enhanced) {
-        unimernetResults.set(figureNo, latex);
-      }
-
-      // --- Equation LaTeX quality gate ---
-      function isGoodEquationLatex(latex) {
-        if (!latex || latex.length < 8) return false;
-        if (!/[=<>]/.test(latex)) return false;
-
-        // Array blocks that survived cleanUniMERNetLatex need extra scrutiny
-        if (/\\begin\s*\{array\}/.test(latex)) {
-          // Prose contamination: 3+ consecutive lowercase words outside \mathrm/\text
-          // Strip \mathrm{...} and \text{...} first, then look for prose
-          const stripped = latex.replace(/\\(?:mathrm|text\w*)\s*\{[^}]*\}/g, "");
-          if (/[a-z]{3,}(?:\s+[a-z]{3,}){2,}/i.test(stripped)) return false;
-          // High \mathrm text ratio (>40%) → OCR read prose as math
-          const textLen = (latex.match(/\\mathrm\s*\{[^}]*\}/g) || []).join("").length;
-          if (textLen > latex.length * 0.4) return false;
-        }
-
-        return true;
-      }
-
-      // Merge: for each heuristic equation, pick the best available LaTeX
-      let eqDone = 0;
-      const totalEqs = heuristicEqs.length;
-      for (const eq of heuristicEqs) {
-        const uniLatex = unimernetResults.get(eq.figureNo);
-        const glmLatex = glmEquationMap?.get(eq.figureNo);
-
-        // Quality-based merge: validate both sources, pick the better one
-        let bestLatex = null;
-        let source = null;
-
-        const uniValid = isGoodEquationLatex(uniLatex);
-        const glmValid = isGoodEquationLatex(glmLatex);
-
-        if (uniValid && glmValid) {
-          // Both valid: prefer the one without \begin{array}, or the shorter one
-          const uniHasArray = /\\begin\s*\{array\}/.test(uniLatex);
-          const glmHasArray = /\\begin\s*\{array\}/.test(glmLatex);
-          if (uniHasArray && !glmHasArray) {
-            bestLatex = glmLatex; source = "glm-ocr";
-          } else if (!uniHasArray && glmHasArray) {
-            bestLatex = uniLatex; source = "unimernet";
-          } else if (uniLatex.length <= glmLatex.length) {
-            bestLatex = uniLatex; source = "unimernet";
-          } else {
-            bestLatex = glmLatex; source = "glm-ocr";
-          }
-        } else if (uniValid) {
-          bestLatex = uniLatex; source = "unimernet";
-        } else if (glmValid) {
-          bestLatex = glmLatex; source = "glm-ocr";
-        }
-
-        if (bestLatex) {
-          const latexCaption = bestLatex.startsWith("$$") ? bestLatex : `$$${bestLatex}$$`;
-          const { error: updateErr } = await supabase
-            .from("figures")
-            .update({ caption: latexCaption, summary_text: latexCaption })
-            .eq("paper_id", job.paper_id)
-            .eq("figure_no", eq.figureNo)
-            .eq("item_type", "equation");
-
-          if (updateErr) {
-            console.warn(`[equation-merge] Failed to update ${eq.figureNo}:`, updateErr.message);
-          } else {
-            if (source === "unimernet") unimernetEnhanced++;
-            else glmFallbackUsed++;
-          }
-        } else {
-          // Both OCR failed — check if existing heuristic caption is garbage and clear it
-          let existing = null;
-          try {
-            existing = unwrapSingle(await supabase
-              .from("figures")
-              .select("caption")
-              .eq("paper_id", job.paper_id)
-              .eq("figure_no", eq.figureNo)
-              .eq("item_type", "equation")
-              .single(), "equation-duplicate-check");
-          } catch { /* 행 없음 = 중복 아님 */ }
-          if (existing?.caption) {
-            const raw = existing.caption.replace(/^\$\$|\$\$$/g, "").trim();
-            // Very short, no LaTeX commands → broken heuristic text, clear it
-            if (raw.length > 0 && raw.length < 15 && !/\\[a-zA-Z]/.test(raw)) {
-              await supabase
-                .from("figures")
-                .update({ caption: null, summary_text: null })
-                .eq("paper_id", job.paper_id)
-                .eq("figure_no", eq.figureNo)
-                .eq("item_type", "equation");
-              console.log(`[equation-merge] ${eq.figureNo}: cleared broken heuristic caption "${raw}"`);
-            }
-          }
-        }
-
-        eqDone++;
-        broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
-          jobId: job.id, paperId: job.paper_id, status: "running",
-          progress: 78 + Math.round((eqDone / totalEqs) * 6),
-          message: `${eq.figureNo} LaTeX ${bestLatex ? `(${source})` : "skipped"} (${eqDone}/${totalEqs}).`,
-        });
-      }
-
-      console.log(`[process] Equation merge: ${unimernetEnhanced} UniMERNet + ${glmFallbackUsed} GLM-OCR fallback / ${totalEqs} total`);
-    }
-  } catch (uniErr) {
-    console.warn(`[process] Equation enhancement failed (non-fatal):`, uniErr.message);
-  }
-
-  const finalTableCount = ocrTableCount || (extractionResult.tableCount ?? 0);
-  const finalEquationCount = ocrEquationCount || (extractionResult.equationCount ?? 0);
+  console.log(`[process] Pipeline succeeded: ${extractionResult.sectionCount} sections, ${extractionResult.tableCount} tables, ${extractionResult.equationCount} equations, ${extractionResult.referenceCount} references`);
 
   broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
-    jobId: job.id,
-    paperId: job.paper_id,
-    status: "running",
-    progress: 84,
-    message: `Extracted ${extractionResult.sectionCount} sections, ${extractionResult.chunkCount} chunks, ${extractionResult.figureCount} figures, ${finalTableCount} tables, ${finalEquationCount} equations.${unimernetEnhanced || glmFallbackUsed ? ` (LaTeX: ${unimernetEnhanced} UniMERNet + ${glmFallbackUsed} GLM-OCR)` : ""}${ocrTableCount ? ` (${ocrTableCount} table HTML)` : ""}`,
+    jobId: job.id, paperId: job.paper_id, status: "running",
+    progress: 75,
+    message: `PDF 분석 완료: ${extractionResult.sectionCount}섹션, ${extractionResult.chunkCount}청크, ${extractionResult.figureCount}그림, ${extractionResult.tableCount}테이블, ${extractionResult.equationCount}수식, ${extractionResult.referenceCount}참고문헌`,
   });
 
+  // --- Empty-table OCR fallback (GLM-OCR) ---
+  // MinerU가 빈 테이블을 반환한 경우 GLM-OCR로 보강 시도.
+  try {
+    const { data: emptyTables } = await supabase
+      .from("figures")
+      .select("id, figure_no, page")
+      .eq("paper_id", job.paper_id)
+      .eq("item_type", "table")
+      .or("summary_text.is.null,summary_text.eq.");
+
+    if (emptyTables && emptyTables.length > 0) {
+      console.log(`[process] ${emptyTables.length} empty tables detected, attempting GLM-OCR fallback...`);
+      const pdfBuffer = await fs.readFile(resolvedStoredPath);
+      const ocrResults = await enhanceEmptyTablesWithOcr(
+        pdfBuffer,
+        emptyTables.map((t) => ({ figureNo: t.figure_no, page: t.page })),
+      );
+      let updated = 0;
+      for (const r of ocrResults) {
+        const match = emptyTables.find((t) => t.figure_no === r.figureNo);
+        if (match) {
+          const { error } = await supabase
+            .from("figures")
+            .update({ summary_text: r.summaryText, plain_text: r.plainText || null })
+            .eq("id", match.id);
+          if (!error) updated++;
+        }
+      }
+      console.log(`[process] Empty-table OCR fallback: ${updated}/${emptyTables.length} tables enhanced`);
+    }
+  } catch (ocrErr) {
+    console.warn(`[process] Empty-table OCR fallback failed (non-fatal):`, ocrErr.message);
+  }
+
+  // Mark job succeeded
   await updateJobStatus(job.id, {
     status: "succeeded",
     finished_at: new Date().toISOString(),
@@ -1554,14 +954,10 @@ async function processImportPdfJob(job) {
   broadcastToWindows(IPC_EVENTS.JOB_COMPLETED, {
     jobId: job.id,
     paperId: job.paper_id,
-    result: {
-      paperId: job.paper_id,
-      status: "succeeded",
-      ...extractionResult,
-    },
+    result: { paperId: job.paper_id, status: "succeeded", ...extractionResult },
   });
 
-  // Auto-queue embedding generation after successful extraction
+  // Queue embedding generation
   if (extractionResult.chunkCount > 0) {
     await supabase.from("processing_jobs").insert({
       paper_id: job.paper_id,

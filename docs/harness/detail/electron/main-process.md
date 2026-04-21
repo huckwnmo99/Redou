@@ -7,14 +7,14 @@ Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처
 ## 핵심 파일
 | 파일 | 역할 | 줄 수 |
 |------|------|-------|
-| `apps/desktop/electron/main.mjs` | 메인 프로세스 (모든 IPC + 파이프라인) | ~4035 |
+| `apps/desktop/electron/main.mjs` | 메인 프로세스 (모든 IPC + 파이프라인) | ~3519 |
 | `apps/desktop/electron/preload.mjs` | Context bridge (IPC → 렌더러) | ~161 |
 | `apps/desktop/electron/types/ipc-channels.mjs` | IPC 채널 이름 정의 | ~60 |
 
 ## 주요 상수
 | 이름 | 값 | 위치 | 설명 |
 |------|------|------|------|
-| `CURRENT_EXTRACTION_VERSION` | 24 | main.mjs:98 | 추출 로직 버전. 변경 시 기존 논문 재처리 |
+| `CURRENT_EXTRACTION_VERSION` | 25 | main.mjs:99 | 추출 로직 버전. 변경 시 기존 논문 재처리 |
 | `PROCESSING_POLL_INTERVAL_MS` | 2500 | main.mjs:91 | 작업 큐 폴링 간격 (ms) |
 | `LIBRARY_ROOT` | `~/Documents/Redou/Library` | main.mjs:34 | PDF 저장 루트 |
 | `OCR_BUDGET` | 70000 chars | main.mjs:2955 | RAG 컨텍스트 OCR 예산 |
@@ -73,7 +73,7 @@ Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처
 ## 앱 라이프사이클
 1. `app.whenReady()` → `createMainWindow()`
 2. `resetStaleRunningJobs()` — running 상태 작업 → queued 리셋
-3. `reprocessOutdatedPapers()` — extraction_version < 24인 논문 재큐
+3. `reprocessOutdatedPapers()` — extraction_version < 25인 논문 재큐
 4. `startProcessingLoop()` — 2.5초 간격 폴링 시작
 5. LLM 모델 로드: `user_workspace_preferences.llm_model` → `setActiveModel()`
 
@@ -82,5 +82,5 @@ Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처
 - 사용됨: preload.mjs (renderer bridge)
 
 ## 현재 상태
-- 구현 완료: 전체 IPC, PDF 파이프라인 V1/V2, 채팅 테이블/Q&A, Guardian, 모델 선택
+- 구현 완료: 전체 IPC, PDF 파이프라인 V2 단일, 채팅 테이블/Q&A, Guardian, 모델 선택
 - 알려진 이슈: ROADMAP에 chat Supabase null 처리 수정 계획됨
