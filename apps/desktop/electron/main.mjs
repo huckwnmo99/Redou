@@ -19,6 +19,14 @@ import { generateOrchestratorPlan, generateTableFromSpec, extractMatrixFromHtml,
 import { generateQaResponse, formatSourceAttribution } from "./llm-qa.mjs";
 import { parseAllHtmlTables } from "./html-table-parser.mjs";
 import { rerankChunks, isRerankerAvailable } from "./reranker-worker.mjs";
+import {
+  extractEntitiesFromPaper,
+  persistEntities,
+  assemblePaperContextForEntities,
+  buildChunkIndexForPaper,
+  CURRENT_ENTITY_EXTRACTION_VERSION,
+} from "./entity-extractor.mjs";
+import { runGraphEnhancedRag } from "./graph-search.mjs";
 
 // ============================================================
 // Paths
@@ -92,6 +100,7 @@ const PROCESSING_POLL_INTERVAL_MS = 2500;
 let processingInterval = null;
 let extractionInFlight = false;
 let embeddingInFlight = false;
+let entityExtractionInFlight = false;
 
 // Bump this number whenever extraction logic changes (new item types, better parsing, etc.)
 // Papers with extraction_version < CURRENT_EXTRACTION_VERSION will be auto-requeued on startup.
@@ -121,6 +130,8 @@ const DB_QUERY_TABLES = new Set([
   "chat_conversations",
   "chat_messages",
   "chat_generated_tables",
+  "entities",
+  "entity_relations",
 ]);
 const DB_MUTATE_TABLES = new Set([
   "papers",
@@ -146,6 +157,8 @@ const DB_MUTATE_TABLES = new Set([
   "chat_conversations",
   "chat_messages",
   "chat_generated_tables",
+  "entities",
+  "entity_relations",
 ]);
 
 // --- Contextual chunking helpers ---
@@ -1866,6 +1879,28 @@ async function processEmbeddingJob(job) {
       embeddedCount: chunksToEmbed.length,
     },
   });
+
+  // --- Auto-queue entity extraction after successful embeddings ---
+  try {
+    // Skip if paper already has up-to-date entities
+    const { data: paperRow } = await supabase
+      .from("papers")
+      .select("entity_extraction_version")
+      .eq("id", job.paper_id)
+      .maybeSingle();
+    const currentVersion = paperRow?.entity_extraction_version ?? 0;
+    if (currentVersion < CURRENT_ENTITY_EXTRACTION_VERSION) {
+      await supabase.from("processing_jobs").insert({
+        paper_id: job.paper_id,
+        user_id: job.user_id,
+        job_type: "extract_entities",
+        status: "queued",
+        source_path: null,
+      });
+    }
+  } catch (entityQueueErr) {
+    console.warn("[embedding] entity job queue failed (non-fatal):", entityQueueErr.message);
+  }
 }
 
 async function tryStartExtractionJob() {
@@ -1878,7 +1913,7 @@ async function tryStartExtractionJob() {
       .from("processing_jobs")
       .select("id, paper_id, user_id, source_path, job_type, status, created_at")
       .eq("status", "queued")
-      .neq("job_type", "generate_embeddings")
+      .not("job_type", "in", "(generate_embeddings,extract_entities)")
       .order("created_at", { ascending: true })
       .limit(1);
 
@@ -1966,9 +2001,212 @@ async function tryStartEmbeddingJob() {
   }
 }
 
+async function getEntityExtractionModel() {
+  try {
+    const { data } = await supabase
+      .from("user_workspace_preferences")
+      .select("entity_extraction_model, llm_model")
+      .limit(1)
+      .maybeSingle();
+    return data?.entity_extraction_model || data?.llm_model || getActiveModel();
+  } catch {
+    return getActiveModel();
+  }
+}
+
+async function processEntityExtractionJob(job) {
+  broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
+    jobId: job.id,
+    paperId: job.paper_id,
+    status: "running",
+    progress: 10,
+    message: "엔티티 추출 준비 중...",
+  });
+
+  const { data: paper } = await supabase
+    .from("papers")
+    .select("title, entity_extraction_version")
+    .eq("id", job.paper_id)
+    .maybeSingle();
+  if (!paper) throw new Error(`Paper ${job.paper_id} not found for entity extraction`);
+
+  const paperTitle = paper.title || "Untitled";
+  const model = await getEntityExtractionModel();
+
+  broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
+    jobId: job.id,
+    paperId: job.paper_id,
+    status: "running",
+    progress: 25,
+    message: "논문 컨텍스트 조립 중...",
+  });
+
+  const paperContext = await assemblePaperContextForEntities(job.paper_id, supabase);
+  if (!paperContext || paperContext.trim().length === 0) {
+    console.log(`[entity-job] ${job.paper_id}: empty context, marking success with 0 entities`);
+    await supabase
+      .from("papers")
+      .update({ entity_extraction_version: CURRENT_ENTITY_EXTRACTION_VERSION })
+      .eq("id", job.paper_id);
+    await updateJobStatus(job.id, {
+      status: "succeeded",
+      finished_at: new Date().toISOString(),
+      error_message: null,
+    });
+    broadcastToWindows(IPC_EVENTS.JOB_COMPLETED, {
+      jobId: job.id,
+      paperId: job.paper_id,
+      result: { paperId: job.paper_id, status: "succeeded", entitiesInserted: 0 },
+    });
+    return;
+  }
+
+  broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
+    jobId: job.id,
+    paperId: job.paper_id,
+    status: "running",
+    progress: 40,
+    message: `엔티티 추출 LLM 호출 (${model})...`,
+  });
+
+  // 1회 자동 재시도 (extractEntitiesFromPaper 내부에 call 재시도 있지만, 완전 실패 시 outer 재시도 한 번)
+  let extracted;
+  try {
+    extracted = await extractEntitiesFromPaper(paperContext, paperTitle, model);
+  } catch (err) {
+    console.warn(`[entity-job] ${job.paper_id}: first attempt failed (${err.message}), retrying...`);
+    extracted = await extractEntitiesFromPaper(paperContext, paperTitle, model);
+  }
+
+  const entityCount = Array.isArray(extracted?.entities) ? extracted.entities.length : 0;
+  const relationCount = Array.isArray(extracted?.relations) ? extracted.relations.length : 0;
+  broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
+    jobId: job.id,
+    paperId: job.paper_id,
+    status: "running",
+    progress: 70,
+    message: `${entityCount}개 엔티티 + ${relationCount}개 관계 저장 중...`,
+  });
+
+  const chunkIndex = await buildChunkIndexForPaper(job.paper_id, supabase);
+  const persistResult = await persistEntities(
+    job.paper_id,
+    chunkIndex,
+    extracted,
+    supabase,
+    generateEmbedding
+  );
+
+  await supabase
+    .from("papers")
+    .update({ entity_extraction_version: CURRENT_ENTITY_EXTRACTION_VERSION })
+    .eq("id", job.paper_id);
+
+  await updateJobStatus(job.id, {
+    status: "succeeded",
+    finished_at: new Date().toISOString(),
+    error_message: null,
+  });
+
+  broadcastToWindows(IPC_EVENTS.JOB_COMPLETED, {
+    jobId: job.id,
+    paperId: job.paper_id,
+    result: {
+      paperId: job.paper_id,
+      status: "succeeded",
+      entitiesInserted: persistResult.entitiesInserted,
+      relationsInserted: persistResult.relationsInserted,
+      embeddingsGenerated: persistResult.embeddingsGenerated,
+    },
+  });
+}
+
+async function tryStartEntityExtractionJob() {
+  if (entityExtractionInFlight) return;
+  entityExtractionInFlight = true;
+  let activeJob = null;
+
+  try {
+    const { data: queuedJobs, error: jobError } = await supabase
+      .from("processing_jobs")
+      .select("id, paper_id, user_id, source_path, job_type, status, created_at")
+      .eq("status", "queued")
+      .eq("job_type", "extract_entities")
+      .order("created_at", { ascending: true })
+      .limit(1);
+
+    if (jobError) throw new Error(jobError.message);
+    const job = queuedJobs?.[0];
+    if (!job) return;
+
+    activeJob = job;
+    if (!job.paper_id) throw new Error("Queued entity extraction job is missing a paper_id.");
+
+    await updateJobStatus(job.id, {
+      status: "running",
+      started_at: new Date().toISOString(),
+      error_message: null,
+    });
+
+    await processEntityExtractionJob(job);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[entity-job] failed:", message);
+    if (activeJob?.id) {
+      try {
+        await updateJobStatus(activeJob.id, {
+          status: "failed",
+          finished_at: new Date().toISOString(),
+          error_message: message,
+        });
+      } catch { /* best effort */ }
+      broadcastToWindows(IPC_EVENTS.JOB_FAILED, {
+        jobId: activeJob.id,
+        paperId: activeJob.paper_id ?? null,
+        error: message,
+      });
+    }
+  } finally {
+    entityExtractionInFlight = false;
+  }
+}
+
+async function enqueueEntityBackfill() {
+  const { data: papers, error } = await supabase
+    .from("papers")
+    .select("id, owner_user_id, entity_extraction_version")
+    .is("trashed_at", null)
+    .or(`entity_extraction_version.is.null,entity_extraction_version.lt.${CURRENT_ENTITY_EXTRACTION_VERSION}`);
+  if (error) throw new Error(`enqueueEntityBackfill: ${error.message}`);
+
+  let queued = 0;
+  for (const p of papers ?? []) {
+    // Skip if already queued/running for this paper
+    const { data: existing } = await supabase
+      .from("processing_jobs")
+      .select("id")
+      .eq("paper_id", p.id)
+      .eq("job_type", "extract_entities")
+      .in("status", ["queued", "running"])
+      .limit(1);
+    if (existing && existing.length > 0) continue;
+
+    const { error: insErr } = await supabase.from("processing_jobs").insert({
+      paper_id: p.id,
+      user_id: p.owner_user_id,
+      job_type: "extract_entities",
+      status: "queued",
+      source_path: null,
+    });
+    if (!insErr) queued++;
+  }
+  return queued;
+}
+
 function processNextQueuedJob() {
   void tryStartExtractionJob();
   void tryStartEmbeddingJob();
+  void tryStartEntityExtractionJob();
 }
 
 function startProcessingLoop() {
@@ -3287,7 +3525,25 @@ async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAl
   // Use the user's message directly as the search query (simplified vs table pipeline)
   const searchQueries = [{ query: message, intent: "qa" }];
   const keyTerms = extractKeyTerms(message);
-  const ragResults = await runMultiQueryRag(searchQueries, keyTerms, filterPaperIds, "qa");
+  // Graph-Enhanced RAG: base(vector+BM25+reranker) ⊕ graph 2-way RRF (graph 0건이면 wGraph=0 패스스루)
+  const entityModel = await getEntityExtractionModel();
+  const ragResults = await runGraphEnhancedRag(
+    searchQueries,
+    keyTerms,
+    filterPaperIds,
+    "qa",
+    supabase,
+    {
+      generateEmbedding,
+      runMultiQueryRag,
+      modelName: entityModel,
+    }
+  );
+  if (ragResults.graph) {
+    console.log(
+      `[Chat/QA] Graph: seeds=${ragResults.graph.seedCount}, expanded=${ragResults.graph.expandedCount}, graphChunks=${ragResults.graph.graphChunkCount}`
+    );
+  }
 
   // If no results, inform user
   if (ragResults.chunks.length === 0 && ragResults.figures.length === 0) {
@@ -4101,6 +4357,115 @@ ipcMain.handle(IPC_CHANNELS.LLM_SET_MODEL, async (_event, { model }) => {
     setActiveModel(model);
     console.log(`[LLM] Active model changed to: ${getActiveModel()}`);
     return { success: true, data: { model: getActiveModel() } };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// --- Entity Extraction IPC Handlers ---
+
+ipcMain.handle(IPC_CHANNELS.ENTITY_BACKFILL, async () => {
+  try {
+    const queued = await enqueueEntityBackfill();
+    console.log(`[entity-backfill] Queued ${queued} papers for entity extraction`);
+    // Kick the processing loop immediately
+    void processNextQueuedJob();
+    return { success: true, data: { queued } };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.ENTITY_BACKFILL_STATUS, async () => {
+  try {
+    const [pendingRes, runningRes, totalRes, upToDateRes] = await Promise.all([
+      supabase
+        .from("processing_jobs")
+        .select("*", { count: "exact", head: true })
+        .eq("job_type", "extract_entities")
+        .eq("status", "queued"),
+      supabase
+        .from("processing_jobs")
+        .select("*", { count: "exact", head: true })
+        .eq("job_type", "extract_entities")
+        .eq("status", "running"),
+      supabase
+        .from("papers")
+        .select("*", { count: "exact", head: true })
+        .is("trashed_at", null),
+      supabase
+        .from("papers")
+        .select("*", { count: "exact", head: true })
+        .is("trashed_at", null)
+        .gte("entity_extraction_version", CURRENT_ENTITY_EXTRACTION_VERSION),
+    ]);
+
+    return {
+      success: true,
+      data: {
+        pending: pendingRes.count ?? 0,
+        running: runningRes.count ?? 0,
+        totalPapers: totalRes.count ?? 0,
+        processedPapers: upToDateRes.count ?? 0,
+        currentVersion: CURRENT_ENTITY_EXTRACTION_VERSION,
+      },
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.ENTITY_GET_MODEL, async () => {
+  try {
+    const { data: pref } = await supabase
+      .from("user_workspace_preferences")
+      .select("entity_extraction_model, llm_model")
+      .limit(1)
+      .maybeSingle();
+    const effectiveModel = pref?.entity_extraction_model || pref?.llm_model || getActiveModel();
+    return {
+      success: true,
+      data: {
+        model: pref?.entity_extraction_model ?? null,
+        effectiveModel,
+        source: pref?.entity_extraction_model ? "user" : "fallback_chat_model",
+      },
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.ENTITY_SET_MODEL, async (_event, { model }) => {
+  try {
+    const value = model || null;
+    const { data: existing } = await supabase
+      .from("user_workspace_preferences")
+      .select("id")
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      await supabase
+        .from("user_workspace_preferences")
+        .update({ entity_extraction_model: value })
+        .eq("id", existing.id);
+    } else {
+      const { data: appUser } = await supabase
+        .from("app_users")
+        .select("id")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (appUser?.id) {
+        await supabase
+          .from("user_workspace_preferences")
+          .insert({ user_id: appUser.id, entity_extraction_model: value });
+      }
+    }
+
+    console.log(`[entity] Entity extraction model set to: ${value || "(inherits chat model)"}`);
+    return { success: true, data: { model: value } };
   } catch (err) {
     return { success: false, error: err.message };
   }

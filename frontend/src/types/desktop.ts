@@ -132,6 +132,23 @@ export interface LlmModelInfo {
   source: "user" | "env" | "default";
 }
 
+export interface EntityModelInfo {
+  /** User-selected model name. null means falls back to chat model. */
+  model: string | null;
+  /** Effective model name actually used (after fallback). */
+  effectiveModel: string;
+  /** 'user' = explicit entity_extraction_model; 'fallback_chat_model' = inherits llm_model. */
+  source: "user" | "fallback_chat_model";
+}
+
+export interface EntityBackfillStatus {
+  pending: number;
+  running: number;
+  totalPapers: number;
+  processedPapers: number;
+  currentVersion: number;
+}
+
 export type ChatPipelineStage =
   | "orchestrating"
   | "searching"
@@ -197,6 +214,12 @@ export interface RedouDesktopApi {
   llm: {
     listModels: () => Promise<DbResult<OllamaModel[]>>;
     getModel: () => Promise<DbResult<LlmModelInfo>>;
+    setModel: (args: { model: string }) => Promise<DbResult<{ model: string }>>;
+  };
+  entity: {
+    backfill: () => Promise<DbResult<{ queued: number }>>;
+    backfillStatus: () => Promise<DbResult<EntityBackfillStatus>>;
+    getModel: () => Promise<DbResult<EntityModelInfo>>;
     setModel: (args: { model: string }) => Promise<DbResult<{ model: string }>>;
   };
   openExternal: (url: string) => Promise<void>;

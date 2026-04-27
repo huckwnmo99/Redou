@@ -31,6 +31,10 @@ const IPC_CHANNELS = {
   LLM_LIST_MODELS: "llm:list-models",
   LLM_GET_MODEL: "llm:get-model",
   LLM_SET_MODEL: "llm:set-model",
+  ENTITY_BACKFILL: "entity:backfill",
+  ENTITY_BACKFILL_STATUS: "entity:backfill-status",
+  ENTITY_GET_MODEL: "entity:get-model",
+  ENTITY_SET_MODEL: "entity:set-model",
 };
 
 const IPC_EVENTS = {
@@ -106,6 +110,13 @@ contextBridge.exposeInMainWorld("redouDesktop", {
     listModels: () => ipcRenderer.invoke(IPC_CHANNELS.LLM_LIST_MODELS),
     getModel: () => ipcRenderer.invoke(IPC_CHANNELS.LLM_GET_MODEL),
     setModel: (args) => ipcRenderer.invoke(IPC_CHANNELS.LLM_SET_MODEL, args),
+  },
+
+  entity: {
+    backfill: () => ipcRenderer.invoke(IPC_CHANNELS.ENTITY_BACKFILL),
+    backfillStatus: () => ipcRenderer.invoke(IPC_CHANNELS.ENTITY_BACKFILL_STATUS),
+    getModel: () => ipcRenderer.invoke(IPC_CHANNELS.ENTITY_GET_MODEL),
+    setModel: (args) => ipcRenderer.invoke(IPC_CHANNELS.ENTITY_SET_MODEL, args),
   },
 
   openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_EXTERNAL, url),

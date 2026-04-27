@@ -1,5 +1,5 @@
 # 주요 데이터 흐름
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+> 하네스 버전: v1.3 | 최종 갱신: 2026-04-22
 
 ## 1. PDF 임포트 → 처리 파이프라인
 
@@ -44,6 +44,13 @@
   │   ├─ 논문 단위 임베딩 (title + abstract)
   │   └─ Figure/Table/Equation 임베딩 (이미지: VL 모델, 텍스트: text 모델)
   │       └─ 참조 청크 컨텍스트 보강 (buildReferencePattern)
+  │
+  ├─ [NEW] embedding 성공 시 extract_entities 잡 자동 큐잉 (main.mjs:1883)
+  │   └─ processEntityExtractionJob (main.mjs:2017)
+  │       ├─ assemblePaperContextForEntities (청크 상위 80개 + OCR 요약 15KB, cap 60KB)
+  │       ├─ extractEntitiesFromPaper (Ollama JSON-schema 강제, 1회 재시도)
+  │       ├─ persistEntities (DELETE cascade → batch INSERT → 엔티티 임베딩 UPDATE)
+  │       └─ papers.entity_extraction_version 갱신
   │
   └─ IPC Events → 프론트엔드
       ├─ JOB_PROGRESS (진행률, 메시지)
@@ -143,8 +150,13 @@
   ├─ IPC: CHAT_SEND_MESSAGE (mode="qa") → handleQaPipeline [main.mjs:3227]
   │   ├─ 사용자 메시지를 직접 검색 쿼리로 사용
   │   ├─ extractKeyTerms(message) → 키워드 힌트 추출
-  │   ├─ runMultiQueryRag(queries, hints, filterIds, "qa")
-  │   │   └─ RRF 가중: vector 70%, BM25 30% (Q&A 모드)
+  │   ├─ runGraphEnhancedRag(queries, hints, filterIds, "qa", supabase, deps) [graph-search.mjs]
+  │   │   ├─ runMultiQueryRag + extractQueryEntities 병렬 실행
+  │   │   ├─ matchQueryEntitiesToGraph (canonical exact → match_entities RPC fallback)
+  │   │   ├─ resolve_same_as RPC (동의어 재귀 확장)
+  │   │   ├─ graph_traverse_1hop RPC (이웃 → chunk_ids)
+  │   │   └─ rrfFusionWithGraph (base ⊕ graph 2-way: qa wBase=0.75/wGraph=0.25, table 0.70/0.30)
+  │   │       └─ graph 0건이면 wGraph=0, 완전 패스스루. `rrfFusionTriple`은 deprecated alias.
   │   ├─ assembleRagContext (텍스트 위주, 파싱 매트릭스 없음)
   │   ├─ generateQaResponse (llm-qa.mjs) → 스트리밍
   │   └─ formatSourceAttribution → [1], [2] 참조번호 매핑

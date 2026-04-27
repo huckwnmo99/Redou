@@ -1,8 +1,8 @@
 # 데이터베이스 스키마
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+> 하네스 버전: v1.3 | 최종 갱신: 2026-04-22
 
 ## 개요
-로컬 Supabase(PostgreSQL + pgvector, port 55321)에 20개 마이그레이션으로 구성된 스키마. 핵심 테이블 24개, RPC 함수 8개.
+로컬 Supabase(PostgreSQL + pgvector, port 55321)에 23개 마이그레이션으로 구성된 스키마. 핵심 테이블 26개, RPC 함수 12개.
 
 ## 마이그레이션 히스토리 (20개)
 | # | 파일 | 설명 |
@@ -27,6 +27,8 @@
 | 18 | `20260408010000_add_bm25_search.sql` | paper_chunks BM25 (fts, GIN) |
 | 19 | `20260409010000_add_figures_bm25_search.sql` | figures BM25 (fts, GIN) |
 | 20 | `20260410012147_add_chat_generated_tables_metadata.sql` | SRAG metadata JSONB |
+| 21 | `20260410020000_fix_bm25_or_tsquery.sql` | BM25 OR tsquery 수정 |
+| 22 | `20260423010000_add_entity_graph.sql` | entities/entity_relations + 4개 RPC + job_type 'extract_entities' + papers.entity_extraction_version + prefs.entity_extraction_model |
 
 ## 핵심 테이블
 
@@ -76,7 +78,15 @@
 |--------|------|-----------|------|
 | `processing_jobs` | uuid | paper_id(FK), job_type, status, source_path, error_message | 작업 큐 |
 | `backup_snapshots` | uuid | backup_path, backup_kind, status | 백업 |
-| `user_workspace_preferences` | user_id(FK) | layout_*, llm_model | 사용자 설정 |
+| `user_workspace_preferences` | user_id(FK) | layout_*, llm_model, entity_extraction_model | 사용자 설정 |
+
+### 지식 그래프 (엔티티)
+| 테이블 | PK | 주요 컬럼 | 비고 |
+|--------|------|-----------|------|
+| `entities` | uuid | paper_id(FK), chunk_id(FK, nullable), entity_type, raw_name, canonical_name, value, unit, confidence, confidence_tag, embedding(vector 2048) | 온톨로지 엔티티. entity_type: substance/method/condition/metric/phenomenon/concept |
+| `entity_relations` | uuid | source_entity_id(FK), target_entity_id(FK), relation_type, direction, source_paper_id(FK), evidence_chunk_id(FK), confidence, confidence_tag | 관계. relation_type: affects/correlates_with/measures/uses/compared_to/outperforms/produces/same_as. UNIQUE(source, target, relation_type, paper) |
+
+papers에 `entity_extraction_version int default 0` 추가. RLS: 논문 소유자만 접근 (paper_references 패턴).
 
 ## Enum 타입
 | 이름 | 값 |
@@ -85,7 +95,7 @@
 | `file_kind` | main_pdf, supplementary_pdf, figure_asset |
 | `note_scope` | paper, section, chunk, figure, highlight |
 | `note_type` | summary_note, relevance_note, presentation_note, result_note, followup_note, figure_note, question_note, custom |
-| `job_type` | import_pdf, run_ocr, extract_metadata, parse_sections, extract_figures, generate_embeddings, generate_summary, create_backup |
+| `job_type` | import_pdf, run_ocr, extract_metadata, parse_sections, extract_figures, generate_embeddings, generate_summary, create_backup, extract_entities |
 | `job_status` | queued, running, succeeded, failed |
 | `backup_status` | created, failed, imported |
 

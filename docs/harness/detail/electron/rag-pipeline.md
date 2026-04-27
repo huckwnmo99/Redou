@@ -1,5 +1,5 @@
 # RAG 파이프라인
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+> 하네스 버전: v1.3 | 최종 갱신: 2026-04-22
 
 ## 개요
 채팅(테이블 생성/Q&A) 시 관련 논문 데이터를 검색하는 Hybrid Search + RRF Fusion + Reranker 파이프라인. 검색 결과를 LLM 컨텍스트로 조립한다.
@@ -10,6 +10,7 @@
 | `apps/desktop/electron/main.mjs` | RAG 함수들 (2728~3225) | ~500줄 구간 |
 | `apps/desktop/electron/reranker-worker.mjs` | Cross-encoder reranker | ~147 |
 | `apps/desktop/electron/embedding-worker.mjs` | 쿼리 임베딩 생성 | ~143 |
+| `apps/desktop/electron/graph-search.mjs` | Graph-Enhanced Search (QA 파이프라인 사용) | ~290 |
 
 ## 주요 함수
 
@@ -66,9 +67,49 @@ searchQueries[] (Orchestrator 출력)
 | table | 0.6 | 0.4 | 키워드 정확도 중시 (수치 데이터) |
 | qa | 0.3 | 0.7 | 의미 유사도 중시 (개념적 답변) |
 
+## Graph-Enhanced Search (Q&A 전용)
+
+**파일:** `apps/desktop/electron/graph-search.mjs`
+**진입점:** `runGraphEnhancedRag(searchQueries, keywordHints, filterPaperIds, mode, supabase, deps)`
+**적용 범위:** Q&A 파이프라인(`handleQaPipeline` @ main.mjs:3530). 테이블 파이프라인은 기존 `runMultiQueryRag` 유지.
+
+### 처리 단계
+
+```
+Step 1: 기존 vector+BM25 RAG(runMultiQueryRag) + extractQueryEntities(첫 쿼리, 메인 LLM) 병렬 실행
+Step 2: matchQueryEntitiesToGraph
+   (a) entities.canonical_name IN (...) — exact 매칭
+   (b) 부족하면 match_entities RPC (query_embedding, threshold=0.50) — 시맨틱 fallback
+Step 3: resolve_same_as RPC — same_as 관계 재귀 확장 (동의어 union)
+Step 4: graph_traverse_1hop RPC — 이웃 엔티티의 evidence chunk ids 수집 (max 50)
+   * filter_paper_ids 미전달 → 폴더 스코프 넘어 전체 그래프 순회
+Step 5: fetchGraphChunks — paper_chunks에서 실제 텍스트 로드
+Step 6: rrfFusionWithGraph — 2-way RRF (base ⊕ graph)
+   mode="qa":    wBase=0.75, wGraph=0.25
+   mode="table": wBase=0.70, wGraph=0.30
+   graphChunks 0개 → wBase=1/wGraph=0 (완전 패스스루)
+   * baseRag.chunks는 이미 runMultiQueryRag 내부에서 vector+BM25 RRF+reranker를 통과한 단일 랭킹이라,
+     외부에서 vector/bm25를 분리해 3-way로 가중하는 것이 구조적으로 불가능. 따라서 2-way로 축소.
+   * `rrfFusionTriple`은 deprecated alias로 남아 2-way로 위임 (하위호환).
+Step 7: reranker는 base 단계(runMultiQueryRag 내부)에서만 수행. 그래프 합류 후 재랭크 없음.
+```
+
+### 폴더 스코프 정책
+- `runVectorSearch`/`runBm25Search`: `filter_paper_ids` 전달 (폴더 내 검색)
+- `matchQueryEntitiesToGraph`/`graph_traverse_1hop`: `filter_paper_ids` 미전달 (전체 그래프)
+- 결과: 폴더 내 벡터/BM25 hit + 폴더 밖이라도 그래프로 도달 가능한 chunk 혼합
+
+### Graceful degradation
+- 쿼리 엔티티 0개 → base RAG 그대로 반환
+- seed 엔티티 0개 → base RAG 그대로 반환
+- graph chunk 0개 → `rrfFusionWithGraph`가 wBase=1/wGraph=0으로 완전 패스스루
+
+### 반환값 확장
+`runGraphEnhancedRag`은 기존 `{chunks, figures}` 외에 `graph: {queryEntities, seedCount, expandedCount, graphChunkCount}`를 추가로 반환 (로깅/디버깅용).
+
 ## 의존성
-- 사용: Supabase RPC (match_chunks, match_chunks_bm25, match_figures, match_figures_bm25), embedding-worker (쿼리 임베딩), reranker-worker
-- 사용됨: 채팅 파이프라인 (Table + Q&A)
+- 사용: Supabase RPC (match_chunks, match_chunks_bm25, match_figures, match_figures_bm25, match_entities, resolve_same_as, graph_traverse_1hop), embedding-worker (쿼리 임베딩), reranker-worker, entity-extractor.mjs (extractQueryEntities)
+- 사용됨: 채팅 파이프라인 (Table: runMultiQueryRag, Q&A: runGraphEnhancedRag)
 
 ## 현재 상태
 - 구현 완료: Hybrid Search, RRF, Reranker, 컨텍스트 조립, SRAG 병합

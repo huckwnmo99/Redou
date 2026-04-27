@@ -1,5 +1,5 @@
 # 스토어 & 쿼리 계층
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+> 하네스 버전: v1.3 | 최종 갱신: 2026-04-22
 
 ## 개요
 Zustand로 UI ���태를, TanStack Query로 서버 상태를 관리한다. Supabase DAL(supabasePaperRepository)이 DB 접근을 추상화하고, desktop.ts가 Electron IPC를 래핑한다.
@@ -69,6 +69,12 @@ Zustand로 UI ���태를, TanStack Query로 서버 상태를 관리한다. 
 | `useGeneratedTable(tableId)` | 생성 테이블 조회 |
 | `useSendMessage()` | 메시지 전송 뮤테이션 |
 | `useChatEvents()` | IPC 이벤트 수신 + chatStore 갱신 |
+| `useLlmModels()` / `useActiveLlmModel()` / `useSetLlmModel()` | 채팅 모델 조회/변경 |
+| `useEntityModel()` / `useSetEntityModel()` | 엔티티 추출 모델 조회/변경 (NULL=채팅 모델 상속) |
+| `useEntityBackfillStatus()` | 엔티티 백필 진행 상태 (3초 polling) |
+| `useEntityBackfillMutation()` | 엔티티 백필 수동 트리거 |
+
+**쿼리 키:** `llmKeys` (models, activeModel), `entityKeys` (activeModel, backfillStatus)
 
 ## Supabase DAL (supabasePaperRepository.ts, ~1488줄)
 - 모든 테이블에 대한 CRUD 함수 정의

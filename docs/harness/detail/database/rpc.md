@@ -1,8 +1,8 @@
 # RPC 함수 (PostgreSQL Functions)
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+> 하네스 버전: v1.3 | 최종 갱신: 2026-04-22
 
 ## 개요
-Supabase RPC로 호출하는 PostgreSQL 함수. 벡터 검색 4종, BM25 검색 2종, 즐겨찾기 토글 1종. 모두 `LANGUAGE plpgsql STABLE`.
+Supabase RPC로 호출하는 PostgreSQL 함수. 벡터 검색 4종 + 엔티티 1종, BM25 검색 2종, 그래프 순회 2종, 통계 1종, 즐겨찾기 토글 1종. 모두 `LANGUAGE plpgsql STABLE`.
 
 ## 함수 목록
 
@@ -66,6 +66,42 @@ Supabase RPC로 호출하는 PostgreSQL 함수. 벡터 검색 4종, BM25 검색 
 | 입력 | `paper_id uuid` |
 | 로직 | papers.is_important 토글 |
 | 호출처 | 프론트엔드 |
+
+### 8. match_entities (엔티티 벡터 검색)
+| 항목 | 값 |
+|------|------|
+| 정의 | `20260423010000_add_entity_graph.sql` |
+| 입력 | `query_embedding vector(2048)`, `match_threshold float=0.35`, `match_count int=20`, `filter_paper_ids uuid[]`, `filter_types text[]` |
+| 반환 | `entity_id, paper_id, chunk_id, entity_type, canonical_name, value, unit, confidence, confidence_tag, similarity` |
+| 로직 | entities.embedding cosine similarity. entity_type으로 필터 가능 (substance/method/condition/metric/phenomenon/concept). |
+| 호출처 | graph-search.mjs `matchQueryEntitiesToGraph` (exact 매칭 실패 시 시맨틱 fallback, threshold 0.50) |
+
+### 9. resolve_same_as (동의어 재귀 확장)
+| 항목 | 값 |
+|------|------|
+| 정의 | `20260423010000_add_entity_graph.sql` |
+| 입력 | `seed_entity_ids uuid[]` |
+| 반환 | `uuid[]` (union된 entity id 집합) |
+| 로직 | `WITH RECURSIVE`로 `same_as` 관계를 양방향 traverse → 모든 동의어 엔티티 id union. |
+| 호출처 | graph-search.mjs `runGraphEnhancedRag` (seed 확장 단계) |
+
+### 10. graph_traverse_1hop (1-hop 이웃 순회)
+| 항목 | 값 |
+|------|------|
+| 정의 | `20260423010000_add_entity_graph.sql` |
+| 입력 | `seed_entity_ids uuid[]`, `max_results int=50` |
+| 반환 | `chunk_id, paper_id, neighbor_entity_id, neighbor_canonical_name, relation_type, direction, hop` |
+| 로직 | `entity_relations`에서 source/target 양방향 순회 (same_as 제외) → `evidence_chunk_id` 수집. 필터 없음 (전체 그래프). |
+| 호출처 | graph-search.mjs `runGraphEnhancedRag` (chunk ids 수집 단계) |
+
+### 11. god_nodes (중심 엔티티)
+| 항목 | 값 |
+|------|------|
+| 정의 | `20260423010000_add_entity_graph.sql` |
+| 입력 | `min_paper_count int=3`, `max_results int=20` |
+| 반환 | `entity_id, canonical_name, entity_type, paper_count, relation_count` |
+| 로직 | 여러 논문에 등장한 엔티티를 paper_count, relation_count 내림차순으로 top-N. |
+| 호출처 | (미사용; 향후 엔티티 대시보드용) |
 
 ## BM25 설정
 - `paper_chunks.fts`: `to_tsvector('english', coalesce(text, ''))` GENERATED STORED

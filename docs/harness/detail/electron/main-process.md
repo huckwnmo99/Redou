@@ -1,5 +1,5 @@
 # Electron Main Process
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+> 하네스 버전: v1.3 | 최종 갱신: 2026-04-22
 
 ## 개요
 Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처리 파이프라인 오케스트레이션, DB 프록시, 채팅 파이프라인 전체를 관장한다.
@@ -52,6 +52,10 @@ Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처
 | `llm:list-models` | 3939 | Ollama 모델 목록 |
 | `llm:get-model` | 3960 | 현재 모델 조회 |
 | `llm:set-model` | 3981 | 모델 변경 |
+| `entity:backfill` | 4367 | 엔티티 추출 백필 큐잉 (수동 트리거) |
+| `entity:backfill-status` | 4379 | 엔티티 추출 진행 상태 (pending/running/totalPapers/processedPapers/currentVersion) |
+| `entity:get-model` | 4418 | 엔티티 추출 모델 조회 (null시 fallback_chat_model) |
+| `entity:set-model` | 4439 | 엔티티 추출 모델 설정 (null 저장 가능) |
 
 ### Main → Renderer (webContents.send)
 | 이벤트 | 설명 |
@@ -66,8 +70,8 @@ Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처
 | `chat:verification-done` | Guardian 검증 완료 |
 
 ## DB 테이블 화이트리스트
-- `DB_QUERY_TABLES`: 23개 테이블 (main.mjs:99-124)
-- `DB_MUTATE_TABLES`: 22개 테이블 (main.mjs:125-149)
+- `DB_QUERY_TABLES`: 25개 테이블 (main.mjs:108-135) — +`entities`, `entity_relations`
+- `DB_MUTATE_TABLES`: 24개 테이블 (main.mjs:136~) — +`entities`, `entity_relations`
 - 테이블 추가 시 반드시 양쪽 갱신 필요
 
 ## 앱 라이프사이클
@@ -77,10 +81,17 @@ Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처
 4. `startProcessingLoop()` — 2.5초 간격 폴링 시작
 5. LLM 모델 로드: `user_workspace_preferences.llm_model` → `setActiveModel()`
 
+## 처리 잡 스케줄러
+- `processNextQueuedJob()` (main.mjs:2206) — 3가지 큐를 각각 독립 flag로 단일 실행 보장:
+  - `tryStartExtractionJob` — import_pdf 등 (extractionInFlight)
+  - `tryStartEmbeddingJob` — generate_embeddings (embeddingInFlight)
+  - `tryStartEntityExtractionJob` — extract_entities (entityExtractionInFlight, 신규)
+- `extract_entities` 잡은 임베딩 성공 후 자동 큐잉되거나, 수동 백필(`entity:backfill`)로 큐잉됨.
+
 ## 의존성
-- 사용: supabase, embedding-worker, pdf-heuristics, ocr-extraction, mineru-client, grobid-client, llm-chat, llm-orchestrator, llm-qa, html-table-parser, reranker-worker
+- 사용: supabase, embedding-worker, pdf-heuristics, ocr-extraction, mineru-client, grobid-client, llm-chat, llm-orchestrator, llm-qa, html-table-parser, reranker-worker, entity-extractor (신규), graph-search (신규)
 - 사용됨: preload.mjs (renderer bridge)
 
 ## 현재 상태
-- 구현 완료: 전체 IPC, PDF 파이프라인 V1/V2, 채팅 테이블/Q&A, Guardian, 모델 선택
+- 구현 완료: 전체 IPC, PDF 파이프라인 V1/V2, 채팅 테이블/Q&A, Guardian, 모델 선택, 엔티티 추출 + Graph-Enhanced Search
 - 알려진 이슈: ROADMAP에 chat Supabase null 처리 수정 계획됨

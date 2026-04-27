@@ -1,5 +1,5 @@
 # 기능 상태 매트릭스
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+> 하네스 버전: v1.3 | 최종 갱신: 2026-04-22
 
 ## 전체 기능 매트릭스
 
@@ -36,6 +36,9 @@
 | Google OAuth 인증 | ✅ 구현됨 | electron/main-process.md | oauth-callback-server.mjs |
 | 백업/복원 | ✅ 구현됨 | electron/main-process.md | BACKUP_CREATE/RESTORE |
 | 다국어 (한/영) | ✅ 구현됨 | frontend/stores-queries.md | locale.ts |
+| 온톨로지 엔티티 추출 (entities/entity_relations) | ✅ 구현됨 | electron/llm.md, database/schema.md | `entity-extractor.mjs`, 임베딩 후 자동 큐잉, 수동 백필 |
+| Graph-Enhanced Search (2-way RRF: base ⊕ graph) | ✅ 구현됨 | electron/rag-pipeline.md, database/rpc.md | `graph-search.mjs`, QA 모드에 적용. `rrfFusionWithGraph` (wBase 0.75/0.70, wGraph 0.25/0.30). `rrfFusionTriple`은 deprecated alias로 하위호환 유지. |
+| 엔티티 추출 모델 선택 (별도) | ✅ 구현됨 | electron/llm.md | Settings UI dropdown, NULL시 채팅 모델 상속 |
 
 ## ROADMAP 진행 상태
 
@@ -45,6 +48,7 @@
 | 버그수정 | 채팅 UI 텍스트 선택 + optimistic update | 📋 계획됨 |
 | 버그수정 | BM25 검색 0건 반환 (websearch_to_tsquery AND 과다) | ✅ 완료 (OR tsquery로 변경) |
 | 버그수정 | SRAG 통합 이슈 3건 (Orchestrator clarify 과다 / 한글 인코딩 / Guardian 검증) | 📋 계획됨 |
+| 버그수정 | 엔티티 그래프 critical 2건 (evidence_chunk_id null / 3-way RRF 중복 입력) | ✅ 완료 (evidence_chunk_id 폴백 체인 + CURRENT_ENTITY_EXTRACTION_VERSION 2 / 2-way `rrfFusionWithGraph`로 축소) |
 | Step 1 | LLM 모델 선택 | ✅ 완료 (코드 확인) |
 | Step 1 | Table/Q&A 서비스 분리 | ✅ 완료 (llm-qa.mjs + conversation_type) |
 | Step 2 | Hybrid Search (BM25+Vector) | ✅ 완료 (BM25 RPC + RRF) |
@@ -56,7 +60,7 @@
 | Step 4 | CRAG 자가 검증 | 📋 계획됨 |
 | Step 5 | Sentence Window Retrieval | 💡 아이디어 |
 | Step 5 | HyDE | 💡 아이디어 |
-| Step 6 | 인용 네트워크 / GraphRAG / 멀티홉 | 💡 아이디어 |
+| Step 6 | 인용 네트워크 / GraphRAG / 멀티홉 | 🔧 진행중 (엔티티 그래프 1-hop 완료, 인용 네트워크/멀티홉 추후) |
 | Step 7 | Agentic RAG 통합 | 💡 아이디어 |
 
 ## 최근 변경 (커밋 기준)
