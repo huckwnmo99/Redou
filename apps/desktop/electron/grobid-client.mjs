@@ -191,7 +191,8 @@ function extractAbstract(profileDesc) {
 function parseTeiReferences(tei) {
   const body = tei?.text || {};
   const back = body?.back || {};
-  const listBibl = back?.div?.listBibl || back?.listBibl || {};
+  const divArr = Array.isArray(back?.div) ? back.div : (back?.div ? [back.div] : []);
+  const listBibl = divArr.find(d => d?.listBibl)?.listBibl || back?.listBibl || {};
   let biblStructs = listBibl?.biblStruct || [];
   if (!Array.isArray(biblStructs)) biblStructs = [biblStructs];
 
@@ -233,7 +234,7 @@ function parseTeiReferences(tei) {
     // XML ID → 참조 순서
     const xmlId = bib?.["@_xml:id"] || "";
     const orderMatch = xmlId.match(/b(\d+)/);
-    const refOrder = orderMatch ? parseInt(orderMatch[1], 10) : i + 1;
+    const refOrder = orderMatch ? parseInt(orderMatch[1], 10) + 1 : i + 1;
 
     references.push({
       order: refOrder,
