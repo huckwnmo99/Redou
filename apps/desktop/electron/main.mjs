@@ -2814,10 +2814,25 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
 
     // Fetch paper list for Orchestrator context
     const { data: allPapers } = await supabase.from("papers").select("id, title, authors, publication_year");
+    // 논문별 테이블 캡션 조회 (Orchestrator context용)
+    const paperIdsForCaptions = (allPapers ?? []).map((p) => p.id);
+    const { data: tableFigsForOrchestrator } = await supabase
+      .from("figures")
+      .select("paper_id, figure_no, caption")
+      .eq("item_type", "table")
+      .in("paper_id", paperIdsForCaptions);
+
+    const captionsByPaperId = new Map();
+    for (const f of tableFigsForOrchestrator ?? []) {
+      if (!captionsByPaperId.has(f.paper_id)) captionsByPaperId.set(f.paper_id, []);
+      captionsByPaperId.get(f.paper_id).push({ figureNo: f.figure_no, caption: f.caption });
+    }
+
     const paperList = (allPapers ?? []).map((p) => ({
       title: p.title ?? "Untitled",
       authors: Array.isArray(p.authors) ? p.authors.map((a) => a.family ?? a.name ?? "").join(", ") : "",
       year: p.publication_year ?? 0,
+      tableCaptions: captionsByPaperId.get(p.id) ?? [],
     }));
 
     // Fetch previous table for modify_table context

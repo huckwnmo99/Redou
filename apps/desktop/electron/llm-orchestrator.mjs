@@ -131,6 +131,7 @@ generate_table / modify_table일 때 반드시 포함:
 4. **열 1~2개는 식별 열** (Adsorbent, Gas 등), 나머지는 **수치 데이터 열.**
 5. **Source / Paper / Reference 열을 넣지 마세요** — 셀 안에 [1], [2] 참조번호가 자동으로 붙습니다.
 6. **논문 제목에서 추출 가능한 파라미터만 포함.** 추측하지 마세요.
+7. **논문 목록의 실제 테이블 캡션을 확인하세요.** 캡션에 언급되지 않은 파라미터는 column_definitions에 추가하지 마세요. 예: 어떤 캡션에도 "R²"가 없으면 R² 열을 만들지 않음.
 
 === search_queries 설계 규칙 ===
 
@@ -237,10 +238,17 @@ export async function generateOrchestratorPlan(history, paperList, previousTable
   let systemContent = ORCHESTRATOR_SYSTEM_PROMPT;
 
   if (paperList && paperList.length > 0) {
-    const list = paperList
-      .map((p, i) => `${i + 1}. ${p.title} — ${p.authors || "N/A"} (${p.year || "N/A"})`)
-      .join("\n");
-    systemContent += `\n\n=== 사용자의 논문 목록 (${paperList.length}편) ===\n${list}`;
+    const list = paperList.map((p, i) => {
+      let line = `${i + 1}. ${p.title} — ${p.authors || "N/A"} (${p.year || "N/A"})`;
+      if (p.tableCaptions && p.tableCaptions.length > 0) {
+        const caps = p.tableCaptions
+          .map((c) => `   - ${c.figureNo}: ${(c.caption ?? "").slice(0, 120)}`)
+          .join("\n");
+        line += `\n${caps}`;
+      }
+      return line;
+    }).join("\n");
+    systemContent += `\n\n=== 사용자의 논문 목록 (${paperList.length}편, 실제 테이블 목록 포함) ===\n${list}`;
   }
 
   if (previousTable) {
