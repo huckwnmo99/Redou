@@ -3,12 +3,14 @@
 // ============================================================
 
 export type ChatPhase = "clarifying" | "follow_up";
+export type ConversationType = "table" | "qa";
 
 export interface ChatConversation {
   id: string;
   owner_user_id: string;
   title: string;
   phase: ChatPhase;
+  conversation_type: ConversationType;
   scope_folder_id: string | null;
   scope_all: boolean;
   created_at: string;
@@ -100,6 +102,7 @@ export interface ChatSendMessageParams {
   message: string;
   scopeFolderId?: string | null;
   scopeAll?: boolean;
+  mode?: ConversationType;
 }
 
 export interface ChatAbortParams {

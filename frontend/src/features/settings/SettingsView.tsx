@@ -1,4 +1,4 @@
-﻿import { CheckCircle2, FolderOpen, Globe2, HardDriveDownload, LaptopMinimal, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
+﻿import { CheckCircle2, FolderOpen, Globe2, HardDriveDownload, LaptopMinimal, LogOut, RefreshCw, ShieldCheck, BrainCircuit, Network } from "lucide-react";
 import { useState } from "react";
 import { useAuthSession, useSignOut } from "@/lib/auth";
 import {
@@ -12,6 +12,15 @@ import {
   useRevealInExplorer,
 } from "@/lib/desktop";
 import { useUIStore } from "@/stores/uiStore";
+import {
+  useLlmModels,
+  useActiveLlmModel,
+  useSetLlmModel,
+  useEntityModel,
+  useSetEntityModel,
+  useEntityBackfillStatus,
+  useEntityBackfillMutation,
+} from "@/lib/chatQueries";
 
 function getErrorMessage(caught: unknown, fallback: string): string {
   return caught instanceof Error ? caught.message : fallback;
@@ -29,6 +38,13 @@ export function SettingsView() {
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [latestBackupPath, setLatestBackupPath] = useState<string | null>(null);
   const [requeuePending, setRequeuePending] = useState(false);
+  const { data: llmModels = [], isLoading: modelsLoading, isError: modelsError, refetch: refetchModels } = useLlmModels();
+  const { data: activeModel } = useActiveLlmModel();
+  const setLlmModel = useSetLlmModel();
+  const { data: activeEntityModel } = useEntityModel();
+  const setEntityModel = useSetEntityModel();
+  const { data: entityBackfillStatus } = useEntityBackfillStatus();
+  const entityBackfill = useEntityBackfillMutation();
   const t = (english: string, korean: string) => localeText(locale, english, korean);
 
   const desktopReady = desktop?.available ?? false;
@@ -73,6 +89,20 @@ export function SettingsView() {
       setFeedback(t(`Opened ${path}`, `탐색기에서 열었습니다: ${path}`));
     } catch (caught) {
       setFeedback(getErrorMessage(caught, t("Unable to reveal the requested path.", "요청한 경로를 탐색기에서 열 수 없습니다.")));
+    }
+  }
+
+  async function handleEntityBackfill() {
+    try {
+      const result = await entityBackfill.mutateAsync();
+      const count = result?.queued ?? 0;
+      setFeedback(
+        count > 0
+          ? t(`Entity extraction queued for ${count} papers.`, `${count}개 논문의 엔티티 추출을 시작합니다.`)
+          : t("All papers are already up to date or queued for entity extraction.", "모든 논문이 이미 최신 엔티티 추출 상태이거나 대기열에 있습니다."),
+      );
+    } catch (caught) {
+      setFeedback(getErrorMessage(caught, t("Failed to queue entity extraction.", "엔티티 추출 대기열 추가에 실패했습니다.")));
     }
   }
 
@@ -205,6 +235,206 @@ export function SettingsView() {
               ))}
             </select>
           </label>
+        </div>
+
+        {/* LLM Model Selection Card */}
+        <div style={panelCardStyle}>
+          <div style={panelHeaderStyle}>
+            <BrainCircuit size={14} />
+            {t("LLM Model", "LLM 모델")}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: 12 }}>
+            {t(
+              "Select the Ollama model used for chat, table generation, and Q&A. Guardian and OCR models are excluded from this list.",
+              "채팅, 테이블 생성, Q&A에 사용할 Ollama 모델을 선택하세요. Guardian 및 OCR 모델은 목록에서 제외됩니다.",
+            )}
+          </div>
+          {modelsError ? (
+            <div style={{ fontSize: 12.5, color: "var(--color-error, #ef4444)", marginBottom: 8 }}>
+              {t("Failed to connect to Ollama. Make sure it is running.", "Ollama 연결에 실패했습니다. 실행 중인지 확인하세요.")}
+            </div>
+          ) : null}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <select
+              value={activeModel?.model ?? ""}
+              onChange={(event) => {
+                const val = event.target.value;
+                if (val) {
+                  setLlmModel.mutate(val);
+                  setFeedback(t(`LLM model changed to ${val}`, `LLM 모델을 ${val}(으)로 변경했습니다.`));
+                }
+              }}
+              disabled={modelsLoading || llmModels.length === 0}
+              style={{
+                flex: 1,
+                height: 38,
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--color-border-subtle)",
+                background: "var(--color-bg-surface)",
+                padding: "0 12px",
+                fontSize: 13,
+                color: "var(--color-text-primary)",
+                outline: "none",
+              }}
+            >
+              {modelsLoading ? (
+                <option value="">{t("Loading models...", "모델 로딩 중...")}</option>
+              ) : llmModels.length === 0 ? (
+                <option value="">{t("No models available", "사용 가능한 모델 없음")}</option>
+              ) : (
+                llmModels.map((m) => (
+                  <option key={m.name} value={m.name}>
+                    {m.name}{" "}
+                    ({(m.size / 1e9).toFixed(1)} GB)
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              onClick={() => refetchModels()}
+              disabled={modelsLoading}
+              title={t("Refresh model list", "모델 목록 새로고침")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 38,
+                height: 38,
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--color-border-subtle)",
+                background: "var(--color-bg-elevated)",
+                color: "var(--color-text-secondary)",
+                cursor: modelsLoading ? "progress" : "pointer",
+                flexShrink: 0,
+              }}
+            >
+              <RefreshCw size={14} />
+            </button>
+          </div>
+          {activeModel ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--color-text-muted)" }}>
+              <span style={{ fontWeight: 600 }}>
+                {t("Source:", "소스:")}
+              </span>
+              <span>
+                {activeModel.source === "user"
+                  ? t("User selection", "사용자 선택")
+                  : activeModel.source === "env"
+                    ? t("Environment variable", "환경변수")
+                    : t("Default", "기본값")}
+              </span>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Entity Extraction (Knowledge Graph) Card */}
+        <div style={panelCardStyle}>
+          <div style={panelHeaderStyle}>
+            <Network size={14} />
+            {t("Entity Extraction", "엔티티 추출")}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: 12 }}>
+            {t(
+              "Select the Ollama model used to extract entities (substance/method/condition/metric/phenomenon/concept) and relations from papers for the knowledge graph.",
+              "논문에서 엔티티(물질/방법/조건/지표/현상/개념)와 관계를 추출해 지식 그래프를 만드는 데 사용할 Ollama 모델을 선택합니다.",
+            )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <select
+              value={activeEntityModel?.model ?? ""}
+              onChange={(event) => {
+                const val = event.target.value;
+                if (val) {
+                  setEntityModel.mutate(val);
+                  setFeedback(t(`Entity extraction model changed to ${val}`, `엔티티 추출 모델을 ${val}(으)로 변경했습니다.`));
+                }
+              }}
+              disabled={modelsLoading || llmModels.length === 0}
+              style={{
+                flex: 1,
+                height: 38,
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--color-border-subtle)",
+                background: "var(--color-bg-surface)",
+                padding: "0 12px",
+                fontSize: 13,
+                color: "var(--color-text-primary)",
+                outline: "none",
+              }}
+            >
+              {modelsLoading ? (
+                <option value="">{t("Loading models...", "모델 로딩 중...")}</option>
+              ) : llmModels.length === 0 ? (
+                <option value="">{t("No models available", "사용 가능한 모델 없음")}</option>
+              ) : (
+                llmModels.map((m) => (
+                  <option key={m.name} value={m.name}>
+                    {m.name}{" "}
+                    ({(m.size / 1e9).toFixed(1)} GB)
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+          {activeEntityModel ? (
+            <div style={{ display: "grid", gap: 2, fontSize: 12, color: "var(--color-text-muted)", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontWeight: 600 }}>{t("Source:", "소스:")}</span>
+                <span>
+                  {activeEntityModel.source === "user"
+                    ? t("User selection", "사용자 선택")
+                    : t("Inherits chat model", "채팅 모델 사용")}
+                </span>
+              </div>
+              {activeEntityModel.source === "fallback_chat_model" && activeEntityModel.effectiveModel ? (
+                <div>
+                  <span style={{ fontWeight: 600 }}>{t("Effective model:", "사용 모델:")}</span>{" "}
+                  <span>{activeEntityModel.effectiveModel}</span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {entityBackfillStatus ? (
+            <div style={{ display: "grid", gap: 4, fontSize: 12, color: "var(--color-text-muted)", marginBottom: 10 }}>
+              <div>
+                <span style={{ fontWeight: 600 }}>{t("Progress: ", "진행: ")}</span>
+                <span>
+                  {entityBackfillStatus.processedPapers} / {entityBackfillStatus.totalPapers}
+                  {" "}({t("version", "버전")} {entityBackfillStatus.currentVersion})
+                </span>
+              </div>
+              <div>
+                <span style={{ fontWeight: 600 }}>{t("Queue: ", "대기열: ")}</span>
+                <span>
+                  {t(`${entityBackfillStatus.pending} pending, ${entityBackfillStatus.running} running`, `대기 ${entityBackfillStatus.pending}개, 실행 중 ${entityBackfillStatus.running}개`)}
+                </span>
+              </div>
+            </div>
+          ) : null}
+
+          <button
+            onClick={handleEntityBackfill}
+            disabled={!desktopReady || entityBackfill.isPending}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              height: 38,
+              padding: "0 14px",
+              borderRadius: "var(--radius-sm)",
+              border: "1px solid var(--color-border-subtle)",
+              background: !desktopReady || entityBackfill.isPending ? "var(--color-bg-panel)" : "var(--color-bg-elevated)",
+              color: !desktopReady || entityBackfill.isPending ? "var(--color-text-muted)" : "var(--color-text-secondary)",
+              cursor: !desktopReady || entityBackfill.isPending ? "not-allowed" : "pointer",
+            }}
+          >
+            <RefreshCw size={13} />
+            {entityBackfill.isPending
+              ? t("Queueing...", "대기열 추가 중...")
+              : t("Extract Entities for All Papers", "전체 논문 엔티티 추출 시작")}
+          </button>
         </div>
       </div>
 

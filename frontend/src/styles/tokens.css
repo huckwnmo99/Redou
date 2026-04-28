@@ -132,3 +132,9 @@
 .ocr-table tr:nth-child(even) td {
   background: var(--color-bg-base);
 }
+
+/* Chat user bubble text selection — override default ::selection for blue background */
+.chat-user-bubble ::selection {
+  background: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}

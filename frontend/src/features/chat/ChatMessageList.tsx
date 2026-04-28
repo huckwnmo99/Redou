@@ -16,6 +16,7 @@ interface ChatMessageListProps {
   isStreaming: boolean;
   pipelineStage: ChatPipelineStage | null;
   pipelineMessage: string;
+  pendingUserMessage?: string | null;
   onNavigateToPaper?: (paperId: string) => void;
 }
 
@@ -114,6 +115,7 @@ function MessageBubble({
 
       {/* Content */}
       <div
+        className={isUser ? "chat-user-bubble" : undefined}
         style={{
           maxWidth: "85%",
           padding: "16px 22px",
@@ -127,6 +129,7 @@ function MessageBubble({
           fontSize: 15,
           lineHeight: 1.7,
           border: isUser ? "none" : "1px solid var(--color-border-subtle)",
+          cursor: isUser ? "text" : undefined,
         }}
       >
         {message.message_type === "table_report" && tableId ? (
@@ -186,6 +189,7 @@ export function ChatMessageList({
   isStreaming,
   pipelineStage,
   pipelineMessage,
+  pendingUserMessage,
   onNavigateToPaper,
 }: ChatMessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -197,9 +201,9 @@ export function ChatMessageList({
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages.length, streamingContent]);
+  }, [messages.length, streamingContent, pendingUserMessage]);
 
-  if (messages.length === 0 && !isStreaming) {
+  if (messages.length === 0 && !isStreaming && !pendingUserMessage) {
     return (
       <div
         style={{
@@ -234,6 +238,40 @@ export function ChatMessageList({
       {messages.map((msg) => (
         <MessageBubble key={msg.id} message={msg} onNavigateToPaper={onNavigateToPaper} />
       ))}
+      {pendingUserMessage && (
+        <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexDirection: "row-reverse" }}>
+          <div
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: "var(--radius-md)",
+              background: "var(--color-accent-subtle)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <User size={22} color="var(--color-accent)" />
+          </div>
+          <div
+            className="chat-user-bubble"
+            style={{
+              maxWidth: "85%",
+              padding: "16px 22px",
+              borderRadius: "var(--radius-lg, 14px)",
+              background: "var(--color-accent)",
+              color: "#fff",
+              fontSize: 15,
+              lineHeight: 1.7,
+              cursor: "text",
+              opacity: 0.75,
+            }}
+          >
+            {pendingUserMessage}
+          </div>
+        </div>
+      )}
       {isStreaming && pipelineStage && !streamingContent && (
         <ChatPipelineStatus stage={pipelineStage} message={pipelineMessage} />
       )}

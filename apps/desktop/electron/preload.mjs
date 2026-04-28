@@ -28,6 +28,13 @@ const IPC_CHANNELS = {
   CHAT_ABORT: "chat:abort",
   CHAT_EXPORT_CSV: "chat:export-csv",
   SHELL_OPEN_EXTERNAL: "shell:open-external",
+  LLM_LIST_MODELS: "llm:list-models",
+  LLM_GET_MODEL: "llm:get-model",
+  LLM_SET_MODEL: "llm:set-model",
+  ENTITY_BACKFILL: "entity:backfill",
+  ENTITY_BACKFILL_STATUS: "entity:backfill-status",
+  ENTITY_GET_MODEL: "entity:get-model",
+  ENTITY_SET_MODEL: "entity:set-model",
 };
 
 const IPC_EVENTS = {
@@ -97,6 +104,19 @@ contextBridge.exposeInMainWorld("redouDesktop", {
     sendMessage: (args) => ipcRenderer.invoke(IPC_CHANNELS.CHAT_SEND_MESSAGE, args),
     abort: (args) => ipcRenderer.invoke(IPC_CHANNELS.CHAT_ABORT, args),
     exportCsv: (args) => ipcRenderer.invoke(IPC_CHANNELS.CHAT_EXPORT_CSV, args),
+  },
+
+  llm: {
+    listModels: () => ipcRenderer.invoke(IPC_CHANNELS.LLM_LIST_MODELS),
+    getModel: () => ipcRenderer.invoke(IPC_CHANNELS.LLM_GET_MODEL),
+    setModel: (args) => ipcRenderer.invoke(IPC_CHANNELS.LLM_SET_MODEL, args),
+  },
+
+  entity: {
+    backfill: () => ipcRenderer.invoke(IPC_CHANNELS.ENTITY_BACKFILL),
+    backfillStatus: () => ipcRenderer.invoke(IPC_CHANNELS.ENTITY_BACKFILL_STATUS),
+    getModel: () => ipcRenderer.invoke(IPC_CHANNELS.ENTITY_GET_MODEL),
+    setModel: (args) => ipcRenderer.invoke(IPC_CHANNELS.ENTITY_SET_MODEL, args),
   },
 
   openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_EXTERNAL, url),

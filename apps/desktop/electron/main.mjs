@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } from "electron";
 import path from "node:path";
 import { existsSync } from "node:fs";
@@ -10,12 +11,22 @@ import zlib from "node:zlib";
 import { extractHeuristicPaperData, inspectPdfMetadata, extractFigureImagesFromPdf } from "./pdf-heuristics.mjs";
 import { generateEmbedding, generateEmbeddings, generateImageEmbedding, MODEL_NAME, EMBEDDING_DIM } from "./embedding-worker.mjs";
 import { waitForOAuthCallback, getOAuthCallbackUrl } from "./oauth-callback-server.mjs";
-import { extractTablesAndEquationsWithOcr, isOllamaAvailable, enhanceEquationsWithUniMERNet } from "./ocr-extraction.mjs";
+import { extractTablesAndEquationsWithOcr, isOllamaAvailable, enhanceEquationsWithUniMERNet, enhanceEmptyTablesWithOcr } from "./ocr-extraction.mjs";
 import { isMineruAvailable, parsePdf, parseMineruResult, flattenTableHtml, flattenEquationLatex, saveFigureImages, saveTableImages } from "./mineru-client.mjs";
 import { isGrobidAvailable, extractMetadataAndReferences, linkReferencesToExistingPapers } from "./grobid-client.mjs";
-import { streamChat, checkGroundedness, isLlmAvailable, isGuardianAvailable } from "./llm-chat.mjs";
-import { generateOrchestratorPlan, generateTableFromSpec, extractMatrixFromHtml } from "./llm-orchestrator.mjs";
+import { streamChat, checkGroundedness, isLlmAvailable, isGuardianAvailable, getActiveModel, setActiveModel, OLLAMA_BASE_URL } from "./llm-chat.mjs";
+import { generateOrchestratorPlan, generateTableFromSpec, extractMatrixFromHtml, extractColumnsFromPaper } from "./llm-orchestrator.mjs";
+import { generateQaResponse, formatSourceAttribution } from "./llm-qa.mjs";
 import { parseAllHtmlTables } from "./html-table-parser.mjs";
+import { rerankChunks, isRerankerAvailable } from "./reranker-worker.mjs";
+import {
+  extractEntitiesFromPaper,
+  persistEntities,
+  assemblePaperContextForEntities,
+  buildChunkIndexForPaper,
+  CURRENT_ENTITY_EXTRACTION_VERSION,
+} from "./entity-extractor.mjs";
+import { runGraphEnhancedRag } from "./graph-search.mjs";
 
 // ============================================================
 // Paths
@@ -89,10 +100,11 @@ const PROCESSING_POLL_INTERVAL_MS = 2500;
 let processingInterval = null;
 let extractionInFlight = false;
 let embeddingInFlight = false;
+let entityExtractionInFlight = false;
 
 // Bump this number whenever extraction logic changes (new item types, better parsing, etc.)
 // Papers with extraction_version < CURRENT_EXTRACTION_VERSION will be auto-requeued on startup.
-const CURRENT_EXTRACTION_VERSION = 23;
+const CURRENT_EXTRACTION_VERSION = 24;
 const DB_QUERY_TABLES = new Set([
   "app_users",
   "papers",
@@ -118,6 +130,8 @@ const DB_QUERY_TABLES = new Set([
   "chat_conversations",
   "chat_messages",
   "chat_generated_tables",
+  "entities",
+  "entity_relations",
 ]);
 const DB_MUTATE_TABLES = new Set([
   "papers",
@@ -143,7 +157,22 @@ const DB_MUTATE_TABLES = new Set([
   "chat_conversations",
   "chat_messages",
   "chat_generated_tables",
+  "entities",
+  "entity_relations",
 ]);
+
+// --- Contextual chunking helpers ---
+const MAX_TITLE_LEN = 200;
+const MAX_SECTION_LEN = 100;
+
+function buildContextualText(paperTitle, sectionName, chunkText) {
+  const title = (paperTitle ?? "Untitled").slice(0, MAX_TITLE_LEN);
+  if (sectionName) {
+    const section = sectionName.slice(0, MAX_SECTION_LEN);
+    return `[Paper: ${title} | Section: ${section}] ${chunkText}`;
+  }
+  return `[Paper: ${title}] ${chunkText}`;
+}
 
 function resolvePackagedRendererPath() {
   if (existsSync(frontendDistPath)) {
@@ -269,6 +298,13 @@ function sleep(ms) {
 
 function getErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+// Supabase single() 결과를 throw-on-error로 강제. 호출 측에서 구조분해 없이 사용.
+function unwrapSingle({ data, error }, label) {
+  if (error) throw new Error(`[supabase] ${label}: ${error.message}`);
+  if (!data) throw new Error(`[supabase] ${label}: no row returned`);
+  return data;
 }
 
 function normalizePaperTitle(value) {
@@ -1245,6 +1281,39 @@ async function processImportPdfJob(job) {
             source_path: resolvedStoredPath,
           });
         }
+
+        // --- V2 빈 테이블 OCR 폴백 ---
+        try {
+          const { data: emptyTables } = await supabase
+            .from("figures")
+            .select("id, figure_no, page")
+            .eq("paper_id", job.paper_id)
+            .eq("item_type", "table")
+            .or("summary_text.is.null,summary_text.eq.");
+
+          if (emptyTables && emptyTables.length > 0) {
+            console.log(`[process] V2: ${emptyTables.length} tables with empty content, attempting GLM-OCR fallback...`);
+            const pdfBuffer = await fs.readFile(resolvedStoredPath);
+            const ocrResults = await enhanceEmptyTablesWithOcr(pdfBuffer,
+              emptyTables.map(t => ({ figureNo: t.figure_no, page: t.page }))
+            );
+            let updated = 0;
+            for (const r of ocrResults) {
+              const match = emptyTables.find(t => t.figure_no === r.figureNo);
+              if (match) {
+                const { error } = await supabase
+                  .from("figures")
+                  .update({ summary_text: r.summaryText, plain_text: r.plainText || null })
+                  .eq("id", match.id);
+                if (!error) updated++;
+              }
+            }
+            console.log(`[process] V2 OCR fallback: ${updated}/${emptyTables.length} tables enhanced`);
+          }
+        } catch (ocrErr) {
+          console.warn(`[process] V2 empty-table OCR fallback failed (non-fatal):`, ocrErr.message);
+        }
+
         return; // V2 성공 — 여기서 종료
       }
     } catch (v2Err) {
@@ -1439,13 +1508,16 @@ async function processImportPdfJob(job) {
           }
         } else {
           // Both OCR failed — check if existing heuristic caption is garbage and clear it
-          const { data: existing } = await supabase
-            .from("figures")
-            .select("caption")
-            .eq("paper_id", job.paper_id)
-            .eq("figure_no", eq.figureNo)
-            .eq("item_type", "equation")
-            .single();
+          let existing = null;
+          try {
+            existing = unwrapSingle(await supabase
+              .from("figures")
+              .select("caption")
+              .eq("paper_id", job.paper_id)
+              .eq("figure_no", eq.figureNo)
+              .eq("item_type", "equation")
+              .single(), "equation-duplicate-check");
+          } catch { /* 행 없음 = 중복 아님 */ }
           if (existing?.caption) {
             const raw = existing.caption.replace(/^\$\$|\$\$$/g, "").trim();
             // Very short, no LaTeX commands → broken heuristic text, clear it
@@ -1545,7 +1617,7 @@ async function processEmbeddingJob(job) {
   // Fetch all chunks for this paper
   const { data: chunks, error: chunkError } = await supabase
     .from("paper_chunks")
-    .select("id, text")
+    .select("id, text, section_id")
     .eq("paper_id", job.paper_id)
     .order("chunk_order", { ascending: true });
 
@@ -1599,7 +1671,27 @@ async function processEmbeddingJob(job) {
     message: `Generating embeddings for ${chunksToEmbed.length} chunks...`,
   });
 
-  const texts = chunksToEmbed.map((c) => c.text);
+  // Load paper title and section map for contextual prefix
+  let paperTitle = "Untitled";
+  try {
+    const paperMeta = unwrapSingle(await supabase
+      .from("papers").select("title")
+      .eq("id", job.paper_id)
+      .single(), "embedding-paper-title");
+    paperTitle = paperMeta.title ?? "Untitled";
+  } catch (e) {
+    console.warn("[Embedding] paper title lookup failed:", e.message);
+  }
+
+  const { data: sections } = await supabase
+    .from("paper_sections")
+    .select("id, section_name")
+    .eq("paper_id", job.paper_id);
+  const sectionMap = new Map((sections ?? []).map((s) => [s.id, s.section_name]));
+
+  const texts = chunksToEmbed.map((c) =>
+    buildContextualText(paperTitle, sectionMap.get(c.section_id), c.text)
+  );
   const embeddings = await generateEmbeddings(texts, (done, total) => {
     const progress = 15 + Math.round((done / total) * 70);
     broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
@@ -1646,12 +1738,15 @@ async function processEmbeddingJob(job) {
       progress: 92, message: "논문 단위 임베딩 생성 중...",
     });
 
-    const { data: paper } = await supabase
-      .from("papers")
-      .select("title, abstract, embedding")
-      .eq("id", job.paper_id)
-      .single();
-
+    let paper = null;
+    try {
+      paper = unwrapSingle(await supabase
+        .from("papers").select("title, abstract, embedding")
+        .eq("id", job.paper_id)
+        .single(), "doc-embedding-paper");
+    } catch (e) {
+      console.warn("[Embedding] paper lookup failed:", e.message);
+    }
     if (paper && !paper.embedding) {
       const paperText = `${paper.title || ""} ${paper.abstract || ""}`.trim();
       if (paperText.length > 10) {
@@ -1784,6 +1879,28 @@ async function processEmbeddingJob(job) {
       embeddedCount: chunksToEmbed.length,
     },
   });
+
+  // --- Auto-queue entity extraction after successful embeddings ---
+  try {
+    // Skip if paper already has up-to-date entities
+    const { data: paperRow } = await supabase
+      .from("papers")
+      .select("entity_extraction_version")
+      .eq("id", job.paper_id)
+      .maybeSingle();
+    const currentVersion = paperRow?.entity_extraction_version ?? 0;
+    if (currentVersion < CURRENT_ENTITY_EXTRACTION_VERSION) {
+      await supabase.from("processing_jobs").insert({
+        paper_id: job.paper_id,
+        user_id: job.user_id,
+        job_type: "extract_entities",
+        status: "queued",
+        source_path: null,
+      });
+    }
+  } catch (entityQueueErr) {
+    console.warn("[embedding] entity job queue failed (non-fatal):", entityQueueErr.message);
+  }
 }
 
 async function tryStartExtractionJob() {
@@ -1796,7 +1913,7 @@ async function tryStartExtractionJob() {
       .from("processing_jobs")
       .select("id, paper_id, user_id, source_path, job_type, status, created_at")
       .eq("status", "queued")
-      .neq("job_type", "generate_embeddings")
+      .not("job_type", "in", "(generate_embeddings,extract_entities)")
       .order("created_at", { ascending: true })
       .limit(1);
 
@@ -1884,9 +2001,212 @@ async function tryStartEmbeddingJob() {
   }
 }
 
+async function getEntityExtractionModel() {
+  try {
+    const { data } = await supabase
+      .from("user_workspace_preferences")
+      .select("entity_extraction_model, llm_model")
+      .limit(1)
+      .maybeSingle();
+    return data?.entity_extraction_model || data?.llm_model || getActiveModel();
+  } catch {
+    return getActiveModel();
+  }
+}
+
+async function processEntityExtractionJob(job) {
+  broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
+    jobId: job.id,
+    paperId: job.paper_id,
+    status: "running",
+    progress: 10,
+    message: "엔티티 추출 준비 중...",
+  });
+
+  const { data: paper } = await supabase
+    .from("papers")
+    .select("title, entity_extraction_version")
+    .eq("id", job.paper_id)
+    .maybeSingle();
+  if (!paper) throw new Error(`Paper ${job.paper_id} not found for entity extraction`);
+
+  const paperTitle = paper.title || "Untitled";
+  const model = await getEntityExtractionModel();
+
+  broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
+    jobId: job.id,
+    paperId: job.paper_id,
+    status: "running",
+    progress: 25,
+    message: "논문 컨텍스트 조립 중...",
+  });
+
+  const paperContext = await assemblePaperContextForEntities(job.paper_id, supabase);
+  if (!paperContext || paperContext.trim().length === 0) {
+    console.log(`[entity-job] ${job.paper_id}: empty context, marking success with 0 entities`);
+    await supabase
+      .from("papers")
+      .update({ entity_extraction_version: CURRENT_ENTITY_EXTRACTION_VERSION })
+      .eq("id", job.paper_id);
+    await updateJobStatus(job.id, {
+      status: "succeeded",
+      finished_at: new Date().toISOString(),
+      error_message: null,
+    });
+    broadcastToWindows(IPC_EVENTS.JOB_COMPLETED, {
+      jobId: job.id,
+      paperId: job.paper_id,
+      result: { paperId: job.paper_id, status: "succeeded", entitiesInserted: 0 },
+    });
+    return;
+  }
+
+  broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
+    jobId: job.id,
+    paperId: job.paper_id,
+    status: "running",
+    progress: 40,
+    message: `엔티티 추출 LLM 호출 (${model})...`,
+  });
+
+  // 1회 자동 재시도 (extractEntitiesFromPaper 내부에 call 재시도 있지만, 완전 실패 시 outer 재시도 한 번)
+  let extracted;
+  try {
+    extracted = await extractEntitiesFromPaper(paperContext, paperTitle, model);
+  } catch (err) {
+    console.warn(`[entity-job] ${job.paper_id}: first attempt failed (${err.message}), retrying...`);
+    extracted = await extractEntitiesFromPaper(paperContext, paperTitle, model);
+  }
+
+  const entityCount = Array.isArray(extracted?.entities) ? extracted.entities.length : 0;
+  const relationCount = Array.isArray(extracted?.relations) ? extracted.relations.length : 0;
+  broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
+    jobId: job.id,
+    paperId: job.paper_id,
+    status: "running",
+    progress: 70,
+    message: `${entityCount}개 엔티티 + ${relationCount}개 관계 저장 중...`,
+  });
+
+  const chunkIndex = await buildChunkIndexForPaper(job.paper_id, supabase);
+  const persistResult = await persistEntities(
+    job.paper_id,
+    chunkIndex,
+    extracted,
+    supabase,
+    generateEmbedding
+  );
+
+  await supabase
+    .from("papers")
+    .update({ entity_extraction_version: CURRENT_ENTITY_EXTRACTION_VERSION })
+    .eq("id", job.paper_id);
+
+  await updateJobStatus(job.id, {
+    status: "succeeded",
+    finished_at: new Date().toISOString(),
+    error_message: null,
+  });
+
+  broadcastToWindows(IPC_EVENTS.JOB_COMPLETED, {
+    jobId: job.id,
+    paperId: job.paper_id,
+    result: {
+      paperId: job.paper_id,
+      status: "succeeded",
+      entitiesInserted: persistResult.entitiesInserted,
+      relationsInserted: persistResult.relationsInserted,
+      embeddingsGenerated: persistResult.embeddingsGenerated,
+    },
+  });
+}
+
+async function tryStartEntityExtractionJob() {
+  if (entityExtractionInFlight) return;
+  entityExtractionInFlight = true;
+  let activeJob = null;
+
+  try {
+    const { data: queuedJobs, error: jobError } = await supabase
+      .from("processing_jobs")
+      .select("id, paper_id, user_id, source_path, job_type, status, created_at")
+      .eq("status", "queued")
+      .eq("job_type", "extract_entities")
+      .order("created_at", { ascending: true })
+      .limit(1);
+
+    if (jobError) throw new Error(jobError.message);
+    const job = queuedJobs?.[0];
+    if (!job) return;
+
+    activeJob = job;
+    if (!job.paper_id) throw new Error("Queued entity extraction job is missing a paper_id.");
+
+    await updateJobStatus(job.id, {
+      status: "running",
+      started_at: new Date().toISOString(),
+      error_message: null,
+    });
+
+    await processEntityExtractionJob(job);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[entity-job] failed:", message);
+    if (activeJob?.id) {
+      try {
+        await updateJobStatus(activeJob.id, {
+          status: "failed",
+          finished_at: new Date().toISOString(),
+          error_message: message,
+        });
+      } catch { /* best effort */ }
+      broadcastToWindows(IPC_EVENTS.JOB_FAILED, {
+        jobId: activeJob.id,
+        paperId: activeJob.paper_id ?? null,
+        error: message,
+      });
+    }
+  } finally {
+    entityExtractionInFlight = false;
+  }
+}
+
+async function enqueueEntityBackfill() {
+  const { data: papers, error } = await supabase
+    .from("papers")
+    .select("id, owner_user_id, entity_extraction_version")
+    .is("trashed_at", null)
+    .or(`entity_extraction_version.is.null,entity_extraction_version.lt.${CURRENT_ENTITY_EXTRACTION_VERSION}`);
+  if (error) throw new Error(`enqueueEntityBackfill: ${error.message}`);
+
+  let queued = 0;
+  for (const p of papers ?? []) {
+    // Skip if already queued/running for this paper
+    const { data: existing } = await supabase
+      .from("processing_jobs")
+      .select("id")
+      .eq("paper_id", p.id)
+      .eq("job_type", "extract_entities")
+      .in("status", ["queued", "running"])
+      .limit(1);
+    if (existing && existing.length > 0) continue;
+
+    const { error: insErr } = await supabase.from("processing_jobs").insert({
+      paper_id: p.id,
+      user_id: p.owner_user_id,
+      job_type: "extract_entities",
+      status: "queued",
+      source_path: null,
+    });
+    if (!insErr) queued++;
+  }
+  return queued;
+}
+
 function processNextQueuedJob() {
   void tryStartExtractionJob();
   void tryStartEmbeddingJob();
+  void tryStartEntityExtractionJob();
 }
 
 function startProcessingLoop() {
@@ -2480,6 +2800,22 @@ app.whenReady().then(async () => {
   });
 
   await ensureDir(LIBRARY_ROOT);
+  // Load user-selected LLM model from DB
+  try {
+    const { data: pref } = await supabase
+      .from("user_workspace_preferences")
+      .select("llm_model")
+      .limit(1)
+      .maybeSingle();
+    if (pref?.llm_model) {
+      setActiveModel(pref.llm_model);
+      console.log(`[LLM] Loaded user model from DB: ${getActiveModel()}`);
+    } else {
+      console.log(`[LLM] No user preference found, using default: ${getActiveModel()}`);
+    }
+  } catch (err) {
+    console.warn(`[LLM] Failed to load model preference from DB:`, err.message);
+  }
   createMainWindow();
   await resetStaleRunningJobs();
   await requeueOutdatedPapers();
@@ -2636,57 +2972,215 @@ function rerankChunksByKeywords(chunks, keyTerms, maxChunks = 40) {
   return scored.slice(0, maxChunks);
 }
 
+// --- RRF (Reciprocal Rank Fusion): merge vector + BM25 results ---
+function rrfFusion(vectorChunks, bm25Chunks, mode = "table", k = 60) {
+  // Mode-dependent weights
+  const wBM25 = mode === "qa" ? 0.3 : 0.6;
+  const wVector = mode === "qa" ? 0.7 : 0.4;
+  const MISSING_RANK = 1000;
+
+  // Build rank maps (chunk_id → rank, 0-based)
+  const vectorRankMap = new Map();
+  vectorChunks.forEach((c, idx) => vectorRankMap.set(c.chunk_id, idx));
+
+  const bm25RankMap = new Map();
+  bm25Chunks.forEach((c, idx) => bm25RankMap.set(c.chunk_id, idx));
+
+  // Union of all chunk_ids → keep the chunk object (prefer vector copy for similarity field)
+  const chunkObjMap = new Map();
+  for (const c of vectorChunks) chunkObjMap.set(c.chunk_id, c);
+  for (const c of bm25Chunks) {
+    if (!chunkObjMap.has(c.chunk_id)) chunkObjMap.set(c.chunk_id, c);
+  }
+
+  // Compute RRF score for each chunk
+  const scored = [];
+  for (const [chunkId, chunk] of chunkObjMap) {
+    const vRank = vectorRankMap.has(chunkId) ? vectorRankMap.get(chunkId) : MISSING_RANK;
+    const bRank = bm25RankMap.has(chunkId) ? bm25RankMap.get(chunkId) : MISSING_RANK;
+    const rrfScore = wVector * (1 / (k + vRank)) + wBM25 * (1 / (k + bRank));
+    scored.push({ ...chunk, _rrfScore: rrfScore });
+  }
+
+  // Sort by RRF score descending
+  scored.sort((a, b) => b._rrfScore - a._rrfScore);
+
+  return scored.slice(0, 40);
+}
+
+// --- RRF Fusion for Figures (BM25 + Vector) ---
+function rrfFusionFigures(vectorFigures, bm25Figures, k = 60) {
+  const wBM25 = 0.6;
+  const wVector = 0.4;
+  const TABLE_BOOST = 0.005;
+  const MISSING_RANK = 1000;
+
+  // Build rank maps (figure_id → rank, 0-based)
+  const vectorRankMap = new Map();
+  vectorFigures.forEach((f, idx) => vectorRankMap.set(f.figure_id, idx));
+
+  const bm25RankMap = new Map();
+  bm25Figures.forEach((f, idx) => bm25RankMap.set(f.figure_id, idx));
+
+  // Union of all figure_ids — prefer vector copy for similarity field
+  const figObjMap = new Map();
+  for (const f of vectorFigures) figObjMap.set(f.figure_id, f);
+  for (const f of bm25Figures) {
+    if (!figObjMap.has(f.figure_id)) figObjMap.set(f.figure_id, f);
+  }
+
+  // Compute RRF score for each figure
+  const scored = [];
+  for (const [figId, fig] of figObjMap) {
+    const vRank = vectorRankMap.has(figId) ? vectorRankMap.get(figId) : MISSING_RANK;
+    const bRank = bm25RankMap.has(figId) ? bm25RankMap.get(figId) : MISSING_RANK;
+    let rrfScore = wVector * (1 / (k + vRank)) + wBM25 * (1 / (k + bRank));
+    // Boost tables (item_type='table') for table generation pipeline
+    if (fig.item_type === "table") rrfScore += TABLE_BOOST;
+    scored.push({ ...fig, _rrfScore: rrfScore });
+  }
+
+  // Sort by RRF score descending
+  scored.sort((a, b) => b._rrfScore - a._rrfScore);
+
+  return scored;
+}
+
+// --- Reranker: cross-encoder re-scoring after RRF fusion ---
+const RERANKER_TOPK = { table: 15, qa: 10 };
+
+async function rerankChunksIfAvailable(query, chunks, mode) {
+  const topK = RERANKER_TOPK[mode] ?? 15;
+  try {
+    const available = await isRerankerAvailable();
+    if (!available) {
+      console.log("[reranker] Not available, using RRF order");
+      return chunks.slice(0, topK);
+    }
+    const start = Date.now();
+    const result = await rerankChunks(query, chunks, topK);
+    console.log(`[reranker] Reranked ${chunks.length} → ${result.length} chunks in ${Date.now() - start}ms`);
+    return result;
+  } catch (err) {
+    console.warn("[reranker] Failed, falling back to RRF order:", err.message);
+    return chunks.slice(0, topK);
+  }
+}
+
 // --- Multi-query RAG: run multiple embedding searches and merge results ---
-async function runMultiQueryRag(searchQueries, keywordHints, filterPaperIds) {
-  const chunkMap = new Map(); // chunkId → chunk (keep highest similarity)
-  const figureMap = new Map(); // figureId → figure
+async function runMultiQueryRag(searchQueries, keywordHints, filterPaperIds, mode = "table") {
+  const vectorChunkMap = new Map(); // chunkId → chunk (keep highest similarity)
+  const bm25ChunkMap = new Map(); // chunkId → chunk (keep highest bm25_rank)
+  const vectorFigureMap = new Map(); // figureId → figure (vector search)
+  const bm25FigureMap = new Map(); // figureId → figure (BM25 search, table mode only)
 
   for (const sq of searchQueries) {
     const emb = await generateEmbedding(sq.query, "query");
 
-    const { data: chunks, error: chunkErr } = await supabase.rpc("match_chunks", {
-      query_embedding: emb,
-      match_threshold: 0.2,
-      match_count: 60,
-      filter_paper_ids: filterPaperIds,
-    });
-    if (chunkErr) console.error("[Chat/RAG] match_chunks error:", chunkErr.message);
+    // BM25 query text = search query only (keyword_hints는 Orchestrator가 이미 search_queries에 반영.
+    // 합치면 OR tsquery에서 불필요한 단어가 늘어 랭킹 품질 저하)
+    const bm25QueryText = sq.query;
 
-    for (const c of chunks ?? []) {
-      const existing = chunkMap.get(c.chunk_id);
+    // Run vector search, BM25 search, figure search (+ figure BM25 in table mode) in parallel
+    const promises = [
+      supabase.rpc("match_chunks", {
+        query_embedding: emb,
+        match_threshold: 0.2,
+        match_count: 60,
+        filter_paper_ids: filterPaperIds,
+      }),
+      supabase.rpc("match_chunks_bm25", {
+        query_text: bm25QueryText,
+        match_count: 60,
+        filter_paper_ids: filterPaperIds,
+      }),
+      supabase.rpc("match_figures", {
+        query_embedding: emb,
+        match_threshold: 0.15,
+        match_count: 30,
+        filter_item_types: ["table", "figure", "equation"],
+        filter_paper_ids: filterPaperIds,
+      }),
+    ];
+    // In table mode, also run BM25 search on figures (tables only)
+    if (mode === "table") {
+      promises.push(
+        supabase.rpc("match_figures_bm25", {
+          query_text: bm25QueryText,
+          match_count: 30,
+          filter_item_types: ["table"],
+          filter_paper_ids: filterPaperIds,
+        })
+      );
+    }
+
+    const results = await Promise.all(promises);
+    const [vectorResult, bm25Result, figureResult] = results;
+    const figureBm25Result = mode === "table" ? results[3] : null;
+
+    // Accumulate vector chunks
+    if (vectorResult.error) console.error("[Chat/RAG] match_chunks error:", vectorResult.error.message);
+    for (const c of vectorResult.data ?? []) {
+      const existing = vectorChunkMap.get(c.chunk_id);
       if (!existing || (c.similarity > existing.similarity)) {
-        chunkMap.set(c.chunk_id, c);
+        vectorChunkMap.set(c.chunk_id, c);
       }
     }
 
-    const { data: figures, error: figErr } = await supabase.rpc("match_figures", {
-      query_embedding: emb,
-      match_threshold: 0.15,
-      match_count: 30,
-      filter_item_types: ["table", "figure", "equation"],
-      filter_paper_ids: filterPaperIds,
-    });
-    if (figErr) console.error("[Chat/RAG] match_figures error:", figErr.message);
+    // Accumulate BM25 chunks
+    if (bm25Result.error) console.error("[Chat/RAG] match_chunks_bm25 error:", bm25Result.error.message);
+    for (const c of bm25Result.data ?? []) {
+      const existing = bm25ChunkMap.get(c.chunk_id);
+      if (!existing || (c.bm25_rank > existing.bm25_rank)) {
+        bm25ChunkMap.set(c.chunk_id, c);
+      }
+    }
 
-    for (const f of figures ?? []) {
-      const existing = figureMap.get(f.figure_id);
+    // Accumulate vector figures
+    if (figureResult.error) console.error("[Chat/RAG] match_figures error:", figureResult.error.message);
+    for (const f of figureResult.data ?? []) {
+      const existing = vectorFigureMap.get(f.figure_id);
       if (!existing || (f.similarity > existing.similarity)) {
-        figureMap.set(f.figure_id, f);
+        vectorFigureMap.set(f.figure_id, f);
+      }
+    }
+
+    // Accumulate BM25 figures (table mode only)
+    if (figureBm25Result) {
+      if (figureBm25Result.error) console.error("[Chat/RAG] match_figures_bm25 error:", figureBm25Result.error.message);
+      for (const f of figureBm25Result.data ?? []) {
+        const existing = bm25FigureMap.get(f.figure_id);
+        if (!existing || (f.bm25_rank > existing.bm25_rank)) {
+          bm25FigureMap.set(f.figure_id, f);
+        }
       }
     }
   }
 
-  const allChunks = [...chunkMap.values()];
-  const allFigures = [...figureMap.values()];
+  const allVectorChunks = [...vectorChunkMap.values()];
+  const allBm25Chunks = [...bm25ChunkMap.values()];
+  const allVectorFigures = [...vectorFigureMap.values()];
+  const allBm25Figures = [...bm25FigureMap.values()];
 
-  // Re-rank by keyword hints + similarity
-  const keyTerms = [...(keywordHints ?? []), ...searchQueries.flatMap((sq) => extractKeyTerms(sq.query))];
-  const uniqueTerms = [...new Set(keyTerms.map((t) => t.toLowerCase()))];
-  const rankedChunks = rerankChunksByKeywords(allChunks, uniqueTerms, 40);
+  // RRF fusion for chunks
+  const rankedChunks = rrfFusion(allVectorChunks, allBm25Chunks, mode);
 
-  console.log(`[Chat/RAG] ${searchQueries.length} queries → ${allChunks.length} unique chunks, ${allFigures.length} unique figures → top ${rankedChunks.length} chunks`);
+  // RRF fusion for figures (table mode) or plain vector figures (qa mode)
+  let allFigures;
+  if (mode === "table" && allBm25Figures.length > 0) {
+    allFigures = rrfFusionFigures(allVectorFigures, allBm25Figures);
+    console.log(`[Chat/RAG] Figure RRF: ${allVectorFigures.length} vector + ${allBm25Figures.length} BM25 → ${allFigures.length} fused`);
+  } else {
+    allFigures = allVectorFigures;
+  }
 
-  return { chunks: rankedChunks, figures: allFigures };
+  // Reranker: cross-encoder re-scoring for higher-quality top-K
+  const originalQuery = searchQueries.map(sq => sq.query).join(" ");
+  const rerankedChunks = await rerankChunksIfAvailable(originalQuery, rankedChunks, mode);
+
+  console.log(`[Chat/RAG] ${searchQueries.length} queries → ${allVectorChunks.length} vector + ${allBm25Chunks.length} BM25 chunks, ${allFigures.length} figures → RRF ${rankedChunks.length} → reranked ${rerankedChunks.length} (mode=${mode})`);
+
+  return { chunks: rerankedChunks, figures: allFigures };
 }
 
 // --- Clean up cell values from Table Agent (fix common LLM formatting issues) ---
@@ -2704,8 +3198,8 @@ function cleanCellValue(cell) {
 // --- Assemble RAG context string from chunks, figures, and parsed matrices ---
 // Three sections: (1) parsed matrices (pre-cleaned TSV), (2) OCR HTML (raw), (3) text chunks.
 // Budget caps prevent context window overflow (LLM_CTX ≈ 131K tokens ≈ 400K chars).
-const OCR_BUDGET = 60000;    // chars for raw OCR HTML tables
-const MATRIX_BUDGET = 30000; // chars for parsed matrix TSV
+const OCR_BUDGET = 70000;    // chars for raw OCR HTML tables
+const MATRIX_BUDGET = 35000; // chars for parsed matrix TSV
 const TOTAL_BUDGET = 120000; // overall cap
 
 function assembleRagContext(chunks, figures, paperRefMap, parsedMatrices) {
@@ -2732,7 +3226,7 @@ function assembleRagContext(chunks, figures, paperRefMap, parsedMatrices) {
   // --- Section 2: OCR HTML tables (raw — for data LLM can't get from parsed matrices) ---
   const ocrEntries = figures
     .filter((f) => f.summary_text && f.summary_text.length > 30)
-    .sort((a, b) => (b.summary_text?.length ?? 0) - (a.summary_text?.length ?? 0))
+    .sort((a, b) => (b._rrfScore ?? 0) - (a._rrfScore ?? 0))
     .map((f) => {
       const ref = paperRefMap.get(f.paper_id);
       const refLabel = ref ? `[${ref.refNo}] ${ref.title}` : f.paper_id;
@@ -2765,13 +3259,367 @@ function assembleRagContext(chunks, figures, paperRefMap, parsedMatrices) {
   if (ocrTables) {
     result += `=== OCR 추출 테이블 (원본 HTML — 파싱 테이블에 없는 데이터 확인용) ===\n${ocrTables}\n\n`;
   }
-  result += `=== 관련 텍스트 (보조) ===\n${textChunksStr}`;
+  result += `=== 관련 텍스트 (테이블에 없는 보충 데이터) ===\n${textChunksStr}`;
   return result;
 }
 
+// --- Assemble per-paper RAG context string (SRAG Stage 3b 입력) ---
+// assembleRagContext()의 단일 논문 버전. 한 편의 논문 컨텍스트만으로 추출 에이전트를 호출할 때 사용.
+// 예산: 논문당 30K chars (전체 TOTAL_BUDGET의 약 25%).
+const PER_PAPER_MATRIX_BUDGET = 12000;
+const PER_PAPER_OCR_BUDGET = 14000;
+const PER_PAPER_TOTAL_BUDGET = 30000;
+
+function assemblePerPaperContext({ chunks, figures, parsedTables, paperTitle }) {
+  // --- Section 1: Parsed matrices (TSV) for this paper ---
+  let matrixStr = "";
+  if (parsedTables && parsedTables.length > 0) {
+    const parts = [];
+    for (const t of parsedTables) {
+      const headerLine = (t.headers ?? []).join(" | ");
+      const rowLines = (t.rows ?? []).map((r) => (Array.isArray(r) ? r.join(" | ") : String(r))).join("\n");
+      const entry = `[${t.caption || ""}]\n${headerLine}\n${rowLines}`;
+      parts.push(entry);
+    }
+    matrixStr = parts.join("\n\n");
+    if (matrixStr.length > PER_PAPER_MATRIX_BUDGET) {
+      matrixStr = matrixStr.slice(0, PER_PAPER_MATRIX_BUDGET) + "\n... (truncated)";
+    }
+  }
+
+  // --- Section 2: OCR HTML tables for this paper (RRF 내림차순) ---
+  const ocrEntries = (figures ?? [])
+    .filter((f) => f.summary_text && f.summary_text.length > 30)
+    .sort((a, b) => (b._rrfScore ?? 0) - (a._rrfScore ?? 0))
+    .map((f) => `[${f.figure_no || ""}]\n${f.caption ?? ""}\n${f.summary_text}`);
+  let ocrTables = "";
+  for (const entry of ocrEntries) {
+    if (ocrTables.length + entry.length > PER_PAPER_OCR_BUDGET) break;
+    ocrTables += (ocrTables ? "\n\n" : "") + entry;
+  }
+
+  // --- Section 3: Text chunks for this paper (supplementary) ---
+  const usedBudget = matrixStr.length + ocrTables.length;
+  const chunkBudget = Math.max(3000, PER_PAPER_TOTAL_BUDGET - usedBudget);
+  let textChunksStr = "";
+  const sortedChunks = (chunks ?? []).slice().sort((a, b) => (b._rrfScore ?? 0) - (a._rrfScore ?? 0));
+  for (let i = 0; i < sortedChunks.length; i++) {
+    const entry = `[Chunk ${i + 1}]\n${sortedChunks[i].text}\n\n`;
+    if (textChunksStr.length + entry.length > chunkBudget) break;
+    textChunksStr += entry;
+  }
+
+  let result = "";
+  if (matrixStr) {
+    result += `=== 파싱된 테이블 (TSV — 가장 정확한 소스) ===\n${matrixStr}\n\n`;
+  }
+  if (ocrTables) {
+    result += `=== OCR 추출 테이블 (HTML — 파싱 테이블에 없는 데이터 확인용) ===\n${ocrTables}\n\n`;
+  }
+  if (textChunksStr) {
+    result += `=== 관련 텍스트 (본문 청크 — 보조 데이터) ===\n${textChunksStr}`;
+  }
+
+  console.log(
+    `[Chat/PerPaper] "${(paperTitle || "").slice(0, 40)}" context: matrices ${matrixStr.length}, OCR ${ocrTables.length}, chunks ${textChunksStr.length} chars`
+  );
+
+  return result;
+}
+
+// --- Generic groupBy helper ---
+function groupBy(items, keyFn) {
+  const map = new Map();
+  for (const item of items ?? []) {
+    const key = keyFn(item);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(item);
+  }
+  return map;
+}
+
+// --- Normalize column key for fuzzy matching between LLM output and spec ---
+// 유니코드 특수문자를 ASCII로 정규화 (LLM JSON 인코딩 손실 방지)
+// Ollama가 ² (U+00B2) 등의 유니코드 문자를 JSON 응답에서 깨뜨리는 문제 대응.
+function sanitizeColumnNames(columns) {
+  if (!Array.isArray(columns)) return columns;
+  const replacements = [
+    [/\u00B2/g, "2"],   // ²  → 2  (superscript two)
+    [/\u00B3/g, "3"],   // ³  → 3  (superscript three)
+    [/\u207B\u00B9/g, "-1"], // ⁻¹ → -1
+    [/\u207B/g, "-"],   // ⁻  → -  (superscript minus)
+    [/\u2070/g, "0"],   // ⁰  → 0
+    [/\u00B9/g, "1"],   // ¹  → 1
+    [/\u2074/g, "4"],   // ⁴  → 4
+    [/\u2075/g, "5"],   // ⁵  → 5
+    [/\u2076/g, "6"],   // ⁶  → 6
+    [/\u2077/g, "7"],   // ⁷  → 7
+    [/\u2078/g, "8"],   // ⁸  → 8
+    [/\u2079/g, "9"],   // ⁹  → 9
+    [/\u2080/g, "0"],   // ₀  → 0  (subscript)
+    [/\u2081/g, "1"],   // ₁  → 1
+    [/\u2082/g, "2"],   // ₂  → 2
+    [/\u2083/g, "3"],   // ₃  → 3
+    [/\u2084/g, "4"],   // ₄  → 4
+    [/\u00B0/g, "deg"], // °  → deg
+    [/\u00B1/g, "+-"],  // ±  → +-
+    [/\u00D7/g, "x"],   // ×  → x
+    [/\u00B7/g, "."],   // ·  → .
+    [/\u03B1/g, "alpha"], // α → alpha
+    [/\u03B2/g, "beta"],  // β → beta
+    [/\u03B3/g, "gamma"], // γ → gamma
+    [/\u03B4/g, "delta"], // δ → delta
+    [/\u0394/g, "Delta"], // Δ → Delta
+    [/\u03BC/g, "mu"],    // μ → mu
+    [/\u03C0/g, "pi"],    // π → pi
+  ];
+  return columns.map((col) => {
+    let s = String(col);
+    for (const [re, rep] of replacements) s = s.replace(re, rep);
+    return s;
+  });
+}
+
+function normalizeColumnKey(name) {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/[\s_\-\(\)\[\]{}.,;:/\\]+/g, "")
+    .trim();
+}
+
+// --- Merge per-paper extraction results into a unified table (SRAG Stage 3c) ---
+// Code-only merge — no LLM call.
+// - extractionResults: [{paperId, paperTitle, extraction: {data_rows, ...}, success, ...}]
+// - tableSpec: { title, column_definitions, ... }
+// - paperMetadata: [{paperId, title, authors, year, doi, journal}]
+// - paperRefMap: Map<paperId, {refNo, title}>
+// Returns: { tableJson, nullSummary }
+function mergeExtractionResults(extractionResults, tableSpec, paperMetadata, paperRefMap) {
+  const headers = Array.isArray(tableSpec.column_definitions) ? tableSpec.column_definitions.slice() : [];
+  const normalizedHeaders = headers.map((h) => normalizeColumnKey(h));
+
+  const rows = [];
+  const nullDetails = []; // [{paperId, paperTitle, column, rowIndex}]
+  const usedPaperIds = new Set();
+  let totalNulls = 0;
+  let totalCells = 0;
+  let droppedRowCount = 0;
+
+  for (const result of extractionResults) {
+    if (!result.success) continue;
+    const dataRows = result.extraction?.data_rows ?? [];
+    if (!Array.isArray(dataRows) || dataRows.length === 0) continue;
+
+    const ref = paperRefMap.get(result.paperId);
+    const refNo = ref?.refNo ?? null;
+    const refTag = refNo ? ` [${refNo}]` : "";
+
+    // 논문당 최대 50행 제한 (프롬프트에도 명시했지만 방어적)
+    const safeDataRows = dataRows.slice(0, 50);
+
+    for (let ri = 0; ri < safeDataRows.length; ri++) {
+      const dataRow = safeDataRows[ri];
+      const values = dataRow?.values || {};
+
+      // values 키를 normalized 매핑으로 변환 (헤더와 fuzzy 매칭)
+      const normalizedValues = new Map();
+      for (const [k, v] of Object.entries(values)) {
+        normalizedValues.set(normalizeColumnKey(k), v);
+      }
+
+      const row = [];
+      const perRowNullColumns = [];
+      for (let ci = 0; ci < headers.length; ci++) {
+        const col = headers[ci];
+        const nKey = normalizedHeaders[ci];
+        const raw = normalizedValues.has(nKey) ? normalizedValues.get(nKey) : undefined;
+        totalCells++;
+
+        if (raw === null || raw === undefined || raw === "" || raw === "N/A") {
+          row.push("N/A");
+          perRowNullColumns.push({ column: col, columnIndex: ci });
+          totalNulls++;
+        } else {
+          // 참조번호 자동 부여: 이미 [n]이 붙어 있으면 중복 부여하지 않음
+          const value = String(raw);
+          const hasRefTag = /\[\d+\]/.test(value);
+          row.push(hasRefTag || !refTag ? value : `${value}${refTag}`);
+        }
+      }
+
+      // N/A 비율이 50% 초과이면 행 폐기
+      const naCount = perRowNullColumns.length;
+      if (headers.length > 0 && naCount / headers.length > 0.5) {
+        droppedRowCount++;
+        continue;
+      }
+
+      rows.push(row);
+      usedPaperIds.add(result.paperId);
+
+      // nullSummary용 세부 기록 (살아남은 행만)
+      const outRowIndex = rows.length - 1;
+      for (const nullCol of perRowNullColumns) {
+        nullDetails.push({
+          paperId: result.paperId,
+          paperTitle: result.paperTitle,
+          column: nullCol.column,
+          columnIndex: nullCol.columnIndex,
+          rowIndex: outRowIndex,
+        });
+      }
+    }
+  }
+
+  // references: 데이터에 실제 사용된 논문만 포함, refNo 기준 정렬
+  const doiLookup = new Map(paperMetadata.map((p) => [p.paperId, p.doi]));
+  const references = paperMetadata
+    .filter((p) => usedPaperIds.has(p.paperId))
+    .map((p) => {
+      const ref = paperRefMap.get(p.paperId);
+      return {
+        refNo: String(ref?.refNo ?? ""),
+        paperId: p.paperId,
+        title: p.title,
+        authors: p.authors,
+        year: p.year,
+        doi: doiLookup.get(p.paperId) || "",
+      };
+    })
+    .sort((a, b) => (parseInt(a.refNo, 10) || 0) - (parseInt(b.refNo, 10) || 0));
+
+  const tableJson = {
+    title: tableSpec.title || "비교 테이블",
+    headers,
+    rows,
+    references,
+    notes: "",
+  };
+
+  const nullSummary = {
+    totalNulls,
+    totalCells,
+    droppedRowCount,
+    details: nullDetails,
+  };
+
+  console.log(
+    `[Chat/Merge] rows=${rows.length}, cells=${totalCells}, nulls=${totalNulls}, droppedRows=${droppedRowCount}`
+  );
+
+  return { tableJson, nullSummary };
+}
+
+// --- Q&A Pipeline Handler ---
+async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAll, abortController) {
+  console.log("[Chat/QA] Starting Q&A pipeline...");
+
+  // Stage 1: RAG search
+  broadcastToWindows(IPC_EVENTS.CHAT_STATUS, { conversationId: convId, stage: "searching", message: "관련 논문 데이터 검색 중..." });
+
+  let filterPaperIds = null;
+  if (!scopeAll && scopeFolderId) {
+    filterPaperIds = await getPaperIdsInFolderTree(scopeFolderId);
+  }
+
+  // Use the user's message directly as the search query (simplified vs table pipeline)
+  const searchQueries = [{ query: message, intent: "qa" }];
+  const keyTerms = extractKeyTerms(message);
+  // Graph-Enhanced RAG: base(vector+BM25+reranker) ⊕ graph 2-way RRF (graph 0건이면 wGraph=0 패스스루)
+  const entityModel = await getEntityExtractionModel();
+  const ragResults = await runGraphEnhancedRag(
+    searchQueries,
+    keyTerms,
+    filterPaperIds,
+    "qa",
+    supabase,
+    {
+      generateEmbedding,
+      runMultiQueryRag,
+      modelName: entityModel,
+    }
+  );
+  if (ragResults.graph) {
+    console.log(
+      `[Chat/QA] Graph: seeds=${ragResults.graph.seedCount}, expanded=${ragResults.graph.expandedCount}, graphChunks=${ragResults.graph.graphChunkCount}`
+    );
+  }
+
+  // If no results, inform user
+  if (ragResults.chunks.length === 0 && ragResults.figures.length === 0) {
+    const noDataMsg = "관련 데이터를 찾지 못했습니다. 요청을 더 구체적으로 해주시거나, 해당 주제의 논문이 라이브러리에 있는지 확인해주세요.";
+    const errMsg = unwrapSingle(await supabase
+      .from("chat_messages")
+      .insert({ conversation_id: convId, role: "assistant", content: noDataMsg, message_type: "text" })
+      .select("id")
+      .single(), "chat_messages insert (qa/no-data)");
+    await supabase.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
+    broadcastToWindows(IPC_EVENTS.CHAT_COMPLETE, { conversationId: convId, messageId: errMsg.id, hasTable: false });
+    return { conversationId: convId, messageId: errMsg.id, hasTable: false };
+  }
+
+  // Collect paper metadata
+  const paperIds = [...new Set([
+    ...ragResults.chunks.map((c) => c.paper_id),
+    ...ragResults.figures.map((f) => f.paper_id),
+  ])];
+  const { data: papers } = await supabase.from("papers").select("id, title, authors, publication_year, doi").in("id", paperIds);
+  const paperMetadata = (papers ?? []).map((p) => ({
+    paperId: p.id,
+    title: p.title ?? "Untitled",
+    authors: Array.isArray(p.authors) ? p.authors.map((a) => a.family ?? a.name ?? "").join(", ") : "",
+    year: p.publication_year ?? 0,
+    doi: p.doi ?? "",
+  }));
+
+  // Build paper ref map (for assembleRagContext)
+  const paperRefMap = new Map();
+  paperMetadata.forEach((p, i) => paperRefMap.set(p.paperId, { refNo: i + 1, title: p.title }));
+
+  // Assemble RAG context (text-heavy, no parsed matrices for Q&A)
+  const ragContext = assembleRagContext(ragResults.chunks, ragResults.figures, paperRefMap, []);
+
+  // Stage 2: Q&A answering (streaming)
+  broadcastToWindows(IPC_EVENTS.CHAT_STATUS, { conversationId: convId, stage: "answering", message: "답변 생성 중..." });
+  console.log("[Chat/QA] Streaming Q&A response...");
+
+  let fullResponse = "";
+  for await (const token of generateQaResponse(ragContext, history, paperMetadata, abortController.signal)) {
+    fullResponse += token;
+    broadcastToWindows(IPC_EVENTS.CHAT_TOKEN, { conversationId: convId, token });
+  }
+
+  // Post-process: ensure source attribution
+  const { text: finalText, referencedPaperIds } = formatSourceAttribution(fullResponse, paperMetadata);
+
+  // Save assistant message
+  const msg = unwrapSingle(await supabase
+    .from("chat_messages")
+    .insert({
+      conversation_id: convId,
+      role: "assistant",
+      content: finalText,
+      message_type: "text",
+      metadata: {
+        source_chunk_ids: ragResults.chunks.map((c) => c.chunk_id),
+        referenced_paper_ids: referencedPaperIds,
+      },
+    })
+    .select("id")
+    .single(), "chat_messages insert (qa/final)");
+
+  await supabase.from("chat_conversations").update({ phase: "follow_up", updated_at: new Date().toISOString() }).eq("id", convId);
+
+  broadcastToWindows(IPC_EVENTS.CHAT_COMPLETE, { conversationId: convId, messageId: msg.id, hasTable: false });
+  console.log(`[Chat/QA] Response complete. ${referencedPaperIds.length} papers referenced.`);
+
+  return { conversationId: convId, messageId: msg.id, hasTable: false };
+}
+
 // --- CHAT_SEND_MESSAGE (Multi-agent pipeline) ---
-ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, message, scopeFolderId, scopeAll }) => {
+ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, message, scopeFolderId, scopeAll, mode }) => {
   let convId = conversationId;
+  let conversationType = mode || "table"; // default to table for backward compatibility
 
   try {
     // 1. Create or load conversation
@@ -2782,16 +3630,19 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
       }
       const ownerId = appUser.id;
       const title = message.slice(0, 40) + (message.length > 40 ? "…" : "");
-      const { data: conv } = await supabase
+      const conv = unwrapSingle(await supabase
         .from("chat_conversations")
-        .insert({ owner_user_id: ownerId, title, phase: "follow_up", scope_folder_id: scopeFolderId ?? null, scope_all: scopeAll ?? true })
+        .insert({ owner_user_id: ownerId, title, phase: "follow_up", scope_folder_id: scopeFolderId ?? null, scope_all: scopeAll ?? true, conversation_type: conversationType })
         .select("id")
-        .single();
+        .single(), "chat_conversations insert");
       convId = conv.id;
     } else {
-      const { data: conv } = await supabase.from("chat_conversations").select("id, scope_folder_id, scope_all").eq("id", convId).single();
+      const { data: conv, error: convErr } = await supabase.from("chat_conversations").select("id, scope_folder_id, scope_all, conversation_type").eq("id", convId).maybeSingle();
+      if (convErr) throw new Error(`[supabase] chat_conversations load: ${convErr.message}`);
+      if (!conv) throw new Error(`[supabase] chat_conversations load: 존재하지 않는 대화입니다 (${convId})`);
       if (!scopeFolderId && conv.scope_folder_id) scopeFolderId = conv.scope_folder_id;
       if (scopeAll === undefined) scopeAll = conv.scope_all;
+      conversationType = conv.conversation_type || "table"; // use stored type for existing conversations
     }
 
     // 2. Insert user message
@@ -2813,6 +3664,13 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     // Setup abort controller
     const abortController = new AbortController();
     chatAbortControllers.set(convId, abortController);
+
+    // ===== Q&A Pipeline Branch =====
+    if (conversationType === "qa") {
+      return await handleQaPipeline(convId, message, history, scopeFolderId, scopeAll, abortController);
+    }
+
+    // ===== Table Pipeline (existing) =====
 
     // Fetch paper list for Orchestrator context
     const { data: allPapers } = await supabase.from("papers").select("id, title, authors, publication_year");
@@ -2838,6 +3696,30 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     const plan = await generateOrchestratorPlan(history, paperList, previousTable, abortController.signal);
     console.log(`[Chat] Orchestrator result: action=${plan.action}, queries=${plan.search_queries?.length ?? 0}`);
 
+    // ===== Clarify guardrail: force generate_table after 3+ clarifies =====
+    if (plan.action === "clarify") {
+      const clarifyCount = history.filter((m) => m.role === "assistant" && m.message_type === "text").length;
+      if (clarifyCount >= 3) {
+        console.log(`[Chat] Clarify guardrail triggered: ${clarifyCount} prior clarifies → forcing generate_table`);
+        plan.action = "generate_table";
+        // Build fallback search queries from the last user message
+        const lastUserMsg = [...history].reverse().find((m) => m.role === "user");
+        if (lastUserMsg && !plan.search_queries?.length) {
+          plan.search_queries = [{ query: lastUserMsg.content, intent: "user request fallback" }];
+        }
+        if (!plan.keyword_hints) plan.keyword_hints = [];
+        if (!plan.table_spec) {
+          plan.table_spec = {
+            title: "자동 생성 테이블",
+            row_axis: "각 데이터 포인트",
+            column_definitions: [],
+            inclusion_criteria: "",
+            exclusion_criteria: "",
+          };
+        }
+      }
+    }
+
     // ===== Handle clarify action =====
     if (plan.action === "clarify") {
       // Clear pipeline — clarify doesn't need the full stepper
@@ -2848,11 +3730,11 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
       for (const token of tokens) {
         broadcastToWindows(IPC_EVENTS.CHAT_TOKEN, { conversationId: convId, token });
       }
-      const { data: msg } = await supabase
+      const msg = unwrapSingle(await supabase
         .from("chat_messages")
         .insert({ conversation_id: convId, role: "assistant", content: clarificationText, message_type: "text" })
         .select("id")
-        .single();
+        .single(), "chat_messages insert (clarify)");
       await supabase.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
       broadcastToWindows(IPC_EVENTS.CHAT_COMPLETE, { conversationId: convId, messageId: msg.id, hasTable: false });
       return { conversationId: convId, messageId: msg.id, hasTable: false };
@@ -2872,16 +3754,16 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
       filterPaperIds = await getPaperIdsInFolderTree(scopeFolderId);
     }
 
-    const ragResults = await runMultiQueryRag(plan.search_queries, plan.keyword_hints, filterPaperIds);
+    const ragResults = await runMultiQueryRag(plan.search_queries, plan.keyword_hints, filterPaperIds, "table");
 
     // If no RAG results found, inform user
     if (ragResults.chunks.length === 0 && ragResults.figures.length === 0) {
       const noDataMsg = "관련 데이터를 찾지 못했습니다. 요청을 더 구체적으로 해주시거나, 해당 주제의 논문이 라이브러리에 있는지 확인해주세요.";
-      const { data: errMsg } = await supabase
+      const errMsg = unwrapSingle(await supabase
         .from("chat_messages")
         .insert({ conversation_id: convId, role: "assistant", content: noDataMsg, message_type: "text" })
         .select("id")
-        .single();
+        .single(), "chat_messages insert (table/no-data)");
       await supabase.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
       broadcastToWindows(IPC_EVENTS.CHAT_COMPLETE, { conversationId: convId, messageId: errMsg.id, hasTable: false });
       return { conversationId: convId, messageId: errMsg.id, hasTable: false };
@@ -2924,6 +3806,7 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
         summary_text: f.summary_text,
         page: f.page,
         similarity: 0,
+        _rrfScore: 0,
       });
       backfillCount++;
     }
@@ -3026,21 +3909,163 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
 
     console.log(`[Chat] Stage 3a: Parsed ${codeParseCount} tables (code) + ${llmParseCount} tables (LLM) from ${parsedMatrices.length} papers`);
 
-    // ===== Stage 3: Table Agent — LLM-based data extraction =====
-    broadcastToWindows(IPC_EVENTS.CHAT_STATUS, { conversationId: convId, stage: "assembling", message: "테이블 생성 중..." });
-    console.log("[Chat] Stage 3: Table Agent — generating table from RAG context + parsed matrices...");
+    // ===== Stage 3b: Per-paper Extraction (SRAG) =====
+    // 각 논문을 독립적으로 LLM에 보내 column_definitions에 맞는 데이터를 뽑아낸다.
+    // 순차 실행 (Ollama 단일 인스턴스 — 병렬 이득 없음).
+    const stage3bStart = Date.now();
 
-    const ragContext = assembleRagContext(ragResults.chunks, ragResults.figures, paperRefMap, parsedMatrices);
-    let tableJson = await generateTableFromSpec(tableSpec, ragContext, paperMetadata, abortController.signal);
+    // 유니코드 특수문자를 ASCII로 정규화 (LLM이 인코딩 깨뜨리는 것 방지)
+    if (tableSpec.column_definitions) {
+      tableSpec.column_definitions = sanitizeColumnNames(tableSpec.column_definitions);
+    }
+
+    const columnDefs = Array.isArray(tableSpec.column_definitions) ? tableSpec.column_definitions : [];
+    console.log(`[SRAG-DEBUG] columnDefs: ${JSON.stringify(columnDefs)}`);
+    const parsedTablesByPaper = new Map(parsedMatrices.map((pm) => [pm.paperId, pm.tables]));
+
+    const extractionResults = []; // [{paperId, paperTitle, extraction, success, error?, ms}]
+    let extractionSuccessCount = 0;
+    let extractionFailCount = 0;
+    let extractionFallbackNeeded = false;
+
+    if (columnDefs.length > 0 && allPaperIds.length > 0) {
+      for (let i = 0; i < allPaperIds.length; i++) {
+        const pid = allPaperIds[i];
+        const pMeta = paperMetadata.find((p) => p.paperId === pid);
+        if (!pMeta) continue;
+
+        broadcastToWindows(IPC_EVENTS.CHAT_STATUS, {
+          conversationId: convId,
+          stage: "extracting",
+          message: `논문별 데이터 추출 중... (${i + 1}/${allPaperIds.length})`,
+          detail: pMeta.title?.slice(0, 60) ?? "",
+        });
+
+        const paperContext = assemblePerPaperContext({
+          chunks: chunksByPaper.get(pid) ?? [],
+          figures: figuresByPaper.get(pid) ?? [],
+          parsedTables: parsedTablesByPaper.get(pid) ?? [],
+          paperTitle: pMeta.title,
+        });
+
+        // 논문에 사용 가능한 컨텍스트가 전혀 없으면 건너뛴다 (빈 결과로 기록)
+        if (!paperContext || paperContext.trim().length === 0) {
+          extractionResults.push({
+            paperId: pid,
+            paperTitle: pMeta.title,
+            extraction: { paper_title: pMeta.title, data_rows: [] },
+            success: true,
+            ms: 0,
+          });
+          continue;
+        }
+
+        const t0 = Date.now();
+        try {
+          // 논문당 최대 60초 타임아웃 (abortController와 합성)
+          const timeoutController = new AbortController();
+          const timeoutId = setTimeout(() => timeoutController.abort(), 60000);
+          const onAbort = () => timeoutController.abort();
+          abortController.signal.addEventListener("abort", onAbort);
+
+          let extraction;
+          try {
+            extraction = await extractColumnsFromPaper(
+              tableSpec,
+              paperContext,
+              pMeta.title,
+              timeoutController.signal
+            );
+          } finally {
+            clearTimeout(timeoutId);
+            abortController.signal.removeEventListener("abort", onAbort);
+          }
+
+          extractionResults.push({
+            paperId: pid,
+            paperTitle: pMeta.title,
+            extraction,
+            success: true,
+            ms: Date.now() - t0,
+          });
+          extractionSuccessCount++;
+        } catch (err) {
+          // 상위 abort는 그대로 전파
+          if (abortController.signal.aborted) throw err;
+          console.error(`[Chat] Stage 3b extraction failed for "${pMeta.title?.slice(0, 40)}":`, err.message);
+          extractionResults.push({
+            paperId: pid,
+            paperTitle: pMeta.title,
+            extraction: { paper_title: pMeta.title, data_rows: [] },
+            success: false,
+            error: err.message,
+            ms: Date.now() - t0,
+          });
+          extractionFailCount++;
+        }
+      }
+
+      // 전체 실패 판단: 성공 논문이 하나도 없으면 single-call fallback 사용
+      if (extractionSuccessCount === 0 && extractionFailCount > 0) {
+        extractionFallbackNeeded = true;
+      }
+    } else {
+      // column_definitions가 비어 있으면 (orchestrator가 채우지 않았으면) 기존 single-call fallback 사용
+      extractionFallbackNeeded = true;
+    }
+
+    const stage3bMs = Date.now() - stage3bStart;
+    console.log(
+      `[Chat] Stage 3b: Per-paper extraction → ${extractionSuccessCount} success, ${extractionFailCount} fail, ${stage3bMs}ms (fallback=${extractionFallbackNeeded})`
+    );
+
+    // ===== Stage 3c: Merge + Table Assembly (코드 병합 or fallback) =====
+    broadcastToWindows(IPC_EVENTS.CHAT_STATUS, { conversationId: convId, stage: "assembling", message: "테이블 생성 중..." });
+
+    let tableJson;
+    let extractionMode;
+    let nullSummary = null;
+
+    if (!extractionFallbackNeeded) {
+      console.log("[Chat] Stage 3c: Merging per-paper extractions (code-only, no LLM)...");
+      const merged = mergeExtractionResults(extractionResults, tableSpec, paperMetadata, paperRefMap);
+      tableJson = merged.tableJson;
+      nullSummary = merged.nullSummary;
+      extractionMode = "per_paper";
+
+      // 정상 모드에서도 rows가 완전히 비어 있으면 single-call fallback로 재시도
+      if (!tableJson.rows || tableJson.rows.length === 0) {
+        console.warn("[Chat] Stage 3c: merged result empty — falling back to single-call Table Agent");
+        extractionFallbackNeeded = true;
+      }
+    }
+
+    if (extractionFallbackNeeded) {
+      console.log("[Chat] Stage 3c: Fallback — single-call Table Agent on combined RAG context...");
+      const ragContext = assembleRagContext(ragResults.chunks, ragResults.figures, paperRefMap, parsedMatrices);
+      tableJson = await generateTableFromSpec(tableSpec, ragContext, paperMetadata, abortController.signal);
+      extractionMode = "single_call_fallback";
+    }
 
     // Post-process: clean cell values (fix LLM formatting artifacts)
     if (tableJson.rows) {
       tableJson.rows = tableJson.rows.map((row) => row.map((cell) => cleanCellValue(cell)));
     }
-    console.log(`[Chat] Stage 3: Table Agent → ${tableJson.rows?.length ?? 0} rows, ${tableJson.references?.length ?? 0} references`);
+    console.log(
+      `[Chat] Stage 3c: Table → ${tableJson.rows?.length ?? 0} rows, ${tableJson.references?.length ?? 0} references (mode=${extractionMode})`
+    );
+
+    // SRAG 추출 메타데이터 (Step 4 Agentic 재검색 입력 등에 사용)
+    const extractionMetadata = {
+      extractionMode,
+      stage3bMs,
+      perPaperTiming: extractionResults.map((r) => ({ paperId: r.paperId, ms: r.ms, success: r.success })),
+      partialFailures: extractionResults.filter((r) => !r.success).map((r) => ({ paperId: r.paperId, paperTitle: r.paperTitle, error: r.error })),
+      nullSummary,
+    };
 
     // Insert assistant message
-    const { data: msg } = await supabase
+    const msg = unwrapSingle(await supabase
       .from("chat_messages")
       .insert({
         conversation_id: convId,
@@ -3050,7 +4075,7 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
         metadata: { source_chunk_ids: ragResults.chunks.map((c) => c.chunk_id) },
       })
       .select("id")
-      .single();
+      .single(), "chat_messages insert (table_report)");
 
     // Update phase + timestamp
     await supabase.from("chat_conversations").update({ phase: "follow_up", updated_at: new Date().toISOString() }).eq("id", convId);
@@ -3076,7 +4101,7 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     }
 
     // Insert generated table
-    const { data: tableRow } = await supabase
+    const tableRow = unwrapSingle(await supabase
       .from("chat_generated_tables")
       .insert({
         message_id: msg.id,
@@ -3085,9 +4110,10 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
         headers: tableJson.headers,
         rows: tableJson.rows,
         source_refs: sourceRefs,
+        metadata: extractionMetadata,
       })
       .select("id")
-      .single();
+      .single(), "chat_generated_tables insert");
     const tableId = tableRow.id;
 
     // Update message metadata with tableId
@@ -3109,10 +4135,10 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
         console.log("[Chat] Stage 4: Guardian — verifying data...");
 
         const allSourceTexts = [
-          ...ragResults.figures.filter((f) => f.summary_text).map((f) => `${f.caption ?? ""}\n${f.summary_text}`),
-          ...ragResults.chunks.slice(0, 20).map((c) => c.text),
+          ...ragResults.figures.filter((f) => f.summary_text).map((f) => `${f.caption ?? ""}\n${f.summary_text}`.slice(0, 1000)),
+          ...ragResults.chunks.slice(0, 20).map((c) => c.text.slice(0, 800)),
         ];
-        const combinedSource = allSourceTexts.join("\n\n").slice(0, 16000);
+        const combinedSource = allSourceTexts.join("\n\n").slice(0, 12000);
 
         // Collect all numeric cells to verify
         const cellsToVerify = [];
@@ -3140,7 +4166,14 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
           const batch = sampled.slice(i, i + BATCH_SIZE);
           const results = await Promise.all(
             batch.map((cell) => {
-              const claim = `The value of ${tableJson.headers[cell.col]} is ${cell.cleanValue}`;
+              // Build claim with identifying columns (first 2 cols) for better Guardian accuracy
+              const identParts = tableJson.headers.slice(0, 2)
+                .map((h, idx) => tableJson.rows[cell.row]?.[idx])
+                .filter(Boolean)
+                .join(", ");
+              const claim = identParts
+                ? `For ${identParts}, the value of ${tableJson.headers[cell.col]} is ${cell.cleanValue}`
+                : `The value of ${tableJson.headers[cell.col]} is ${cell.cleanValue}`;
               return checkGroundedness(combinedSource, claim)
                 .then((res) => ({ row: cell.row, col: cell.col, ...res }))
                 .catch(() => ({ row: cell.row, col: cell.col, status: "unverified", evidence: "error" }));
@@ -3167,12 +4200,17 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     broadcastToWindows(IPC_EVENTS.CHAT_ERROR, { conversationId: convId, error: err.message });
 
     if (convId) {
-      await supabase.from("chat_messages").insert({
-        conversation_id: convId,
-        role: "assistant",
-        content: err.message,
-        message_type: "error",
-      }).catch(() => {});
+      try {
+        const { error: logErr } = await supabase.from("chat_messages").insert({
+          conversation_id: convId,
+          role: "assistant",
+          content: err.message,
+          message_type: "error",
+        });
+        if (logErr) console.warn("[Chat] failed to persist error message:", logErr.message);
+      } catch (logCrash) {
+        console.warn("[Chat] failed to persist error message (exception):", logCrash.message);
+      }
     }
     return { conversationId: convId, error: err.message };
   } finally {
@@ -3192,13 +4230,16 @@ ipcMain.handle(IPC_CHANNELS.CHAT_ABORT, (_event, { conversationId }) => {
 
 // --- CHAT_EXPORT_CSV ---
 ipcMain.handle(IPC_CHANNELS.CHAT_EXPORT_CSV, async (_event, { tableId }) => {
-  const { data: table } = await supabase
-    .from("chat_generated_tables")
-    .select("table_title, headers, rows, source_refs")
-    .eq("id", tableId)
-    .single();
-
-  if (!table) return { success: false, error: "Table not found" };
+  let table;
+  try {
+    table = unwrapSingle(await supabase
+      .from("chat_generated_tables")
+      .select("table_title, headers, rows, source_refs")
+      .eq("id", tableId)
+      .single(), "csv-export-table");
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
 
   // Build CSV string with BOM for Korean Excel compatibility
   const escape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
@@ -3236,7 +4277,199 @@ ipcMain.handle(IPC_CHANNELS.CHAT_EXPORT_CSV, async (_event, { tableId }) => {
   return { success: true, filePath };
 });
 
+// --- LLM Model Selection IPC Handlers ---
 
+// Models to exclude from the user-facing list (Guardian, OCR)
+const LLM_EXCLUDED_MODEL_PREFIXES = ["granite3-guardian", "glm-ocr"];
+
+ipcMain.handle(IPC_CHANNELS.LLM_LIST_MODELS, async () => {
+  try {
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return { success: false, error: `Ollama responded with ${res.status}` };
+    const json = await res.json();
+    const models = (json.models ?? [])
+      .filter((m) => !LLM_EXCLUDED_MODEL_PREFIXES.some((prefix) => m.name.startsWith(prefix)))
+      .map((m) => ({
+        name: m.name,
+        size: m.size,
+        modified_at: m.modified_at,
+        details: m.details ?? null,
+      }));
+    return { success: true, data: models };
+  } catch (err) {
+    return { success: false, error: err.message || "Ollama 연결 실패" };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.LLM_GET_MODEL, async () => {
+  try {
+    const model = getActiveModel();
+    // Determine source: check DB first, then env, then default
+    const { data: pref } = await supabase
+      .from("user_workspace_preferences")
+      .select("llm_model")
+      .limit(1)
+      .maybeSingle();
+    let source = "default";
+    if (pref?.llm_model) {
+      source = "user";
+    } else if (process.env.REDOU_LLM_MODEL) {
+      source = "env";
+    }
+    return { success: true, data: { model, source } };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.LLM_SET_MODEL, async (_event, { model }) => {
+  try {
+    // Upsert into user_workspace_preferences
+    const { data: existing } = await supabase
+      .from("user_workspace_preferences")
+      .select("id")
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      await supabase
+        .from("user_workspace_preferences")
+        .update({ llm_model: model || null })
+        .eq("id", existing.id);
+    } else {
+      // Get user ID for insert
+      const { data: appUser } = await supabase
+        .from("app_users")
+        .select("id")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (appUser?.id) {
+        await supabase
+          .from("user_workspace_preferences")
+          .insert({ user_id: appUser.id, llm_model: model || null });
+      }
+    }
+
+    // Update runtime variable
+    setActiveModel(model);
+    console.log(`[LLM] Active model changed to: ${getActiveModel()}`);
+    return { success: true, data: { model: getActiveModel() } };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// --- Entity Extraction IPC Handlers ---
+
+ipcMain.handle(IPC_CHANNELS.ENTITY_BACKFILL, async () => {
+  try {
+    const queued = await enqueueEntityBackfill();
+    console.log(`[entity-backfill] Queued ${queued} papers for entity extraction`);
+    // Kick the processing loop immediately
+    void processNextQueuedJob();
+    return { success: true, data: { queued } };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.ENTITY_BACKFILL_STATUS, async () => {
+  try {
+    const [pendingRes, runningRes, totalRes, upToDateRes] = await Promise.all([
+      supabase
+        .from("processing_jobs")
+        .select("*", { count: "exact", head: true })
+        .eq("job_type", "extract_entities")
+        .eq("status", "queued"),
+      supabase
+        .from("processing_jobs")
+        .select("*", { count: "exact", head: true })
+        .eq("job_type", "extract_entities")
+        .eq("status", "running"),
+      supabase
+        .from("papers")
+        .select("*", { count: "exact", head: true })
+        .is("trashed_at", null),
+      supabase
+        .from("papers")
+        .select("*", { count: "exact", head: true })
+        .is("trashed_at", null)
+        .gte("entity_extraction_version", CURRENT_ENTITY_EXTRACTION_VERSION),
+    ]);
+
+    return {
+      success: true,
+      data: {
+        pending: pendingRes.count ?? 0,
+        running: runningRes.count ?? 0,
+        totalPapers: totalRes.count ?? 0,
+        processedPapers: upToDateRes.count ?? 0,
+        currentVersion: CURRENT_ENTITY_EXTRACTION_VERSION,
+      },
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.ENTITY_GET_MODEL, async () => {
+  try {
+    const { data: pref } = await supabase
+      .from("user_workspace_preferences")
+      .select("entity_extraction_model, llm_model")
+      .limit(1)
+      .maybeSingle();
+    const effectiveModel = pref?.entity_extraction_model || pref?.llm_model || getActiveModel();
+    return {
+      success: true,
+      data: {
+        model: pref?.entity_extraction_model ?? null,
+        effectiveModel,
+        source: pref?.entity_extraction_model ? "user" : "fallback_chat_model",
+      },
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.ENTITY_SET_MODEL, async (_event, { model }) => {
+  try {
+    const value = model || null;
+    const { data: existing } = await supabase
+      .from("user_workspace_preferences")
+      .select("id")
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      await supabase
+        .from("user_workspace_preferences")
+        .update({ entity_extraction_model: value })
+        .eq("id", existing.id);
+    } else {
+      const { data: appUser } = await supabase
+        .from("app_users")
+        .select("id")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (appUser?.id) {
+        await supabase
+          .from("user_workspace_preferences")
+          .insert({ user_id: appUser.id, entity_extraction_model: value });
+      }
+    }
+
+    console.log(`[entity] Entity extraction model set to: ${value || "(inherits chat model)"}`);
+    return { success: true, data: { model: value } };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
 
 
 

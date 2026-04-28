@@ -86,6 +86,7 @@ export interface ChatSendMessageParams {
   message: string;
   scopeFolderId?: string | null;
   scopeAll?: boolean;
+  mode?: "table" | "qa";
 }
 
 export interface ChatAbortParams {
@@ -119,7 +120,43 @@ export interface ChatErrorEvent {
   error: string;
 }
 
-export type ChatPipelineStage = "orchestrating" | "searching" | "parsing" | "assembling" | "verifying";
+export interface OllamaModel {
+  name: string;
+  size: number;
+  modified_at: string;
+  details?: Record<string, unknown> | null;
+}
+
+export interface LlmModelInfo {
+  model: string;
+  source: "user" | "env" | "default";
+}
+
+export interface EntityModelInfo {
+  /** User-selected model name. null means falls back to chat model. */
+  model: string | null;
+  /** Effective model name actually used (after fallback). */
+  effectiveModel: string;
+  /** 'user' = explicit entity_extraction_model; 'fallback_chat_model' = inherits llm_model. */
+  source: "user" | "fallback_chat_model";
+}
+
+export interface EntityBackfillStatus {
+  pending: number;
+  running: number;
+  totalPapers: number;
+  processedPapers: number;
+  currentVersion: number;
+}
+
+export type ChatPipelineStage =
+  | "orchestrating"
+  | "searching"
+  | "parsing"
+  | "extracting"
+  | "assembling"
+  | "verifying"
+  | "answering";
 
 export interface ChatStatusEvent {
   conversationId: string;
@@ -173,6 +210,17 @@ export interface RedouDesktopApi {
     sendMessage: (args: ChatSendMessageParams) => Promise<DbResult<{ conversationId: string }>>;
     abort: (args: ChatAbortParams) => Promise<DbResult>;
     exportCsv: (args: ChatExportCsvParams) => Promise<DbResult<{ filePath: string }>>;
+  };
+  llm: {
+    listModels: () => Promise<DbResult<OllamaModel[]>>;
+    getModel: () => Promise<DbResult<LlmModelInfo>>;
+    setModel: (args: { model: string }) => Promise<DbResult<{ model: string }>>;
+  };
+  entity: {
+    backfill: () => Promise<DbResult<{ queued: number }>>;
+    backfillStatus: () => Promise<DbResult<EntityBackfillStatus>>;
+    getModel: () => Promise<DbResult<EntityModelInfo>>;
+    setModel: (args: { model: string }) => Promise<DbResult<{ model: string }>>;
   };
   openExternal: (url: string) => Promise<void>;
   getFilePathForDrop: (file: File) => string;

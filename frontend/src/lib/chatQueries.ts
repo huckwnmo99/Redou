@@ -14,6 +14,10 @@ import type {
   ChatErrorEvent,
   ChatStatusEvent,
   RedouDesktopApi,
+  OllamaModel,
+  LlmModelInfo,
+  EntityModelInfo,
+  EntityBackfillStatus,
 } from "@/types/desktop";
 
 // ============================================================
@@ -24,6 +28,16 @@ export const chatKeys = {
   conversations: ["chat-conversations"] as const,
   messages: (convId: string) => ["chat-messages", convId] as const,
   table: (tableId: string) => ["chat-table", tableId] as const,
+};
+
+export const llmKeys = {
+  models: ["llm-models"] as const,
+  activeModel: ["llm-active-model"] as const,
+};
+
+export const entityKeys = {
+  activeModel: ["entity-active-model"] as const,
+  backfillStatus: ["entity-backfill-status"] as const,
 };
 
 // ============================================================
@@ -122,8 +136,12 @@ export function useSendChatMessage() {
       // Start streaming BEFORE the IPC call (handler blocks until LLM finishes)
       const tempConvId = params.conversationId ?? "pending";
       startStreaming(tempConvId);
+      // Show user message immediately (optimistic update)
+      useChatStore.getState().setPendingUserMessage(params.message);
 
-      const result = await api.chat.sendMessage(params) as unknown as {
+      // Include mode from chatStore if not explicitly provided
+      const mode = params.mode ?? useChatStore.getState().conversationType;
+      const result = await api.chat.sendMessage({ ...params, mode }) as unknown as {
         conversationId: string;
         messageId?: string;
         hasTable?: boolean;
@@ -136,8 +154,12 @@ export function useSendChatMessage() {
     onSuccess: (data) => {
       // Update conversation ID if it was newly created
       useChatStore.getState().setActiveConversationId(data.conversationId);
+      useChatStore.getState().clearPendingUserMessage();
       queryClient.invalidateQueries({ queryKey: chatKeys.conversations });
       queryClient.invalidateQueries({ queryKey: chatKeys.messages(data.conversationId) });
+    },
+    onError: () => {
+      useChatStore.getState().clearPendingUserMessage();
     },
   });
 }
@@ -271,4 +293,117 @@ export function useChatStreamBridge() {
       unsubStatus();
     };
   }, [queryClient]);
+}
+
+// ============================================================
+// LLM Model Selection Hooks
+// ============================================================
+
+export function useLlmModels() {
+  return useQuery({
+    queryKey: llmKeys.models,
+    queryFn: async (): Promise<OllamaModel[]> => {
+      const api = getDesktopApi();
+      if (!api) return [];
+      const result = await api.llm.listModels();
+      if (!result.success) throw new Error(result.error ?? "Failed to list models");
+      return result.data ?? [];
+    },
+    staleTime: 30_000, // Refresh every 30s
+  });
+}
+
+export function useActiveLlmModel() {
+  return useQuery({
+    queryKey: llmKeys.activeModel,
+    queryFn: async (): Promise<LlmModelInfo | null> => {
+      const api = getDesktopApi();
+      if (!api) return null;
+      const result = await api.llm.getModel();
+      if (!result.success) throw new Error(result.error ?? "Failed to get model");
+      return result.data ?? null;
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function useSetLlmModel() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (model: string) => {
+      const api = requireDesktopApi();
+      const result = await api.llm.setModel({ model });
+      if (!result.success) throw new Error(result.error ?? "Failed to set model");
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: llmKeys.activeModel });
+    },
+  });
+}
+
+// ============================================================
+// Entity Extraction Hooks
+// ============================================================
+
+export function useEntityModel() {
+  return useQuery({
+    queryKey: entityKeys.activeModel,
+    queryFn: async (): Promise<EntityModelInfo | null> => {
+      const api = getDesktopApi();
+      if (!api) return null;
+      const result = await api.entity.getModel();
+      if (!result.success) throw new Error(result.error ?? "Failed to get entity model");
+      return result.data ?? null;
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function useSetEntityModel() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (model: string) => {
+      const api = requireDesktopApi();
+      const result = await api.entity.setModel({ model });
+      if (!result.success) throw new Error(result.error ?? "Failed to set entity model");
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: entityKeys.activeModel });
+    },
+  });
+}
+
+export function useEntityBackfillStatus() {
+  return useQuery({
+    queryKey: entityKeys.backfillStatus,
+    queryFn: async (): Promise<EntityBackfillStatus | null> => {
+      const api = getDesktopApi();
+      if (!api) return null;
+      const result = await api.entity.backfillStatus();
+      if (!result.success) throw new Error(result.error ?? "Failed to get backfill status");
+      return result.data ?? null;
+    },
+    refetchInterval: 3_000,
+    staleTime: 2_000,
+  });
+}
+
+export function useEntityBackfillMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const api = requireDesktopApi();
+      const result = await api.entity.backfill();
+      if (!result.success) throw new Error(result.error ?? "Failed to enqueue backfill");
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: entityKeys.backfillStatus });
+    },
+  });
 }
