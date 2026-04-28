@@ -137,6 +137,7 @@ export type ChatPipelineStage =
   | "searching"
   | "parsing"
   | "extracting"
+  | "researching"
   | "assembling"
   | "verifying"
   | "answering";

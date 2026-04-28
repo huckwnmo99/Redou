@@ -15,7 +15,7 @@ import { enhanceEmptyTablesWithOcr } from "./ocr-extraction.mjs";
 import { isMineruAvailable, parsePdf, parseMineruResult, saveFigureImages, saveTableImages } from "./mineru-client.mjs";
 import { isGrobidAvailable, extractMetadataAndReferences, linkReferencesToExistingPapers } from "./grobid-client.mjs";
 import { streamChat, checkGroundedness, isLlmAvailable, isGuardianAvailable, getActiveModel, setActiveModel, OLLAMA_BASE_URL } from "./llm-chat.mjs";
-import { generateOrchestratorPlan, generateTableFromSpec, extractMatrixFromHtml, extractColumnsFromPaper } from "./llm-orchestrator.mjs";
+import { generateOrchestratorPlan, generateTableFromSpec, extractMatrixFromHtml, extractColumnsFromPaper, extractNullCellsFromPaper } from "./llm-orchestrator.mjs";
 import { generateQaResponse, formatSourceAttribution } from "./llm-qa.mjs";
 import { parseAllHtmlTables } from "./html-table-parser.mjs";
 import { rerankChunks, isRerankerAvailable } from "./reranker-worker.mjs";
@@ -2668,6 +2668,343 @@ function mergeExtractionResults(extractionResults, tableSpec, paperMetadata, pap
   return { tableJson, nullSummary };
 }
 
+function shouldTriggerAgenticRecovery(nullSummary, tableJson, abortSignal) {
+  if (abortSignal?.aborted) return false;
+  const totalNulls = Number(nullSummary?.totalNulls ?? 0);
+  const totalCells = Number(nullSummary?.totalCells ?? 0);
+  const nullDetails = Array.isArray(nullSummary?.details) ? nullSummary.details : [];
+  const rowCount = Array.isArray(tableJson?.rows) ? tableJson.rows.length : 0;
+  if (totalNulls <= 0 || totalCells <= 0 || nullDetails.length === 0 || rowCount === 0) return false;
+  const recoverablePaperIds = new Set(nullDetails.map((detail) => detail.paperId).filter(Boolean));
+  if (recoverablePaperIds.size === 0) return false;
+  return totalNulls / totalCells >= 0.05;
+}
+
+function groupNullsByPaper(nullSummary) {
+  const grouped = new Map();
+  for (const detail of nullSummary?.details ?? []) {
+    if (!detail?.paperId) continue;
+    if (!grouped.has(detail.paperId)) {
+      grouped.set(detail.paperId, {
+        paperTitle: detail.paperTitle || "",
+        nullCells: [],
+      });
+    }
+    grouped.get(detail.paperId).nullCells.push({
+      column: detail.column,
+      columnIndex: detail.columnIndex,
+      rowIndex: detail.rowIndex,
+    });
+  }
+  return grouped;
+}
+
+function uniqueStrings(values) {
+  return [...new Set((values ?? []).map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function compactRecoveryQuery(parts) {
+  return uniqueStrings(parts)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
+}
+
+function buildRecoveryQueries(paperTitle, columns, keywordHints) {
+  const safeColumns = uniqueStrings(sanitizeColumnNames(columns ?? []));
+  const safeHints = uniqueStrings(keywordHints ?? []);
+  const columnText = safeColumns.join(" ");
+  const units = uniqueStrings(
+    safeColumns.flatMap((column) => [...String(column).matchAll(/\(([^)]+)\)|\[([^\]]+)\]/g)].map((m) => m[1] || m[2]))
+  );
+  const titleTerms = String(paperTitle || "").split(/\s+/).filter(Boolean).slice(0, 10).join(" ");
+  const inferredTerms = extractKeyTerms(`${paperTitle || ""} ${columnText}`).slice(0, 8);
+
+  const candidates = [
+    compactRecoveryQuery([columnText, units.join(" "), safeHints.join(" "), inferredTerms.join(" ")]),
+    compactRecoveryQuery([titleTerms, safeColumns[0] || columnText, units.join(" ")]),
+    compactRecoveryQuery(["methods experimental conditions", columnText, safeHints.slice(0, 4).join(" ")]),
+  ].filter(Boolean);
+
+  return uniqueStrings(candidates).slice(0, 3).map((query) => ({ query, intent: "recovery" }));
+}
+
+async function runPaperScopedRecoverySearch(queries, paperId, abortSignal) {
+  if (abortSignal?.aborted) {
+    const err = new Error("Agentic NULL recovery aborted");
+    err.name = "AbortError";
+    throw err;
+  }
+  if (!paperId || !Array.isArray(queries) || queries.length === 0) {
+    return { chunks: [], figures: [] };
+  }
+  const result = await runMultiQueryRag(queries, [], [paperId], "table");
+  if (abortSignal?.aborted) {
+    const err = new Error("Agentic NULL recovery aborted");
+    err.name = "AbortError";
+    throw err;
+  }
+  return {
+    chunks: result?.chunks ?? [],
+    figures: result?.figures ?? [],
+  };
+}
+
+function getChunkId(chunk) {
+  return chunk?.chunk_id ?? chunk?.id ?? null;
+}
+
+function getFigureId(figure) {
+  return figure?.figure_id ?? figure?.id ?? null;
+}
+
+function isNullTableCell(value) {
+  if (value === null || value === undefined) return true;
+  const text = String(value).trim();
+  return text === "" || text.toLowerCase() === "n/a" || text.toLowerCase() === "null";
+}
+
+function cloneTableForRecovery(tableJson) {
+  return {
+    ...(tableJson ?? {}),
+    headers: Array.isArray(tableJson?.headers) ? tableJson.headers.slice() : [],
+    rows: Array.isArray(tableJson?.rows) ? tableJson.rows.map((row) => (Array.isArray(row) ? row.slice() : [])) : [],
+    references: Array.isArray(tableJson?.references) ? tableJson.references.map((ref) => ({ ...ref })) : [],
+  };
+}
+
+function cloneNullSummaryForRecovery(nullSummary) {
+  return {
+    ...(nullSummary ?? {}),
+    totalNulls: Number(nullSummary?.totalNulls ?? 0),
+    totalCells: Number(nullSummary?.totalCells ?? 0),
+    droppedRowCount: Number(nullSummary?.droppedRowCount ?? 0),
+    details: Array.isArray(nullSummary?.details) ? nullSummary.details.map((detail) => ({ ...detail })) : [],
+  };
+}
+
+function assembleRecoveryContext({ newChunks, newFigures, missingColumns, paperTitle }) {
+  const focusedContext = assemblePerPaperContext({
+    chunks: newChunks ?? [],
+    figures: newFigures ?? [],
+    parsedTables: [],
+    paperTitle,
+  });
+  const header = `=== Recovery target columns ===\n${(missingColumns ?? []).join(", ")}\n\n=== Recovery rule ===\nOnly recover values that are directly present in the new context below.`;
+  return `${header}\n\n${focusedContext || ""}`.trim();
+}
+
+function applyRecoveredValues(tableJson, paperRefMap, paperId, recoveredRows, nullSummary) {
+  const headers = Array.isArray(tableJson?.headers) ? tableJson.headers : [];
+  const headerLookup = new Map(headers.map((header, index) => [normalizeColumnKey(header), { header, index }]));
+  const details = Array.isArray(nullSummary?.details) ? nullSummary.details : [];
+  const refNo = paperRefMap?.get(paperId)?.refNo ?? null;
+  const refTag = refNo ? ` [${refNo}]` : "";
+  let appliedCount = 0;
+
+  for (const recoveredRow of recoveredRows ?? []) {
+    if (recoveredRow?.confidence !== "high") continue;
+    const values = recoveredRow?.values;
+    if (!values || typeof values !== "object") continue;
+
+    for (const [columnName, rawValue] of Object.entries(values)) {
+      if (isNullTableCell(rawValue)) continue;
+      const headerMatch = headerLookup.get(normalizeColumnKey(columnName));
+      if (!headerMatch) continue;
+
+      const detailIndex = details.findIndex((detail) => {
+        if (detail.paperId !== paperId || detail.columnIndex !== headerMatch.index) return false;
+        return isNullTableCell(tableJson.rows?.[detail.rowIndex]?.[headerMatch.index]);
+      });
+      if (detailIndex < 0) continue;
+
+      const detail = details[detailIndex];
+      const value = String(rawValue).trim();
+      if (!value) continue;
+      const valueWithRef = /\[\d+\]/.test(value) || !refTag ? value : `${value}${refTag}`;
+      tableJson.rows[detail.rowIndex][headerMatch.index] = valueWithRef;
+      details.splice(detailIndex, 1);
+      appliedCount++;
+    }
+  }
+
+  nullSummary.details = details;
+  nullSummary.totalNulls = details.length;
+  return appliedCount;
+}
+
+async function runAgenticNullRecovery({
+  tableJson,
+  nullSummary,
+  paperRefMap,
+  paperMetadata,
+  tableSpec,
+  keywordHints,
+  chunksByPaper,
+  figuresByPaper,
+  abortSignal,
+  onStatus,
+}) {
+  const startedAt = Date.now();
+  const nullsBeforeRecovery = Number(nullSummary?.totalNulls ?? 0);
+  const baseRecovery = {
+    attempted: false,
+    ms: 0,
+    nullsBeforeRecovery,
+    nullsAfterRecovery: nullsBeforeRecovery,
+    recoveredCellCount: 0,
+    perPaper: [],
+  };
+
+  try {
+    if (!shouldTriggerAgenticRecovery(nullSummary, tableJson, abortSignal)) {
+      return {
+        tableJson,
+        nullSummary,
+        agenticRecovery: {
+          ...baseRecovery,
+          ms: Date.now() - startedAt,
+          skippedReason: "gate_not_met",
+        },
+      };
+    }
+
+    const workingTableJson = cloneTableForRecovery(tableJson);
+    const workingNullSummary = cloneNullSummaryForRecovery(nullSummary);
+    const groupedNulls = groupNullsByPaper(workingNullSummary);
+    const perPaper = [];
+    let recoveredCellCount = 0;
+    let paperIndex = 0;
+
+    for (const [paperId, group] of groupedNulls) {
+      paperIndex++;
+      const paperTitle = group.paperTitle || paperMetadata?.find((paper) => paper.paperId === paperId)?.title || "Untitled";
+      const nullColumns = uniqueStrings(group.nullCells.map((cell) => cell.column));
+      const paperRecord = {
+        paperId,
+        paperTitle,
+        nullColumns,
+        queriesUsed: 0,
+        recoveredCount: 0,
+        success: true,
+      };
+
+      try {
+        if (abortSignal?.aborted) {
+          paperRecord.success = false;
+          paperRecord.skippedReason = "aborted";
+          perPaper.push(paperRecord);
+          break;
+        }
+
+        onStatus?.({
+          stage: "researching",
+          message: "NULL 셀 재검색 중...",
+          detail: `(${paperIndex}/${groupedNulls.size}) ${paperTitle.slice(0, 60)}`,
+        });
+
+        const queries = buildRecoveryQueries(paperTitle, nullColumns, keywordHints);
+        paperRecord.queriesUsed = queries.length;
+        const recoveryResults = await runPaperScopedRecoverySearch(queries, paperId, abortSignal);
+
+        const existingChunkIds = new Set((chunksByPaper?.get(paperId) ?? []).map(getChunkId).filter(Boolean));
+        const existingFigureIds = new Set((figuresByPaper?.get(paperId) ?? []).map(getFigureId).filter(Boolean));
+        const newChunks = (recoveryResults.chunks ?? []).filter((chunk) => {
+          const id = getChunkId(chunk);
+          return id && !existingChunkIds.has(id);
+        });
+        const newFigures = (recoveryResults.figures ?? []).filter((figure) => {
+          const id = getFigureId(figure);
+          return id && !existingFigureIds.has(id);
+        });
+
+        paperRecord.newChunkCount = newChunks.length;
+        paperRecord.newFigureCount = newFigures.length;
+
+        if (newChunks.length === 0 && newFigures.length === 0) {
+          paperRecord.skippedReason = "no_new_context";
+          perPaper.push(paperRecord);
+          continue;
+        }
+
+        const recoveryContext = assembleRecoveryContext({
+          newChunks,
+          newFigures,
+          missingColumns: nullColumns,
+          paperTitle,
+        });
+
+        if (!recoveryContext || recoveryContext.length === 0) {
+          paperRecord.skippedReason = "empty_recovery_context";
+          perPaper.push(paperRecord);
+          continue;
+        }
+
+        const timeoutController = new AbortController();
+        const timeoutId = setTimeout(() => timeoutController.abort(), 30000);
+        const onAbort = () => timeoutController.abort();
+        abortSignal?.addEventListener("abort", onAbort);
+
+        let recovered;
+        try {
+          recovered = await extractNullCellsFromPaper(
+            tableSpec,
+            nullColumns,
+            recoveryContext,
+            paperTitle,
+            timeoutController.signal
+          );
+        } finally {
+          clearTimeout(timeoutId);
+          abortSignal?.removeEventListener("abort", onAbort);
+        }
+
+        const applied = applyRecoveredValues(
+          workingTableJson,
+          paperRefMap,
+          paperId,
+          recovered?.data_rows ?? [],
+          workingNullSummary
+        );
+        paperRecord.recoveredCount = applied;
+        recoveredCellCount += applied;
+        perPaper.push(paperRecord);
+      } catch (err) {
+        paperRecord.success = false;
+        paperRecord.error = err?.message || String(err);
+        perPaper.push(paperRecord);
+        console.warn(`[Chat] Stage 3d recovery skipped for "${paperTitle.slice(0, 40)}": ${paperRecord.error}`);
+      }
+    }
+
+    return {
+      tableJson: workingTableJson,
+      nullSummary: workingNullSummary,
+      agenticRecovery: {
+        attempted: true,
+        ms: Date.now() - startedAt,
+        nullsBeforeRecovery,
+        nullsAfterRecovery: Number(workingNullSummary?.totalNulls ?? 0),
+        recoveredCellCount,
+        perPaper,
+      },
+    };
+  } catch (err) {
+    console.error("[Chat] Stage 3d Agentic NULL Recovery failed soft:", err?.message || err);
+    return {
+      tableJson,
+      nullSummary,
+      agenticRecovery: {
+        ...baseRecovery,
+        ms: Date.now() - startedAt,
+        success: false,
+        error: err?.message || String(err),
+      },
+    };
+  }
+}
+
 // --- Q&A Pipeline Handler ---
 async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAll, abortController) {
   console.log("[Chat/QA] Starting Q&A pipeline...");
@@ -3180,6 +3517,7 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     let tableJson;
     let extractionMode;
     let nullSummary = null;
+    let agenticRecovery = null;
 
     if (!extractionFallbackNeeded) {
       console.log("[Chat] Stage 3c: Merging per-paper extractions (code-only, no LLM)...");
@@ -3202,6 +3540,42 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
       extractionMode = "single_call_fallback";
     }
 
+    // ===== Stage 3d: Agentic NULL Recovery (fail-soft, per-paper max one pass) =====
+    if (extractionMode === "per_paper" && nullSummary) {
+      const recoveryResult = await runAgenticNullRecovery({
+        tableJson,
+        nullSummary,
+        extractionResults,
+        paperRefMap,
+        paperMetadata,
+        tableSpec,
+        keywordHints: plan.keyword_hints ?? [],
+        ragResults,
+        chunksByPaper,
+        figuresByPaper,
+        abortSignal: abortController.signal,
+        onStatus: (status) => {
+          broadcastToWindows(IPC_EVENTS.CHAT_STATUS, {
+            conversationId: convId,
+            ...status,
+          });
+        },
+      });
+      tableJson = recoveryResult.tableJson;
+      nullSummary = recoveryResult.nullSummary;
+      agenticRecovery = recoveryResult.agenticRecovery;
+      if (agenticRecovery?.attempted) {
+        console.log(
+          `[Chat] Stage 3d: Agentic NULL Recovery filled ${agenticRecovery.recoveredCellCount} cells in ${agenticRecovery.ms}ms`
+        );
+        broadcastToWindows(IPC_EVENTS.CHAT_STATUS, {
+          conversationId: convId,
+          stage: "assembling",
+          message: "테이블 정리 중...",
+        });
+      }
+    }
+
     // Post-process: clean cell values (fix LLM formatting artifacts)
     if (tableJson.rows) {
       tableJson.rows = tableJson.rows.map((row) => row.map((cell) => cleanCellValue(cell)));
@@ -3217,6 +3591,7 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
       perPaperTiming: extractionResults.map((r) => ({ paperId: r.paperId, ms: r.ms, success: r.success })),
       partialFailures: extractionResults.filter((r) => !r.success).map((r) => ({ paperId: r.paperId, paperTitle: r.paperTitle, error: r.error })),
       nullSummary,
+      agenticRecovery,
     };
 
     // Insert assistant message

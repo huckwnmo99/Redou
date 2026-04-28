@@ -1,5 +1,5 @@
 # RAG 파이프라인
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+> 하네스 버전: v1.0 | 최종 갱신: 2026-04-22
 
 ## 개요
 채팅(테이블 생성/Q&A) 시 관련 논문 데이터를 검색하는 Hybrid Search + RRF Fusion + Reranker 파이프라인. 검색 결과를 LLM 컨텍스트로 조립한다.
@@ -7,7 +7,7 @@
 ## 핵심 파일
 | 파일 | 역할 | 줄 수 |
 |------|------|-------|
-| `apps/desktop/electron/main.mjs` | RAG 함수들 (2728~3225) | ~500줄 구간 |
+| `apps/desktop/electron/main.mjs` | RAG 함수들 + Stage 3d NULL Recovery | 채팅 파이프라인 구간 |
 | `apps/desktop/electron/reranker-worker.mjs` | Cross-encoder reranker | ~147 |
 | `apps/desktop/electron/embedding-worker.mjs` | 쿼리 임베딩 생성 | ~143 |
 
@@ -22,6 +22,8 @@
 | `assembleRagContext(chunks, figures, refMap, matrices)` | main.mjs:2959 | 전체 RAG 컨텍스트 조립 | → string (3섹션: 파싱TSV + OCR HTML + 텍스트) |
 | `assemblePerPaperContext({chunks, figures, tables, title})` | main.mjs:3027 | 논문별 RAG 컨텍스트 (SRAG용) | 예산: 30K chars/논문 |
 | `mergeExtractionResults(results, spec, meta, refMap)` | main.mjs:3110 | SRAG 병합 (코드 전용) | → {tableJson, nullSummary} |
+| `runPaperScopedRecoverySearch(queries, paperId, signal)` | main.mjs | Stage 3d 단일 논문 재검색 | → {chunks, figures} |
+| `runAgenticNullRecovery(args)` | main.mjs | Stage 3d NULL 복구 오케스트레이션 | → {tableJson, nullSummary, agenticRecovery} |
 
 ## 데이터 흐름
 
@@ -55,6 +57,13 @@ searchQueries[] (Orchestrator 출력)
       ├─ [Table 모드 SRAG] assemblePerPaperContext × N논문
       │   └─ 논문당 30K chars (TSV 12K + OCR 14K + 텍스트 나머지)
       │
+      ├─ [Table 모드 Stage 3d] Agentic NULL Recovery
+      │   ├─ mergeExtractionResults()의 nullSummary.details를 논문별로 그룹화
+      │   ├─ buildRecoveryQueries(): LLM 없이 컬럼명/단위/keyword_hints 기반 쿼리 생성
+      │   ├─ runPaperScopedRecoverySearch(): 단일 paperId로 runMultiQueryRag() 재사용
+      │   ├─ Gate 1: 새 chunk_id/figure_id가 없으면 LLM 재추출 생략
+      │   └─ Gate 2: confidence="high" 셀만 기존 N/A에 적용
+      │
       └─ [Q&A 모드] assembleRagContext(chunks, figures, refMap, [])
           └─ 텍스트 위주 (파싱 매트릭스 없음)
 ```
@@ -71,8 +80,8 @@ searchQueries[] (Orchestrator 출력)
 - 사용됨: 채팅 파이프라인 (Table + Q&A)
 
 ## 현재 상태
-- 구현 완료: Hybrid Search, RRF, Reranker, 컨텍스트 조립, SRAG 병합
-- SRAG nullSummary 데이터 수집됨 (Agentic 재검색 Step 4 준비)
+- 구현 완료: Hybrid Search, RRF, Reranker, 컨텍스트 조립, SRAG 병합, Stage 3d Agentic NULL Recovery
+- SRAG nullSummary 데이터는 Stage 3d 재검색과 `agenticRecovery` metadata 기록에 사용됨
 
 ### 알려진 이슈
 

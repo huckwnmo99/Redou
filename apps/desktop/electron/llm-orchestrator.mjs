@@ -501,6 +501,21 @@ const EXTRACTION_AGENT_SYSTEM_PROMPT = `당신은 "Redou"라는 로컬 논문 �
 
 **이 논문에 해당 데이터가 전혀 없으면 data_rows를 빈 배열 []로 반환하세요.** 억지로 값을 만들어내지 마세요.`;
 
+const NULL_RECOVERY_EXTRACTION_PROMPT = `You are Redou's NULL-cell recovery extraction agent.
+The previous per-paper extraction could not find some column values for this paper.
+Use only the supplied recovery context and focus only on the requested nullColumns.
+
+Rules:
+1. Use only nullColumns as keys inside values. Do not add other column names.
+2. If the exact value cannot be found in the context, return null. Do not infer or invent values.
+3. Do not revise values that were already extracted earlier. Only recover missing cells.
+4. Preserve numbers and units exactly as written in the paper context.
+5. Set confidence to "high" only when the value is directly readable from a table or explicit OCR/table source.
+6. Use "medium" or "low" for text inference, weak matches, or uncertain values. These will not be applied.
+7. Keep notes in English.
+
+Return JSON using the same schema as the per-paper extraction agent.`;
+
 /**
  * Run the Per-paper Extraction Agent (SRAG Stage 3b) on a single paper's context.
  * @param {object} tableSpec — { title, row_axis, column_definitions, inclusion_criteria, exclusion_criteria }
@@ -575,6 +590,92 @@ ${paperContext}`;
   }
 }
 
+/**
+ * Run the NULL Recovery Extraction Agent (SRAG Stage 3d) on newly retrieved paper context.
+ * @param {object} tableSpec
+ * @param {string[]} nullColumns
+ * @param {string} paperContext
+ * @param {string} paperTitle
+ * @param {AbortSignal} [abortSignal]
+ * @returns {Promise<{paper_title: string, data_rows: Array<{values: Record<string, string|null>, confidence?: string, source_hint?: string}>, notes?: string}>}
+ */
+export async function extractNullCellsFromPaper(tableSpec, nullColumns, paperContext, paperTitle, abortSignal) {
+  const requestedColumns = [...new Set((nullColumns ?? []).map((col) => String(col || "").trim()).filter(Boolean))];
+  if (requestedColumns.length === 0) {
+    return { paper_title: paperTitle || "", data_rows: [], notes: "No null columns requested." };
+  }
+
+  const requestedSet = new Set(requestedColumns);
+  const originalColumns = Array.isArray(tableSpec?.column_definitions) ? tableSpec.column_definitions : [];
+  const focusedColumns = originalColumns.filter((col) => requestedSet.has(String(col)));
+  const focusedSpec = {
+    ...(tableSpec ?? {}),
+    column_definitions: focusedColumns.length > 0 ? focusedColumns : requestedColumns,
+  };
+
+  console.log(
+    `[SRAG-DEBUG] NULL recovery for "${paperTitle?.slice(0, 40)}" with columns: ${JSON.stringify(focusedSpec.column_definitions)}`
+  );
+
+  const specSection = `=== Table Spec (NULL recovery subset) ===
+Title: ${focusedSpec.title || "Generated table"}
+Row axis: ${focusedSpec.row_axis || "Data rows"}
+nullColumns: ${JSON.stringify(requestedColumns)}
+column_definitions: ${JSON.stringify(focusedSpec.column_definitions || [])}
+Inclusion criteria: ${focusedSpec.inclusion_criteria || "None"}
+Exclusion criteria: ${focusedSpec.exclusion_criteria || "None"}`;
+
+  const userMessage = `${specSection}
+
+=== Target Paper ===
+${paperTitle}
+
+${paperContext}`;
+
+  const messages = [
+    { role: "system", content: NULL_RECOVERY_EXTRACTION_PROMPT },
+    { role: "user", content: userMessage },
+  ];
+
+  const callOllama = async () => {
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: getActiveModel(),
+        messages,
+        stream: false,
+        format: PAPER_EXTRACTION_SCHEMA,
+        options: { num_ctx: LLM_CTX, temperature: 0.1 },
+      }),
+      signal: ollamaSignal(abortSignal),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`NULL Recovery Extraction Agent error (${res.status}): ${text}`);
+    }
+
+    const json = await res.json();
+    const content = json.message.content;
+    console.log(
+      `[SRAG-DEBUG] NULL recovery raw response for "${paperTitle?.slice(0, 40)}": ${typeof content} (${String(content).length} chars)`
+    );
+    return content;
+  };
+
+  let raw;
+  try {
+    raw = await callOllama();
+    return safeParseLlmJson(raw, "NullRecoveryExtractionAgent");
+  } catch (err) {
+    if (err?.name === "AbortError") throw err;
+    console.warn(`[LLM] NULL recovery retry for "${paperTitle?.slice(0, 40)}": ${err.message}`);
+    raw = await callOllama();
+    return safeParseLlmJson(raw, "NullRecoveryExtractionAgent(retry)");
+  }
+}
+
 // ============================================================
 // Exports
 // ============================================================
@@ -588,4 +689,5 @@ export {
   TABLE_AGENT_SYSTEM_PROMPT,
   EXTRACTOR_SYSTEM_PROMPT,
   EXTRACTION_AGENT_SYSTEM_PROMPT,
+  NULL_RECOVERY_EXTRACTION_PROMPT,
 };

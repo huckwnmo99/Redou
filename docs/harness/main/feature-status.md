@@ -1,5 +1,5 @@
 # 기능 상태 매트릭스
-> 하네스 버전: v1.1 | 최종 갱신: 2026-04-18
+> 하네스 버전: v1.1 | 최종 갱신: 2026-04-22
 
 ## 전체 기능 매트릭스
 
@@ -23,6 +23,7 @@
 | Orchestrator (의도 분석) | ✅ 구현됨 | electron/llm.md | clarify/generate_table/modify_table |
 | Table Agent (데이터 추출) | ✅ 구현됨 | electron/llm.md | JSON 스키마 강제 |
 | SRAG Per-paper Extraction | ✅ 구현됨 | electron/llm.md | 논문별 독립 추출 → 코드 병합 |
+| Agentic NULL Recovery | ✅ 구현됨 | electron/llm.md, electron/rag-pipeline.md | Stage 3d, 새 컨텍스트 Gate 1 + high-confidence Gate 2 |
 | Guardian 검증 | ✅ 구현됨 | electron/llm.md | 샘플링 50셀, 비동기 |
 | Q&A 파이프라인 | ✅ 구현됨 | electron/llm.md | 별도 모드, 출처 귀속 |
 | Table/Q&A 서비스 분리 | ✅ 구현됨 | electron/llm.md | conversation_type 컬럼 + llm-qa.mjs |
@@ -52,7 +53,7 @@
 | Step 2 | Contextual Chunking | ✅ 완료 (buildContextualText) |
 | Step 3 | 테이블 우선 검색 | ✅ 완료 (TABLE_BOOST + backfill) |
 | Step 3 | SRAG 2단계 추출 | ✅ 구현됨 (extractColumnsFromPaper + mergeExtractionResults) |
-| Step 4 | Agentic 재검색 (NULL 셀) | 📋 계획됨 (nullSummary 데이터 수집 중) |
+| Step 4 | Agentic 재검색 (NULL 셀) | ✅ 구현됨 (Stage 3d Agentic NULL Recovery) |
 | Step 4 | CRAG 자가 검증 | 📋 계획됨 |
 | Step 5 | Sentence Window Retrieval | 💡 아이디어 |
 | Step 5 | HyDE | 💡 아이디어 |
