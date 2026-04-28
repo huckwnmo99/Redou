@@ -2796,10 +2796,10 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     // 3. Load conversation history
     const { data: historyRows } = await supabase
       .from("chat_messages")
-      .select("role, content")
+      .select("role, content, message_type")
       .eq("conversation_id", convId)
       .order("created_at", { ascending: true });
-    const history = (historyRows ?? []).map((m) => ({ role: m.role, content: m.content }));
+    const history = (historyRows ?? []).map((m) => ({ role: m.role, content: m.content, message_type: m.message_type }));
 
     // Setup abort controller
     const abortController = new AbortController();

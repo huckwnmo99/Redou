@@ -146,7 +146,7 @@ export function LeftSidebar() {
           flexShrink: 0,
         }}
       >
-        <img src="/Redou.png" alt="Redou" style={{ width: 35, height: 35, borderRadius: "var(--radius-sm)" }} />
+        <img src={`${import.meta.env.BASE_URL}Redou.png`} alt="Redou" style={{ width: 35, height: 35, borderRadius: "var(--radius-sm)" }} />
         <span style={{ fontSize: 16, fontWeight: 600, color: "var(--color-text-primary)", letterSpacing: "-0.01em" }}>
           Redou
         </span>
