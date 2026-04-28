@@ -1,0 +1,47 @@
+<svg width="1200" height="640" viewBox="0 0 1200 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="72" y1="62" x2="1128" y2="596" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FBFDFF"/>
+      <stop offset="1" stop-color="#F3F8FF"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1200" height="640" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#20314E" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="640" rx="32" fill="url(#bg)"/>
+  <rect x="74" y="70" width="210" height="36" rx="18" fill="#F2EDFF"/>
+  <text x="106" y="94" fill="#6C4FD7" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">CHATBOT VS AGENT</text>
+
+  <rect x="98" y="128" width="438" height="430" rx="32" fill="white" filter="url(#shadow)"/>
+  <rect x="664" y="128" width="438" height="430" rx="32" fill="white" filter="url(#shadow)"/>
+
+  <rect x="140" y="160" width="184" height="40" rx="20" fill="#F2EDFF"/>
+  <text x="172" y="186" fill="#6C4FD7" font-family="Inter, Pretendard, sans-serif" font-size="22" font-weight="700">Normal chatbot</text>
+  <rect x="706" y="160" width="184" height="40" rx="20" fill="#E8F7F2"/>
+  <text x="744" y="186" fill="#167D66" font-family="Inter, Pretendard, sans-serif" font-size="22" font-weight="700">Agentic AI</text>
+
+  <circle cx="162" cy="248" r="10" fill="#C9D4EA"/>
+  <text x="188" y="255" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Receives a prompt</text>
+  <circle cx="162" cy="320" r="10" fill="#C9D4EA"/>
+  <text x="188" y="327" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Replies once</text>
+  <circle cx="162" cy="392" r="10" fill="#C9D4EA"/>
+  <text x="188" y="399" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Limited checking</text>
+
+  <circle cx="728" cy="228" r="10" fill="#167D66"/>
+  <text x="754" y="235" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Understands the task</text>
+  <circle cx="728" cy="290" r="10" fill="#167D66"/>
+  <text x="754" y="297" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Chooses tools</text>
+  <circle cx="728" cy="352" r="10" fill="#167D66"/>
+  <text x="754" y="359" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Acts in steps</text>
+  <circle cx="728" cy="414" r="10" fill="#167D66"/>
+  <text x="754" y="421" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Checks results</text>
+  <circle cx="728" cy="476" r="10" fill="#167D66"/>
+  <text x="754" y="483" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Then answers</text>
+
+  <rect x="154" y="472" width="320" height="58" rx="20" fill="#F7F9FD"/>
+  <text x="188" y="508" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="22" font-weight="600">Good for simple chat</text>
+
+  <rect x="714" y="502" width="326" height="58" rx="20" fill="#E8F7F2"/>
+  <text x="740" y="538" fill="#167D66" font-family="Inter, Pretendard, sans-serif" font-size="22" font-weight="700">Good for real work tasks</text>
+</svg>

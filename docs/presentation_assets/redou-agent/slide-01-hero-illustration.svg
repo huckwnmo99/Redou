@@ -1,0 +1,120 @@
+<svg width="1200" height="640" viewBox="0 0 1200 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="88" y1="52" x2="1112" y2="604" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FCFEFF"/>
+      <stop offset="1" stop-color="#F2F8FF"/>
+    </linearGradient>
+    <linearGradient id="board" x1="454" y1="96" x2="1108" y2="560" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F8FBFF"/>
+    </linearGradient>
+    <filter id="shadow-lg" x="0" y="0" width="1200" height="640" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="22" stdDeviation="20" flood-color="#20314E" flood-opacity="0.08"/>
+    </filter>
+    <filter id="shadow-sm" x="0" y="0" width="1200" height="640" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#20314E" flood-opacity="0.06"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="640" rx="32" fill="url(#bg)"/>
+  <circle cx="1068" cy="94" r="92" fill="#E8F0FF"/>
+  <circle cx="130" cy="548" r="116" fill="#E7F8F1"/>
+  <circle cx="996" cy="548" r="54" fill="#F1F5FF"/>
+
+  <rect x="72" y="74" width="194" height="38" rx="19" fill="#EAF1FF"/>
+  <text x="104" y="99" fill="#2453E6" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">REDOU AT A GLANCE</text>
+
+  <text x="72" y="168" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="48" font-weight="800">From paper PDFs</text>
+  <text x="72" y="220" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="48" font-weight="800">to agent answers</text>
+
+  <text x="72" y="286" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="21" font-weight="500">Redou reads research papers, structures the content,</text>
+  <text x="72" y="316" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="21" font-weight="500">and lets the agent choose between fast Q&amp;A</text>
+  <text x="72" y="346" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="21" font-weight="500">and comparison-table generation.</text>
+
+  <g filter="url(#shadow-sm)">
+    <rect x="72" y="404" width="328" height="156" rx="28" fill="#FFFFFF"/>
+    <rect x="96" y="430" width="110" height="28" rx="14" fill="#E8F7F2"/>
+    <text x="121" y="449" fill="#167D66" font-family="Inter, Pretendard, sans-serif" font-size="14" font-weight="700">WHY IT MATTERS</text>
+    <circle cx="110" cy="492" r="6" fill="#2453E6"/>
+    <text x="128" y="498" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="600">No need to reopen every PDF by hand.</text>
+    <circle cx="110" cy="530" r="6" fill="#167D66"/>
+    <text x="128" y="536" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="600">The app keeps reusable research memory.</text>
+  </g>
+
+  <g filter="url(#shadow-lg)">
+    <rect x="438" y="92" width="690" height="462" rx="34" fill="url(#board)"/>
+    <rect x="470" y="118" width="174" height="34" rx="17" fill="#F1F5FF"/>
+    <text x="508" y="141" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="16" font-weight="700">SYSTEM FLOW</text>
+  </g>
+
+  <g filter="url(#shadow-sm)">
+    <rect x="470" y="184" width="180" height="210" rx="28" fill="#FFFFFF"/>
+    <rect x="492" y="206" width="84" height="24" rx="12" fill="#EAF1FF"/>
+    <text x="515" y="223" fill="#2453E6" font-family="Inter, Pretendard, sans-serif" font-size="12" font-weight="700">INPUT</text>
+    <rect x="516" y="246" width="88" height="88" rx="22" fill="#FFF1DF"/>
+    <path d="M540 268H580C584.418 268 588 271.582 588 276V304C588 308.418 584.418 312 580 312H540C535.582 312 532 308.418 532 304V276C532 271.582 535.582 268 540 268Z" fill="#D1871D"/>
+    <path d="M546 283H560" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+    <path d="M546 291H564" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+    <path d="M546 299H558" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+    <text x="560" y="360" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="26" font-weight="700" text-anchor="middle">Paper PDF</text>
+    <text x="560" y="386" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="16" font-weight="500" text-anchor="middle">One local research file</text>
+  </g>
+
+  <g filter="url(#shadow-sm)">
+    <rect x="692" y="184" width="180" height="210" rx="28" fill="#FFFFFF"/>
+    <rect x="714" y="206" width="104" height="24" rx="12" fill="#F2EDFF"/>
+    <text x="741" y="223" fill="#6C4FD7" font-family="Inter, Pretendard, sans-serif" font-size="12" font-weight="700">STRUCTURE</text>
+    <rect x="738" y="246" width="88" height="88" rx="22" fill="#EEF4FF"/>
+    <path d="M760 272H804" stroke="#2453E6" stroke-width="8" stroke-linecap="round"/>
+    <path d="M760 294H834" stroke="#2453E6" stroke-width="8" stroke-linecap="round"/>
+    <path d="M760 316H814" stroke="#2453E6" stroke-width="8" stroke-linecap="round"/>
+    <text x="782" y="360" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="26" font-weight="700" text-anchor="middle">Structure</text>
+    <text x="782" y="386" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="16" font-weight="500" text-anchor="middle">Sections, figures, facts</text>
+  </g>
+
+  <g filter="url(#shadow-sm)">
+    <rect x="914" y="184" width="180" height="210" rx="28" fill="#FFFFFF"/>
+    <rect x="936" y="206" width="96" height="24" rx="12" fill="#E8F7F2"/>
+    <text x="962" y="223" fill="#167D66" font-family="Inter, Pretendard, sans-serif" font-size="12" font-weight="700">AGENT</text>
+    <rect x="958" y="246" width="92" height="88" rx="24" fill="#E8F7F2"/>
+    <circle cx="988" cy="278" r="14" fill="#167D66"/>
+    <circle cx="1020" cy="278" r="14" fill="#167D66"/>
+    <circle cx="1004" cy="304" r="16" fill="#167D66"/>
+    <path d="M988 334L1004 350L1020 334" fill="none" stroke="#167D66" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1004" y="360" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="26" font-weight="700" text-anchor="middle">Decide path</text>
+    <text x="1004" y="386" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="16" font-weight="500" text-anchor="middle">Q&amp;A or table mode</text>
+  </g>
+
+  <g filter="url(#shadow-sm)">
+    <rect x="692" y="430" width="180" height="98" rx="24" fill="#FFFFFF"/>
+    <rect x="718" y="454" width="128" height="28" rx="14" fill="#F2EDFF"/>
+    <text x="782" y="473" fill="#6C4FD7" font-family="Inter, Pretendard, sans-serif" font-size="16" font-weight="700" text-anchor="middle">Q&amp;A</text>
+    <text x="782" y="506" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="16" font-weight="500" text-anchor="middle">Fast answer path</text>
+  </g>
+
+  <g filter="url(#shadow-sm)">
+    <rect x="914" y="430" width="180" height="124" rx="24" fill="#FFFFFF"/>
+    <rect x="940" y="454" width="128" height="24" rx="12" fill="#EEF4FF"/>
+    <text x="1004" y="471" fill="#2453E6" font-family="Inter, Pretendard, sans-serif" font-size="14" font-weight="700" text-anchor="middle">TABLE MODE</text>
+    <path d="M944 500H1064" stroke="#D5E1F4" stroke-width="2"/>
+    <path d="M944 522H1064" stroke="#D5E1F4" stroke-width="2"/>
+    <path d="M984 482V532" stroke="#D5E1F4" stroke-width="2"/>
+    <path d="M1024 482V532" stroke="#D5E1F4" stroke-width="2"/>
+    <rect x="952" y="506" width="22" height="10" rx="5" fill="#FFF1DF"/>
+    <rect x="992" y="518" width="22" height="10" rx="5" fill="#E8F7F2"/>
+    <rect x="1032" y="506" width="22" height="10" rx="5" fill="#F2EDFF"/>
+  </g>
+
+  <path d="M650 290H692" stroke="#C9D9F3" stroke-width="6" stroke-linecap="round"/>
+  <path d="M872 290H914" stroke="#C9D9F3" stroke-width="6" stroke-linecap="round"/>
+  <path d="M1004 394V430" stroke="#C9D9F3" stroke-width="6" stroke-linecap="round"/>
+  <path d="M1004 430H872" stroke="#C9D9F3" stroke-width="6" stroke-linecap="round"/>
+
+  <circle cx="670" cy="290" r="22" fill="#FFFFFF" stroke="#D5E1F4" stroke-width="2"/>
+  <path d="M661 290H679" stroke="#2453E6" stroke-width="4" stroke-linecap="round"/>
+  <path d="M673 282L681 290L673 298" stroke="#2453E6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <circle cx="892" cy="290" r="22" fill="#FFFFFF" stroke="#D5E1F4" stroke-width="2"/>
+  <path d="M883 290H901" stroke="#2453E6" stroke-width="4" stroke-linecap="round"/>
+  <path d="M895 282L903 290L895 298" stroke="#2453E6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

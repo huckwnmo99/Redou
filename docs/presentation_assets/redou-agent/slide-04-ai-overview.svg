@@ -1,0 +1,80 @@
+<svg width="1200" height="640" viewBox="0 0 1200 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="68" y1="58" x2="1128" y2="596" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FBFDFF"/>
+      <stop offset="1" stop-color="#F3F8FF"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1200" height="640" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#20314E" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="640" rx="32" fill="url(#bg)"/>
+  <circle cx="1066" cy="96" r="88" fill="#E7F0FF"/>
+  <circle cx="116" cy="550" r="100" fill="#E8F8F2"/>
+
+  <rect x="74" y="70" width="130" height="36" rx="18" fill="#EAF1FF"/>
+  <text x="112" y="94" fill="#2453E6" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">AI STACK</text>
+
+  <g filter="url(#shadow)">
+    <rect x="414" y="208" width="372" height="224" rx="34" fill="white"/>
+    <rect x="506" y="164" width="188" height="42" rx="21" fill="#EAF1FF"/>
+    <text x="554" y="191" fill="#2453E6" font-family="Inter, Pretendard, sans-serif" font-size="22" font-weight="700">Redou AI stack</text>
+    <rect x="522" y="252" width="156" height="88" rx="24" fill="#E8F7F2"/>
+    <circle cx="570" cy="296" r="18" fill="#1A9A79"/>
+    <circle cx="630" cy="296" r="18" fill="#1A9A79"/>
+    <circle cx="600" cy="328" r="20" fill="#1A9A79"/>
+    <text x="474" y="382" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="30" font-weight="700">Several AIs work together</text>
+    <text x="474" y="412" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="500">Each AI handles a different kind of job</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="92" y="128" width="252" height="170" rx="28" fill="white"/>
+    <rect x="120" y="156" width="92" height="92" rx="22" fill="#FFF1DF"/>
+    <rect x="144" y="184" width="44" height="10" rx="5" fill="#D1871D"/>
+    <rect x="144" y="206" width="62" height="10" rx="5" fill="#D1871D"/>
+    <rect x="144" y="228" width="52" height="10" rx="5" fill="#D1871D"/>
+    <text x="228" y="186" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="28" font-weight="700">OCR</text>
+    <text x="228" y="214" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">Reads tables, scans,</text>
+    <text x="228" y="238" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">and equations</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="856" y="128" width="252" height="170" rx="28" fill="white"/>
+    <rect x="884" y="156" width="92" height="92" rx="22" fill="#EEF4FF"/>
+    <circle cx="930" cy="202" r="24" fill="#2453E6"/>
+    <circle cx="918" cy="192" r="4" fill="white"/>
+    <circle cx="942" cy="192" r="4" fill="white"/>
+    <path d="M919 210C924 218 936 218 941 210" stroke="white" stroke-width="4" stroke-linecap="round"/>
+    <text x="992" y="186" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="28" font-weight="700">LLM</text>
+    <text x="992" y="214" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">Explains, reasons,</text>
+    <text x="992" y="238" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">and writes answers</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="122" y="372" width="274" height="176" rx="28" fill="white"/>
+    <rect x="150" y="400" width="108" height="86" rx="20" fill="#F2EDFF"/>
+    <circle cx="182" cy="434" r="9" fill="#6C4FD7"/>
+    <circle cx="214" cy="434" r="9" fill="#6C4FD7"/>
+    <circle cx="198" cy="458" r="11" fill="#6C4FD7"/>
+    <path d="M198 476V494" stroke="#6C4FD7" stroke-width="6" stroke-linecap="round"/>
+    <path d="M176 492H220" stroke="#6C4FD7" stroke-width="6" stroke-linecap="round"/>
+    <text x="278" y="434" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Embedding</text>
+    <text x="278" y="464" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">Finds similar papers</text>
+    <text x="278" y="488" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">and related chunks</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="804" y="372" width="286" height="176" rx="28" fill="white"/>
+    <rect x="832" y="400" width="96" height="96" rx="22" fill="#E8F7F2"/>
+    <path d="M860 448L884 472L902 428" stroke="#1A9A79" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="952" y="436" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Guardian</text>
+    <text x="952" y="466" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">Checks whether the</text>
+    <text x="952" y="490" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">result is grounded</text>
+  </g>
+
+  <path d="M344 214C380 214 404 224 414 262" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+  <path d="M856 214C820 214 796 224 786 262" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+  <path d="M396 454C432 454 438 432 464 406" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+  <path d="M804 454C772 454 764 432 736 406" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+</svg>

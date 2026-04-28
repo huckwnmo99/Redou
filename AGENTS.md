@@ -82,8 +82,13 @@ Read this file before starting work. Update it when you finish.
 - Fixed Vite `base` config: added `base: "./"` so built assets use relative paths, enabling Electron `file://` loading.
 - Fixed `formatAuthors()` crash in PaperCard, PaperListItem, RightInspector: added empty array guard.
 - Presentation assets now include a standalone future-direction HTML slide that explains the planned ontology and Graph RAG expansion as a visual knowledge-graph workflow for lectures and demos.
+- Stage 3d Agentic NULL Recovery is implemented for SRAG table generation: after Stage 3c merge, remaining NULL cells can trigger paper-scoped recovery search, skip LLM extraction when no new chunk/figure context is found, and only apply recovered values with `confidence === "high"`.
 
-### Verified Today (2026-03-11)
+### Verified Today (2026-04-22)
+- `apps/desktop/electron/main.mjs`: `node --check` passes after Stage 3d Agentic NULL Recovery wiring.
+- `apps/desktop/electron/llm-orchestrator.mjs`: `node --check` passes after adding `extractNullCellsFromPaper`.
+
+### Previously Verified (2026-03-11)
 - `frontend`: `npm run build` passes with semantic search integration.
 - `apps/desktop/electron/main.mjs`: `node --check` passes with embedding worker import and generate_embeddings job handler.
 - `supabase status`: local stack is running with `match_chunks` function and HNSW index.
@@ -111,6 +116,10 @@ Read this file before starting work. Update it when you finish.
 - `README.md`
 - `AGENTS.md`
 - `docs/presentation_assets/redou-agent/redou-ontology-future-slide.html`
+- `docs/features/new/09-agentic-research-null.md`
+- `docs/harness/main/feature-status.md`
+- `docs/harness/detail/electron/llm.md`
+- `docs/harness/detail/electron/rag-pipeline.md`
 - `docs/planning/product_decision_template.md`
 - `docs/planning/implementation_plan.md`
 - `docs/planning/selected_design_direction.md`
@@ -128,6 +137,7 @@ Read this file before starting work. Update it when you finish.
 - `frontend/src/app/AppShell.tsx`
 - `frontend/src/app/RightInspector.tsx`
 - `frontend/src/features/auth/AuthView.tsx`
+- `frontend/src/features/chat/ChatPipelineStatus.tsx`
 - `frontend/src/features/notes/NotesView.tsx`
 - `frontend/src/features/paper/PaperDetailView.tsx`
 - `frontend/src/features/paper/PdfReaderWorkspace.tsx`
@@ -151,6 +161,7 @@ Read this file before starting work. Update it when you finish.
 ### Desktop Shell
 - `apps/desktop/package.json`
 - `apps/desktop/electron/main.mjs`
+- `apps/desktop/electron/llm-orchestrator.mjs`
 - `apps/desktop/electron/preload.mjs`
 - `apps/desktop/electron/types/ipc-channels.mjs`
 - `apps/desktop/src/types/electron-api.d.ts`
@@ -178,6 +189,7 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Status | Date | Agent | Scope | Files | Out of Scope | Dependency |
 |--------|------|-------|-------|-------|--------------|------------|
+| DONE | 2026-04-22 | Codex | Implement Stage 3d Agentic NULL Recovery for table generation | `apps/desktop/electron/llm-orchestrator.mjs`, `apps/desktop/electron/main.mjs`, `frontend/src/types/desktop.ts`, `frontend/src/features/chat/ChatPipelineStatus.tsx`, `docs/harness/main/feature-status.md`, `docs/harness/detail/electron/llm.md`, `docs/harness/detail/electron/rag-pipeline.md`, `AGENTS.md` | Editing `runMultiQueryRag` or `extractColumnsFromPaper`, DB migrations, IPC channel changes | `docs/features/new/09-agentic-research-null.md` |
 | DONE | 2026-04-18 | Codex | Implement V2-only PDF processing pipeline from `docs/features/new/08-pipeline-v2-only.md` | `apps/desktop/electron/main.mjs`, `apps/desktop/electron/pdf-heuristics.mjs`, `apps/desktop/electron/ocr-extraction.mjs`, `docs/harness/**`, `AGENTS.md` | DB schema changes, IPC channel renames, removing `enhanceEmptyTablesWithOcr`, removing import metadata/figure-image helpers | MinerU required, GROBID degraded mode allowed |
 | DONE | 2026-04-18 | Codex | Move Phase 3 extraction from heuristic text parsing toward layout-aware ordering with OCR-ready scanned-PDF hooks and worker messaging | AGENTS.md, pps/desktop/electron/pdf-heuristics.mjs, pps/desktop/electron/main.mjs, rontend/src/types/desktop.ts | Cloud OCR provider integration, embeddings, retrieval, detached panels | Local desktop build and Supabase available |
 | READY FOR ASSIGNMENT | 2026-03-10 | Desktop/Platform Agent | Wire `frontend` to `window.redouDesktop` and define the migration path away from `apps/desktop/src` legacy renderer | `apps/desktop/electron/**`, `apps/desktop/src/types/**`, `frontend/src/**` | Paper data migration, PDF.js, retrieval | Data layer contracts should stay stable |
@@ -226,18 +238,20 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 | 2026-04-16 | Codex | Simplified the ontology and Graph RAG future slide into a diagram-first lecture asset with a larger graph board, short chips, and minimal captions so the flow reads mostly from visuals | `docs/presentation_assets/redou-agent/redou-ontology-future-slide.html`, `AGENTS.md` |
 | 2026-04-16 | Codex | Performed a screenshot-based visual pass on the ontology and Graph RAG slide, then reworked the board so the in-graph numbered badges align with the footer steps and the visual flow reads as one connected path | `docs/presentation_assets/redou-agent/redou-ontology-future-slide.html`, `AGENTS.md` |
 | 2026-04-21 | Codex | Completed C3-C11 V2-only cleanup: rewrote PDF pipeline harness docs, corrected external service degraded-mode notes, removed requested dead code, guarded GROBID calls by availability, added GLM-OCR timeout, and deleted the stray desktop npm file | `apps/desktop/electron/main.mjs`, `apps/desktop/electron/pdf-heuristics.mjs`, `apps/desktop/electron/ocr-extraction.mjs`, `docs/harness/detail/electron/pdf-pipeline.md`, `docs/harness/detail/electron/main-process.md`, `docs/harness/detail/services/external.md`, `apps/desktop/npm`, `AGENTS.md` |
+| 2026-04-22 | Codex | Implemented Stage 3d Agentic NULL Recovery for SRAG table generation, including LLM null-cell recovery helper, paper-scoped recovery search gates, metadata, frontend status stage, and harness docs | `apps/desktop/electron/main.mjs`, `apps/desktop/electron/llm-orchestrator.mjs`, `frontend/src/types/desktop.ts`, `frontend/src/features/chat/ChatPipelineStatus.tsx`, `docs/harness/main/feature-status.md`, `docs/harness/detail/electron/llm.md`, `docs/harness/detail/electron/rag-pipeline.md`, `AGENTS.md` |
 
 ---
 
 ## 9. Latest Handoff
 
 ```md
-DONE | Codex - C3-C11 V2-only pipeline cleanup
-- Done: rewrote `docs/harness/detail/electron/pdf-pipeline.md` from current `main.mjs` functions/line numbers, updated external/main-process harness wording to V2-only behavior, removed requested dead code from `ocr-extraction.mjs` and `pdf-heuristics.mjs`, made GROBID extraction conditional on health-check availability, added a 60s GLM-OCR fetch timeout, and deleted `apps/desktop/npm`
-- Changed files: `apps/desktop/electron/main.mjs`, `apps/desktop/electron/pdf-heuristics.mjs`, `apps/desktop/electron/ocr-extraction.mjs`, `docs/harness/detail/electron/pdf-pipeline.md`, `docs/harness/detail/electron/main-process.md`, `docs/harness/detail/services/external.md`, `apps/desktop/npm`, `AGENTS.md`
-- Verified: `node --check apps/desktop/electron/main.mjs`, `node --check apps/desktop/electron/pdf-heuristics.mjs`, and `node --check apps/desktop/electron/ocr-extraction.mjs` all pass
-- Risks: this was syntax-level verification only; full Electron import/extraction runtime was not manually exercised in-window
-- Next: run an Electron import against a real PDF with MinerU available and GROBID unavailable to confirm degraded mode behavior end to end
+DONE | Codex - Stage 3d Agentic NULL Recovery
+- Done: added `NULL_RECOVERY_EXTRACTION_PROMPT` and `extractNullCellsFromPaper()` to `llm-orchestrator.mjs`; added Stage 3d helpers and `runAgenticNullRecovery()` to `main.mjs`; inserted the recovery pass after `mergeExtractionResults()` and before `cleanCellValue()`; added `researching` status support in frontend types/UI; updated harness docs.
+- Guardrails: did not edit `runMultiQueryRag()` or `extractColumnsFromPaper()`; Gate 1 skips LLM extraction unless recovery search finds a new `chunk_id` or `figure_id`; Gate 2 only applies recovered rows with `confidence === "high"`; `runAgenticNullRecovery()` is fail-soft and returns the original table on top-level errors.
+- Changed files: `apps/desktop/electron/main.mjs`, `apps/desktop/electron/llm-orchestrator.mjs`, `frontend/src/types/desktop.ts`, `frontend/src/features/chat/ChatPipelineStatus.tsx`, `docs/harness/main/feature-status.md`, `docs/harness/detail/electron/llm.md`, `docs/harness/detail/electron/rag-pipeline.md`, `AGENTS.md`
+- Verified: `node --check apps/desktop/electron/main.mjs` and `node --check apps/desktop/electron/llm-orchestrator.mjs` both pass.
+- Risks: syntax-level verification only; full Electron table generation with live Ollama/RAG was not exercised in-window.
+- Next: run one table-generation request that leaves NULL cells and confirm Stage 3d metadata records `agenticRecovery.perPaper[]` plus UI `researching` status.
 ```
 
 ## 10. Known Issues & Potential Bugs

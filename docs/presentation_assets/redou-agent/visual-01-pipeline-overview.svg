@@ -1,0 +1,101 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg1" x1="0" y1="0" x2="1280" y2="720" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FBFF"/>
+      <stop offset="1" stop-color="#EDF4FF"/>
+    </linearGradient>
+    <filter id="shadow1" x="0" y="0" width="1280" height="720" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#172238" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="720" rx="36" fill="url(#bg1)"/>
+  <circle cx="1120" cy="96" r="122" fill="#2453E6" fill-opacity="0.06"/>
+  <circle cx="154" cy="612" r="114" fill="#167D66" fill-opacity="0.07"/>
+
+  <text x="72" y="76" fill="#16243C" font-size="36" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Redou pipeline overview</text>
+  <text x="72" y="112" fill="#5C6D8B" font-size="18" font-family="Inter, Segoe UI, sans-serif">PDF goes through parsing, OCR enhancement, structured storage, then retrieval for Q&amp;A and table generation.</text>
+
+  <g filter="url(#shadow1)">
+    <rect x="72" y="178" width="176" height="254" rx="28" fill="#FFFFFF"/>
+    <rect x="274" y="178" width="224" height="254" rx="28" fill="#FFFFFF"/>
+    <rect x="524" y="178" width="200" height="254" rx="28" fill="#FFFFFF"/>
+    <rect x="750" y="178" width="202" height="254" rx="28" fill="#FFFFFF"/>
+    <rect x="978" y="178" width="230" height="254" rx="28" fill="#FFFFFF"/>
+  </g>
+
+  <rect x="96" y="200" width="82" height="28" rx="14" fill="#EAF1FF"/>
+  <text x="119" y="219" fill="#2453E6" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">INPUT</text>
+  <text x="96" y="268" fill="#16243C" font-size="28" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Paper PDF</text>
+  <text x="96" y="304" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">Single local PDF</text>
+  <text x="96" y="328" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">becomes a shared</text>
+  <text x="96" y="352" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">input buffer.</text>
+  <rect x="96" y="382" width="128" height="34" rx="17" fill="#EAF1FF"/>
+  <text x="125" y="404" fill="#2453E6" font-size="14" font-family="Inter, Segoe UI, sans-serif" font-weight="700">pdfBuffer</text>
+
+  <rect x="298" y="200" width="106" height="28" rx="14" fill="#F2EDFF"/>
+  <text x="326" y="219" fill="#6C4FD7" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">PARALLEL READ</text>
+  <text x="298" y="260" fill="#16243C" font-size="26" font-family="Inter, Segoe UI, sans-serif" font-weight="800">MinerU +</text>
+  <text x="298" y="292" fill="#16243C" font-size="26" font-family="Inter, Segoe UI, sans-serif" font-weight="800">GROBID</text>
+  <text x="298" y="330" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">Layout and section</text>
+  <text x="298" y="354" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">structure from MinerU.</text>
+  <text x="298" y="378" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">Metadata and refs</text>
+  <text x="298" y="402" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">from GROBID.</text>
+
+  <rect x="548" y="200" width="92" height="28" rx="14" fill="#FFF1DF"/>
+  <text x="571" y="219" fill="#D1871D" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">OCR</text>
+  <text x="548" y="262" fill="#16243C" font-size="26" font-family="Inter, Segoe UI, sans-serif" font-weight="800">GLM-OCR</text>
+  <text x="548" y="294" fill="#16243C" font-size="26" font-family="Inter, Segoe UI, sans-serif" font-weight="800">UniMERNet</text>
+  <text x="548" y="332" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">Enhance weak tables</text>
+  <text x="548" y="356" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">and convert equation</text>
+  <text x="548" y="380" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">images into LaTeX.</text>
+
+  <rect x="774" y="200" width="98" height="28" rx="14" fill="#E8F7F2"/>
+  <text x="798" y="219" fill="#167D66" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">STORE</text>
+  <text x="774" y="260" fill="#16243C" font-size="26" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Structured</text>
+  <text x="774" y="292" fill="#16243C" font-size="26" font-family="Inter, Segoe UI, sans-serif" font-weight="800">paper data</text>
+  <text x="774" y="330" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">Sections, chunks,</text>
+  <text x="774" y="354" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">tables, figures,</text>
+  <text x="774" y="378" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">equations, refs.</text>
+
+  <rect x="1002" y="200" width="112" height="28" rx="14" fill="#FFE8ED"/>
+  <text x="1029" y="219" fill="#D9485F" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">REUSE</text>
+  <text x="1002" y="258" fill="#16243C" font-size="24" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Embeddings</text>
+  <text x="1002" y="288" fill="#16243C" font-size="24" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Q&amp;A + Table</text>
+  <text x="1002" y="330" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">The stored artifacts</text>
+  <text x="1002" y="354" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">become searchable</text>
+  <text x="1002" y="378" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">context for answers.</text>
+
+  <g stroke="#9DB5F4" stroke-width="4" stroke-linecap="round">
+    <path d="M248 304H274"/>
+    <path d="M498 304H524"/>
+    <path d="M724 304H750"/>
+    <path d="M952 304H978"/>
+  </g>
+  <g fill="#2453E6">
+    <path d="M264 296L278 304L264 312V296Z"/>
+    <path d="M514 296L528 304L514 312V296Z"/>
+    <path d="M740 296L754 304L740 312V296Z"/>
+    <path d="M968 296L982 304L968 312V296Z"/>
+  </g>
+
+  <rect x="72" y="478" width="1136" height="156" rx="30" fill="#FFFFFF" stroke="#E2EBF8"/>
+  <text x="100" y="522" fill="#16243C" font-size="22" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Artifacts created along the way</text>
+  <rect x="100" y="552" width="102" height="32" rx="16" fill="#EAF1FF"/>
+  <rect x="214" y="552" width="106" height="32" rx="16" fill="#EAF1FF"/>
+  <rect x="332" y="552" width="90" height="32" rx="16" fill="#F2EDFF"/>
+  <rect x="434" y="552" width="90" height="32" rx="16" fill="#FFF1DF"/>
+  <rect x="536" y="552" width="92" height="32" rx="16" fill="#E8F7F2"/>
+  <rect x="640" y="552" width="94" height="32" rx="16" fill="#E8F7F2"/>
+  <rect x="746" y="552" width="126" height="32" rx="16" fill="#FFE8ED"/>
+  <rect x="884" y="552" width="150" height="32" rx="16" fill="#FFE8ED"/>
+  <text x="125" y="572" fill="#2453E6" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">metadata</text>
+  <text x="240" y="572" fill="#2453E6" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">sections</text>
+  <text x="360" y="572" fill="#6C4FD7" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">tables</text>
+  <text x="463" y="572" fill="#D1871D" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">LaTeX</text>
+  <text x="562" y="572" fill="#167D66" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">chunks</text>
+  <text x="665" y="572" fill="#167D66" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">figures</text>
+  <text x="776" y="572" fill="#D9485F" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">embeddings</text>
+  <text x="921" y="572" fill="#D9485F" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">verified table</text>
+  <text x="100" y="614" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">The core idea is simple: do not jump straight from PDF to answer. First convert the paper into reusable research data.</text>
+</svg>

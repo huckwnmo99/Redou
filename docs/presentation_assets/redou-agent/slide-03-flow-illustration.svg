@@ -1,0 +1,114 @@
+<svg width="1200" height="640" viewBox="0 0 1200 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="88" y1="54" x2="1112" y2="604" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FCFEFF"/>
+      <stop offset="1" stop-color="#F3F8FF"/>
+    </linearGradient>
+    <linearGradient id="track" x1="118" y1="428" x2="1082" y2="428" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EEF3FF"/>
+      <stop offset="1" stop-color="#E8F7F2"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1200" height="640" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#20314E" flood-opacity="0.08"/>
+    </filter>
+    <filter id="soft" x="0" y="0" width="1200" height="640" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#20314E" flood-opacity="0.06"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="640" rx="32" fill="url(#bg)"/>
+  <circle cx="1060" cy="98" r="86" fill="#E8F0FF"/>
+  <circle cx="118" cy="550" r="98" fill="#E8F8F2"/>
+
+  <rect x="74" y="70" width="180" height="38" rx="19" fill="#EAF1FF"/>
+  <text x="108" y="95" fill="#2453E6" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">HOW REDOU WORKS</text>
+
+  <text x="74" y="156" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="40" font-weight="800">A simple flow from</text>
+  <text x="74" y="200" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="40" font-weight="800">upload to research reuse</text>
+
+  <text x="74" y="250" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="22" font-weight="500">The system imports a paper, structures the content, stores it locally,</text>
+  <text x="74" y="282" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="22" font-weight="500">and then helps the user ask questions or compare results.</text>
+
+  <g filter="url(#soft)">
+    <rect x="82" y="334" width="1036" height="228" rx="34" fill="white"/>
+    <rect x="118" y="406" width="964" height="44" rx="22" fill="url(#track)"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="98" y="316" width="184" height="212" rx="30" fill="white"/>
+    <circle cx="190" cy="352" r="22" fill="#D1871D"/>
+    <text x="183" y="360" fill="white" font-family="Inter, Pretendard, sans-serif" font-size="20" font-weight="700">1</text>
+    <text x="190" y="396" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700" text-anchor="middle">Upload</text>
+    <rect x="152" y="418" width="76" height="86" rx="18" fill="#FFF1DF"/>
+    <rect x="166" y="432" width="48" height="10" rx="5" fill="#D1871D"/>
+    <rect x="166" y="450" width="40" height="8" rx="4" fill="#F0DAB7"/>
+    <rect x="166" y="466" width="44" height="8" rx="4" fill="#F0DAB7"/>
+    <text x="190" y="554" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="16" font-weight="500" text-anchor="middle">Import a paper PDF</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="298" y="316" width="184" height="212" rx="30" fill="white"/>
+    <circle cx="390" cy="352" r="22" fill="#2453E6"/>
+    <text x="383" y="360" fill="white" font-family="Inter, Pretendard, sans-serif" font-size="20" font-weight="700">2</text>
+    <text x="390" y="396" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700" text-anchor="middle">Structure</text>
+    <rect x="342" y="424" width="46" height="46" rx="14" fill="#FFF1DF"/>
+    <rect x="392" y="424" width="46" height="46" rx="14" fill="#E8F7F2"/>
+    <rect x="342" y="480" width="96" height="14" rx="7" fill="#EAF1FF"/>
+    <text x="365" y="451" fill="#D1871D" font-family="Inter, Pretendard, sans-serif" font-size="10" font-weight="700" text-anchor="middle">TABLE</text>
+    <text x="415" y="451" fill="#167D66" font-family="Inter, Pretendard, sans-serif" font-size="10" font-weight="700" text-anchor="middle">FIGURE</text>
+    <text x="390" y="554" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="16" font-weight="500" text-anchor="middle">Split content into parts</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="498" y="316" width="184" height="212" rx="30" fill="white"/>
+    <circle cx="590" cy="352" r="22" fill="#167D66"/>
+    <text x="583" y="360" fill="white" font-family="Inter, Pretendard, sans-serif" font-size="20" font-weight="700">3</text>
+    <text x="590" y="396" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700" text-anchor="middle">Store</text>
+    <rect x="544" y="422" width="92" height="72" rx="20" fill="#E8F7F2"/>
+    <ellipse cx="590" cy="442" rx="30" ry="10" fill="#167D66"/>
+    <path d="M560 442V468C560 474 573 480 590 480C607 480 620 474 620 468V442" stroke="#167D66" stroke-width="6"/>
+    <text x="590" y="554" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="16" font-weight="500" text-anchor="middle">Save in local memory</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="698" y="316" width="184" height="212" rx="30" fill="white"/>
+    <circle cx="790" cy="352" r="22" fill="#6C4FD7"/>
+    <text x="783" y="360" fill="white" font-family="Inter, Pretendard, sans-serif" font-size="20" font-weight="700">4</text>
+    <text x="790" y="390" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700" text-anchor="middle">Ask</text>
+    <text x="790" y="418" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700" text-anchor="middle">/ Compare</text>
+    <rect x="744" y="434" width="92" height="30" rx="15" fill="#F2EDFF"/>
+    <path d="M744 486H806" stroke="#D5E1F4" stroke-width="8" stroke-linecap="round"/>
+    <rect x="812" y="476" width="24" height="18" rx="6" fill="#EEF4FF"/>
+    <text x="790" y="454" fill="#6C4FD7" font-family="Inter, Pretendard, sans-serif" font-size="12" font-weight="700" text-anchor="middle">Q&amp;A</text>
+    <text x="824" y="489" fill="#2453E6" font-family="Inter, Pretendard, sans-serif" font-size="8" font-weight="700" text-anchor="middle">TAB</text>
+    <text x="790" y="554" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="16" font-weight="500" text-anchor="middle">Use chat or table mode</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="898" y="316" width="184" height="212" rx="30" fill="white"/>
+    <circle cx="990" cy="352" r="22" fill="#1B95AB"/>
+    <text x="983" y="360" fill="white" font-family="Inter, Pretendard, sans-serif" font-size="20" font-weight="700">5</text>
+    <text x="990" y="396" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700" text-anchor="middle">Reuse</text>
+    <rect x="944" y="420" width="92" height="76" rx="18" fill="#E6F8FC"/>
+    <path d="M962 444H1018" stroke="#1B95AB" stroke-width="7" stroke-linecap="round"/>
+    <path d="M962 464H1006" stroke="#1B95AB" stroke-width="7" stroke-linecap="round"/>
+    <path d="M962 484H990" stroke="#1B95AB" stroke-width="7" stroke-linecap="round"/>
+    <text x="990" y="554" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="16" font-weight="500" text-anchor="middle">Use results in research</text>
+  </g>
+
+  <circle cx="290" cy="428" r="22" fill="white" stroke="#D5E1F4" stroke-width="2"/>
+  <path d="M280 428H300" stroke="#2453E6" stroke-width="4" stroke-linecap="round"/>
+  <path d="M294 420L302 428L294 436" stroke="#2453E6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <circle cx="490" cy="428" r="22" fill="white" stroke="#D5E1F4" stroke-width="2"/>
+  <path d="M480 428H500" stroke="#2453E6" stroke-width="4" stroke-linecap="round"/>
+  <path d="M494 420L502 428L494 436" stroke="#2453E6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <circle cx="690" cy="428" r="22" fill="white" stroke="#D5E1F4" stroke-width="2"/>
+  <path d="M680 428H700" stroke="#2453E6" stroke-width="4" stroke-linecap="round"/>
+  <path d="M694 420L702 428L694 436" stroke="#2453E6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <circle cx="890" cy="428" r="22" fill="white" stroke="#D5E1F4" stroke-width="2"/>
+  <path d="M880 428H900" stroke="#2453E6" stroke-width="4" stroke-linecap="round"/>
+  <path d="M894 420L902 428L894 436" stroke="#2453E6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,78 @@
+<svg width="1200" height="640" viewBox="0 0 1200 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="72" y1="62" x2="1128" y2="596" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FBFDFF"/>
+      <stop offset="1" stop-color="#F3F8FF"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1200" height="640" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#20314E" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="640" rx="32" fill="url(#bg)"/>
+  <rect x="74" y="70" width="176" height="36" rx="18" fill="#FFF1DF"/>
+  <text x="104" y="94" fill="#D1871D" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">TABLE AGENT FLOW</text>
+
+  <g filter="url(#shadow)">
+    <rect x="74" y="144" width="174" height="104" rx="26" fill="white"/>
+    <text x="104" y="188" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="28" font-weight="700">Question</text>
+    <text x="104" y="220" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="500">"Build a table"</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="300" y="128" width="188" height="120" rx="28" fill="white"/>
+    <rect x="338" y="156" width="112" height="32" rx="16" fill="#FFF1DF"/>
+    <text x="360" y="178" fill="#D1871D" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">STEP 1</text>
+    <text x="350" y="216" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Plan</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="532" y="128" width="188" height="120" rx="28" fill="white"/>
+    <rect x="570" y="156" width="112" height="32" rx="16" fill="#EAF1FF"/>
+    <text x="592" y="178" fill="#2453E6" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">STEP 2</text>
+    <text x="566" y="216" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Search</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="764" y="128" width="188" height="120" rx="28" fill="white"/>
+    <rect x="802" y="156" width="112" height="32" rx="16" fill="#E8F7F2"/>
+    <text x="824" y="178" fill="#167D66" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">STEP 3</text>
+    <text x="790" y="216" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Parse / OCR</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="182" y="332" width="188" height="120" rx="28" fill="white"/>
+    <rect x="220" y="360" width="112" height="32" rx="16" fill="#F2EDFF"/>
+    <text x="242" y="382" fill="#6C4FD7" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">STEP 4</text>
+    <text x="206" y="420" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Extract</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="426" y="332" width="188" height="120" rx="28" fill="white"/>
+    <rect x="464" y="360" width="112" height="32" rx="16" fill="#FFF1DF"/>
+    <text x="486" y="382" fill="#D1871D" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">STEP 5</text>
+    <text x="446" y="420" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Assemble</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="670" y="332" width="188" height="120" rx="28" fill="white"/>
+    <rect x="708" y="360" width="112" height="32" rx="16" fill="#E8F7F2"/>
+    <text x="730" y="382" fill="#167D66" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">STEP 6</text>
+    <text x="702" y="420" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Verify</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="914" y="332" width="194" height="120" rx="28" fill="white"/>
+    <rect x="952" y="360" width="116" height="32" rx="16" fill="#EAF1FF"/>
+    <text x="984" y="382" fill="#2453E6" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">RESULT</text>
+    <text x="942" y="420" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Final table</text>
+  </g>
+
+  <path d="M248 196H300" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+  <path d="M488 188H532" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+  <path d="M720 188H764" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+  <path d="M858 248C858 294 812 312 764 332" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+  <path d="M370 392H426" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+  <path d="M614 392H670" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+  <path d="M858 392H914" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+</svg>

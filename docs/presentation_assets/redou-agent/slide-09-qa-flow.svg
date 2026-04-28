@@ -1,0 +1,58 @@
+<svg width="1200" height="640" viewBox="0 0 1200 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="72" y1="62" x2="1128" y2="596" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FBFDFF"/>
+      <stop offset="1" stop-color="#F3F8FF"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1200" height="640" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#20314E" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="640" rx="32" fill="url(#bg)"/>
+  <rect x="74" y="70" width="144" height="36" rx="18" fill="#EAF1FF"/>
+  <text x="112" y="94" fill="#2453E6" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">Q&amp;A FLOW</text>
+
+  <g filter="url(#shadow)">
+    <rect x="98" y="220" width="204" height="176" rx="30" fill="white"/>
+    <rect x="134" y="252" width="126" height="34" rx="17" fill="#EAF1FF"/>
+    <text x="170" y="275" fill="#2453E6" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">User</text>
+    <text x="126" y="328" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Ask a question</text>
+    <text x="126" y="358" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">"Did I read this</text>
+    <text x="126" y="382" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">paper before?"</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="364" y="220" width="204" height="176" rx="30" fill="white"/>
+    <rect x="400" y="252" width="126" height="34" rx="17" fill="#E8F7F2"/>
+    <text x="426" y="275" fill="#167D66" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">STEP 1</text>
+    <text x="406" y="328" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Search</text>
+    <text x="406" y="358" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">Find related papers</text>
+    <text x="406" y="382" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">and useful chunks</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="630" y="220" width="204" height="176" rx="30" fill="white"/>
+    <rect x="666" y="252" width="126" height="34" rx="17" fill="#FFF1DF"/>
+    <text x="692" y="275" fill="#D1871D" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">STEP 2</text>
+    <text x="658" y="328" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Read evidence</text>
+    <text x="658" y="358" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">Select the best</text>
+    <text x="658" y="382" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">supporting pieces</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="896" y="220" width="204" height="176" rx="30" fill="white"/>
+    <rect x="932" y="252" width="126" height="34" rx="17" fill="#F2EDFF"/>
+    <text x="958" y="275" fill="#6C4FD7" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">STEP 3</text>
+    <text x="946" y="328" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Answer</text>
+    <text x="938" y="358" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">Write a natural,</text>
+    <text x="938" y="382" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">grounded response</text>
+  </g>
+
+  <path d="M302 308H364" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+  <path d="M568 308H630" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+  <path d="M834 308H896" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+
+  <rect x="336" y="482" width="528" height="74" rx="24" fill="white" stroke="#D5E1F4" stroke-width="2"/>
+  <text x="382" y="528" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Q&amp;A mode is simple: retrieve -> understand -> answer</text>
+</svg>

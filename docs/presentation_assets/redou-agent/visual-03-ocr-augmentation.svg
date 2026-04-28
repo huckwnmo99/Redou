@@ -1,0 +1,80 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="1280" y2="720" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FBFF"/>
+      <stop offset="1" stop-color="#FFF7EC"/>
+    </linearGradient>
+    <filter id="shadow3" x="0" y="0" width="1280" height="720" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#172238" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="720" rx="36" fill="url(#bg3)"/>
+  <circle cx="1088" cy="118" r="116" fill="#D1871D" fill-opacity="0.08"/>
+  <circle cx="152" cy="612" r="110" fill="#2453E6" fill-opacity="0.06"/>
+
+  <text x="72" y="78" fill="#16243C" font-size="34" font-family="Inter, Segoe UI, sans-serif" font-weight="800">OCR enhancement path</text>
+  <text x="72" y="112" fill="#5C6D8B" font-size="18" font-family="Inter, Segoe UI, sans-serif">Only weak regions go to OCR, so the pipeline stays targeted and readable.</text>
+
+  <g filter="url(#shadow3)">
+    <rect x="72" y="188" width="206" height="214" rx="28" fill="#FFFFFF"/>
+    <rect x="308" y="188" width="206" height="214" rx="28" fill="#FFFFFF"/>
+    <rect x="544" y="154" width="258" height="282" rx="30" fill="#FFFFFF"/>
+    <rect x="832" y="188" width="374" height="214" rx="28" fill="#FFFFFF"/>
+  </g>
+
+  <rect x="96" y="212" width="96" height="28" rx="14" fill="#EAF1FF"/>
+  <text x="121" y="231" fill="#2453E6" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">SELECT</text>
+  <text x="96" y="286" fill="#16243C" font-size="28" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Hints</text>
+  <text x="96" y="328" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">Heuristics mark</text>
+  <text x="96" y="352" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">table pages or</text>
+  <text x="96" y="376" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">equation regions.</text>
+
+  <rect x="332" y="212" width="96" height="28" rx="14" fill="#EAF1FF"/>
+  <text x="359" y="231" fill="#2453E6" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">RENDER</text>
+  <text x="332" y="286" fill="#16243C" font-size="28" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Crops</text>
+  <text x="332" y="328" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">Only selected</text>
+  <text x="332" y="352" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">pages or regions</text>
+  <text x="332" y="376" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">become PNG input.</text>
+
+  <path d="M278 296H308" stroke="#9DB5F4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M514 294H544" stroke="#9DB5F4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M514 294C550 294 550 520 544 520" stroke="#9DB5F4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M802 270H832" stroke="#9DB5F4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M802 324H832" stroke="#9DB5F4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M298 288L312 296L298 304V288Z" fill="#2453E6"/>
+  <path d="M534 286L548 294L534 302V286Z" fill="#2453E6"/>
+  <path d="M822 262L836 270L822 278V262Z" fill="#2453E6"/>
+  <path d="M822 316L836 324L822 332V316Z" fill="#2453E6"/>
+
+  <rect x="570" y="178" width="104" height="28" rx="14" fill="#FFF1DF"/>
+  <text x="596" y="197" fill="#D1871D" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">TABLE OCR</text>
+  <text x="570" y="250" fill="#16243C" font-size="28" font-family="Inter, Segoe UI, sans-serif" font-weight="800">GLM-OCR</text>
+  <text x="570" y="288" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">Reads rendered table</text>
+  <text x="570" y="312" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">images and rebuilds</text>
+  <text x="570" y="336" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">HTML table bodies.</text>
+  <rect x="570" y="356" width="118" height="32" rx="16" fill="#FFF1DF"/>
+  <text x="599" y="376" fill="#D1871D" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">table HTML</text>
+
+  <rect x="570" y="458" width="124" height="28" rx="14" fill="#F2EDFF"/>
+  <text x="600" y="477" fill="#6C4FD7" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">EQUATION OCR</text>
+  <text x="570" y="530" fill="#16243C" font-size="28" font-family="Inter, Segoe UI, sans-serif" font-weight="800">UniMERNet</text>
+  <text x="570" y="568" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">Converts cropped</text>
+  <text x="570" y="592" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">equation images</text>
+  <text x="570" y="616" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">into LaTeX.</text>
+
+  <rect x="858" y="212" width="98" height="28" rx="14" fill="#E8F7F2"/>
+  <text x="883" y="231" fill="#167D66" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">OUTPUT</text>
+  <text x="858" y="286" fill="#16243C" font-size="28" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Enhanced</text>
+  <text x="858" y="318" fill="#16243C" font-size="28" font-family="Inter, Segoe UI, sans-serif" font-weight="800">artifacts</text>
+  <text x="858" y="358" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">Weak tables and</text>
+  <text x="858" y="382" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">equations become</text>
+  <text x="858" y="406" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">clean HTML or LaTeX.</text>
+  <rect x="1052" y="316" width="92" height="32" rx="16" fill="#FFF1DF"/>
+  <rect x="1156" y="316" width="74" height="32" rx="16" fill="#F2EDFF"/>
+  <text x="1078" y="336" fill="#D1871D" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">HTML</text>
+  <text x="1176" y="336" fill="#6C4FD7" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">LaTeX</text>
+
+  <rect x="72" y="634" width="1134" height="42" rx="21" fill="#FFFFFF" stroke="#E2EBF8"/>
+  <text x="98" y="660" fill="#5C6D8B" font-size="16" font-family="Inter, Segoe UI, sans-serif">Key idea: OCR is selective. Redou does not OCR the whole paper, only the uncertain regions.</text>
+</svg>

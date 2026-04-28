@@ -1,0 +1,85 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="1280" y2="720" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FBFF"/>
+      <stop offset="1" stop-color="#F1F7FF"/>
+    </linearGradient>
+    <filter id="shadow2" x="0" y="0" width="1280" height="720" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#172238" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="720" rx="36" fill="url(#bg2)"/>
+  <circle cx="1114" cy="110" r="122" fill="#2453E6" fill-opacity="0.05"/>
+  <circle cx="152" cy="604" r="112" fill="#167D66" fill-opacity="0.06"/>
+
+  <text x="72" y="78" fill="#16243C" font-size="34" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Parallel ingest: MinerU and GROBID</text>
+  <text x="72" y="112" fill="#5C6D8B" font-size="18" font-family="Inter, Segoe UI, sans-serif">The same paper PDF is split into two specialist readers, then merged into one structured paper record.</text>
+
+  <g filter="url(#shadow2)">
+    <rect x="92" y="238" width="182" height="214" rx="28" fill="#FFFFFF"/>
+    <rect x="404" y="170" width="326" height="182" rx="30" fill="#FFFFFF"/>
+    <rect x="404" y="380" width="326" height="182" rx="30" fill="#FFFFFF"/>
+    <rect x="872" y="206" width="328" height="320" rx="32" fill="#FFFFFF"/>
+  </g>
+
+  <rect x="118" y="262" width="84" height="28" rx="14" fill="#EAF1FF"/>
+  <text x="142" y="281" fill="#2453E6" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">INPUT</text>
+  <text x="118" y="340" fill="#16243C" font-size="30" font-family="Inter, Segoe UI, sans-serif" font-weight="800">PDF</text>
+  <text x="118" y="380" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">One paper file</text>
+  <text x="118" y="404" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">shared to both</text>
+  <text x="118" y="428" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">reader paths.</text>
+  <rect x="118" y="462" width="118" height="32" rx="16" fill="#EAF1FF"/>
+  <text x="144" y="482" fill="#2453E6" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">pdfBuffer</text>
+
+  <path d="M274 344C344 344 344 262 404 262" stroke="#9DB5F4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M274 344C344 344 344 472 404 472" stroke="#9DB5F4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M394 254L408 262L394 270V254Z" fill="#2453E6"/>
+  <path d="M394 464L408 472L394 480V464Z" fill="#2453E6"/>
+
+  <rect x="430" y="194" width="98" height="28" rx="14" fill="#F2EDFF"/>
+  <text x="456" y="213" fill="#6C4FD7" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">MODEL A</text>
+  <text x="430" y="262" fill="#16243C" font-size="28" font-family="Inter, Segoe UI, sans-serif" font-weight="800">MinerU</text>
+  <text x="430" y="302" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">Reads layout order,</text>
+  <text x="430" y="326" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">sections, chunks,</text>
+  <text x="430" y="350" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">tables, and figures.</text>
+  <rect x="430" y="364" width="92" height="32" rx="16" fill="#F2EDFF"/>
+  <rect x="534" y="364" width="84" height="32" rx="16" fill="#F2EDFF"/>
+  <text x="456" y="384" fill="#6C4FD7" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">sections</text>
+  <text x="560" y="384" fill="#6C4FD7" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">tables</text>
+
+  <rect x="430" y="404" width="98" height="28" rx="14" fill="#EAF1FF"/>
+  <text x="456" y="423" fill="#2453E6" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">MODEL B</text>
+  <text x="430" y="472" fill="#16243C" font-size="28" font-family="Inter, Segoe UI, sans-serif" font-weight="800">GROBID</text>
+  <text x="430" y="512" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">Reads title, authors,</text>
+  <text x="430" y="536" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">DOI, year, and</text>
+  <text x="430" y="560" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">reference metadata.</text>
+  <rect x="430" y="574" width="76" height="32" rx="16" fill="#EAF1FF"/>
+  <rect x="518" y="574" width="66" height="32" rx="16" fill="#EAF1FF"/>
+  <text x="453" y="594" fill="#2453E6" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">title</text>
+  <text x="538" y="594" fill="#2453E6" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">refs</text>
+
+  <path d="M730 262H872" stroke="#9DB5F4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M730 472H872" stroke="#9DB5F4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M862 254L876 262L862 270V254Z" fill="#2453E6"/>
+  <path d="M862 464L876 472L862 480V464Z" fill="#2453E6"/>
+
+  <rect x="900" y="232" width="108" height="28" rx="14" fill="#E8F7F2"/>
+  <text x="927" y="251" fill="#167D66" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">MERGE</text>
+  <text x="900" y="312" fill="#16243C" font-size="30" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Paper record</text>
+  <text x="900" y="352" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">One paper identity</text>
+  <text x="900" y="376" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">keeps both body</text>
+  <text x="900" y="400" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">structure and</text>
+  <text x="900" y="424" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">metadata outputs.</text>
+
+  <rect x="900" y="454" width="82" height="32" rx="16" fill="#EAF1FF"/>
+  <rect x="994" y="454" width="92" height="32" rx="16" fill="#E8F7F2"/>
+  <rect x="1098" y="454" width="66" height="32" rx="16" fill="#EAF1FF"/>
+  <text x="924" y="474" fill="#2453E6" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">title</text>
+  <text x="1018" y="474" fill="#167D66" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">sections</text>
+  <text x="1118" y="474" fill="#2453E6" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">refs</text>
+
+  <rect x="92" y="590" width="1108" height="78" rx="28" fill="#FFFFFF" stroke="#E2EBF8"/>
+  <text x="120" y="638" fill="#16243C" font-size="20" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Why parallel?</text>
+  <text x="250" y="638" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">MinerU is strong at document structure. GROBID is strong at bibliographic metadata. Running both is cleaner than forcing one path to do every job.</text>
+</svg>

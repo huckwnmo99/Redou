@@ -1,0 +1,98 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg4" x1="0" y1="0" x2="1280" y2="720" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FBFF"/>
+      <stop offset="1" stop-color="#FFF4F6"/>
+    </linearGradient>
+    <filter id="shadow4" x="0" y="0" width="1280" height="720" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#172238" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="720" rx="36" fill="url(#bg4)"/>
+  <circle cx="1110" cy="102" r="118" fill="#2453E6" fill-opacity="0.05"/>
+  <circle cx="148" cy="610" r="110" fill="#D9485F" fill-opacity="0.06"/>
+
+  <text x="72" y="78" fill="#16243C" font-size="34" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Search, Q&amp;A, and table agent</text>
+  <text x="72" y="112" fill="#5C6D8B" font-size="18" font-family="Inter, Segoe UI, sans-serif">One knowledge layer feeds two branches: a short Q&amp;A path and a longer table-agent path.</text>
+
+  <g filter="url(#shadow4)">
+    <rect x="72" y="178" width="216" height="214" rx="28" fill="#FFFFFF"/>
+    <rect x="316" y="178" width="216" height="214" rx="28" fill="#FFFFFF"/>
+    <rect x="560" y="178" width="252" height="214" rx="28" fill="#FFFFFF"/>
+    <rect x="840" y="178" width="368" height="214" rx="28" fill="#FFFFFF"/>
+    <rect x="72" y="440" width="560" height="194" rx="30" fill="#FFFFFF"/>
+    <rect x="660" y="440" width="548" height="194" rx="30" fill="#FFFFFF"/>
+  </g>
+
+  <rect x="98" y="202" width="112" height="28" rx="14" fill="#E8F7F2"/>
+  <text x="124" y="221" fill="#167D66" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">KNOWLEDGE</text>
+  <text x="98" y="276" fill="#16243C" font-size="28" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Structured</text>
+  <text x="98" y="308" fill="#16243C" font-size="28" font-family="Inter, Segoe UI, sans-serif" font-weight="800">store</text>
+  <text x="98" y="348" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">chunks, tables,</text>
+  <text x="98" y="372" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">figures, equations</text>
+
+  <rect x="342" y="202" width="112" height="28" rx="14" fill="#FFE8ED"/>
+  <text x="373" y="221" fill="#D9485F" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">EMBED</text>
+  <text x="342" y="276" fill="#16243C" font-size="28" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Nemotron</text>
+  <text x="342" y="308" fill="#16243C" font-size="28" font-family="Inter, Segoe UI, sans-serif" font-weight="800">vectors</text>
+  <text x="342" y="348" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">text, query, image</text>
+  <text x="342" y="372" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">embedding layer</text>
+
+  <rect x="586" y="202" width="126" height="28" rx="14" fill="#EAF1FF"/>
+  <text x="618" y="221" fill="#2453E6" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">PARALLEL SEARCH</text>
+  <text x="586" y="268" fill="#16243C" font-size="26" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Retriever</text>
+  <rect x="586" y="304" width="92" height="34" rx="17" fill="#EAF1FF"/>
+  <rect x="690" y="304" width="86" height="34" rx="17" fill="#EAF1FF"/>
+  <rect x="586" y="348" width="108" height="34" rx="17" fill="#EAF1FF"/>
+  <text x="612" y="326" fill="#2453E6" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">vector</text>
+  <text x="718" y="326" fill="#2453E6" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">BM25</text>
+  <text x="615" y="370" fill="#2453E6" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">figure search</text>
+
+  <rect x="866" y="202" width="132" height="28" rx="14" fill="#F2EDFF"/>
+  <text x="898" y="221" fill="#6C4FD7" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">RERANK + PACK</text>
+  <text x="866" y="268" fill="#16243C" font-size="26" font-family="Inter, Segoe UI, sans-serif" font-weight="800">bge-reranker</text>
+  <text x="866" y="300" fill="#16243C" font-size="26" font-family="Inter, Segoe UI, sans-serif" font-weight="800">context pack</text>
+  <text x="866" y="340" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">Pick the best evidence</text>
+  <text x="866" y="364" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">and build one shared</text>
+  <text x="866" y="388" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">context for both branches.</text>
+
+  <path d="M288 286H316" stroke="#9DB5F4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M532 286H560" stroke="#9DB5F4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M812 286H840" stroke="#9DB5F4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M306 278L320 286L306 294V278Z" fill="#2453E6"/>
+  <path d="M550 278L564 286L550 294V278Z" fill="#2453E6"/>
+  <path d="M830 278L844 286L830 294V278Z" fill="#2453E6"/>
+
+  <path d="M1024 392C998 432 930 454 632 500" stroke="#A9BDF7" stroke-width="5" stroke-linecap="round"/>
+  <path d="M1024 392C1048 432 1108 454 1208 500" stroke="#F2A8B4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M622 492L636 500L622 508V492Z" fill="#2453E6"/>
+  <path d="M1198 492L1212 500L1198 508V492Z" fill="#D9485F"/>
+
+  <rect x="98" y="464" width="108" height="28" rx="14" fill="#EAF1FF"/>
+  <text x="124" y="483" fill="#2453E6" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Q&amp;A MODE</text>
+  <text x="98" y="532" fill="#16243C" font-size="28" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Short path</text>
+  <text x="98" y="572" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">Question</text>
+  <text x="98" y="596" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">-&gt; retrieval</text>
+  <text x="98" y="620" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">-&gt; active LLM answer</text>
+  <rect x="322" y="548" width="112" height="34" rx="17" fill="#EAF1FF"/>
+  <rect x="446" y="548" width="110" height="34" rx="17" fill="#EAF1FF"/>
+  <text x="348" y="570" fill="#2453E6" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">grounded</text>
+  <text x="477" y="570" fill="#2453E6" font-size="13" font-family="Inter, Segoe UI, sans-serif" font-weight="700">answer</text>
+
+  <rect x="686" y="464" width="122" height="28" rx="14" fill="#FFE8ED"/>
+  <text x="714" y="483" fill="#D9485F" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="800">TABLE MODE</text>
+  <text x="686" y="532" fill="#16243C" font-size="28" font-family="Inter, Segoe UI, sans-serif" font-weight="800">Agent path</text>
+  <text x="686" y="572" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">Compare request</text>
+  <text x="686" y="596" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">-&gt; plan -&gt; parse -&gt; assemble</text>
+  <text x="686" y="620" fill="#5C6D8B" font-size="17" font-family="Inter, Segoe UI, sans-serif">-&gt; guardian verification</text>
+
+  <rect x="986" y="512" width="96" height="32" rx="16" fill="#FFE8ED"/>
+  <rect x="1094" y="512" width="96" height="32" rx="16" fill="#FFF1DF"/>
+  <rect x="986" y="556" width="108" height="32" rx="16" fill="#FFF1DF"/>
+  <rect x="1106" y="556" width="98" height="32" rx="16" fill="#EAF1FF"/>
+  <text x="1010" y="532" fill="#D9485F" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="700">planner</text>
+  <text x="1119" y="532" fill="#D1871D" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="700">parser</text>
+  <text x="1013" y="576" fill="#D1871D" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="700">extractor</text>
+  <text x="1131" y="576" fill="#2453E6" font-size="12" font-family="Inter, Segoe UI, sans-serif" font-weight="700">guardian</text>
+</svg>

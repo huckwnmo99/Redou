@@ -1,0 +1,69 @@
+<svg width="1200" height="640" viewBox="0 0 1200 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="72" y1="62" x2="1128" y2="596" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FBFDFF"/>
+      <stop offset="1" stop-color="#F3F8FF"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1200" height="640" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#20314E" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="640" rx="32" fill="url(#bg)"/>
+  <rect x="74" y="70" width="180" height="36" rx="18" fill="#E8F7F2"/>
+  <text x="100" y="94" fill="#167D66" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">WHY MORE THAN ONE AI?</text>
+
+  <g filter="url(#shadow)">
+    <rect x="450" y="216" width="300" height="208" rx="34" fill="white"/>
+    <rect x="530" y="172" width="140" height="40" rx="20" fill="#EAF1FF"/>
+    <text x="560" y="198" fill="#2453E6" font-family="Inter, Pretendard, sans-serif" font-size="22" font-weight="700">One request</text>
+    <rect x="516" y="266" width="168" height="60" rx="18" fill="#F7FAFF"/>
+    <text x="540" y="304" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="22" font-weight="700">"Find useful evidence"</text>
+    <text x="492" y="372" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="500">Different sub-problems need different tools</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="92" y="132" width="254" height="150" rx="28" fill="white"/>
+    <rect x="120" y="160" width="76" height="76" rx="20" fill="#FFF1DF"/>
+    <rect x="142" y="184" width="34" height="8" rx="4" fill="#D1871D"/>
+    <rect x="142" y="202" width="48" height="8" rx="4" fill="#D1871D"/>
+    <rect x="142" y="220" width="40" height="8" rx="4" fill="#D1871D"/>
+    <text x="214" y="188" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">OCR AI</text>
+    <text x="214" y="216" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">Best for scanned tables</text>
+    <text x="214" y="240" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">and image-like content</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="854" y="132" width="254" height="150" rx="28" fill="white"/>
+    <rect x="882" y="160" width="76" height="76" rx="20" fill="#EEF4FF"/>
+    <circle cx="920" cy="198" r="20" fill="#2453E6"/>
+    <text x="976" y="188" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">LLM</text>
+    <text x="976" y="216" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">Best for reasoning,</text>
+    <text x="976" y="240" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">explaining, and writing</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="126" y="396" width="264" height="150" rx="28" fill="white"/>
+    <rect x="154" y="424" width="76" height="76" rx="20" fill="#F2EDFF"/>
+    <circle cx="182" cy="452" r="8" fill="#6C4FD7"/>
+    <circle cx="210" cy="452" r="8" fill="#6C4FD7"/>
+    <circle cx="196" cy="474" r="10" fill="#6C4FD7"/>
+    <text x="252" y="452" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Embedding</text>
+    <text x="252" y="480" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">Best for finding similar</text>
+    <text x="252" y="504" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">meanings and neighbors</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="810" y="396" width="282" height="150" rx="28" fill="white"/>
+    <rect x="838" y="424" width="76" height="76" rx="20" fill="#E8F7F2"/>
+    <path d="M860 462L878 480L894 444" stroke="#167D66" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="936" y="452" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">Guardian</text>
+    <text x="936" y="480" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">Best for checking if the</text>
+    <text x="936" y="504" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="17" font-weight="500">output is grounded</text>
+  </g>
+
+  <path d="M346 204C386 204 418 220 450 266" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+  <path d="M854 204C814 204 782 220 750 266" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+  <path d="M390 470C430 470 446 436 470 404" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+  <path d="M810 470C778 470 758 436 730 404" stroke="#D5E1F4" stroke-width="6" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Redou Future - Ontology and Graph RAG</title>
+  <style>
+    :root {
+      --bg: #eef4fb;
+      --frame: #f8fbff;
+      --panel: rgba(255, 255, 255, 0.94);
+      --line: rgba(22, 36, 60, 0.1);
+      --text: #16243c;
+      --muted: #5c6d8b;
+      --blue: #2453e6;
+      --blue-soft: #eaf1ff;
+      --green: #167d66;
+      --green-soft: #e8f7f2;
+      --purple: #6c4fd7;
+      --purple-soft: #f2edff;
+      --orange: #d1871d;
+      --orange-soft: #fff1df;
+      --red: #d9485f;
+      --red-soft: #ffe8ed;
+      --shadow: 0 22px 54px rgba(22, 34, 56, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      font-family: "Pretendard", "Noto Sans KR", "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top right, rgba(36, 83, 230, 0.11), transparent 24%),
+        radial-gradient(circle at bottom left, rgba(22, 125, 102, 0.1), transparent 22%),
+        var(--bg);
+    }
+
+    .slide {
+      width: min(1440px, 95vw);
+      aspect-ratio: 16 / 9;
+      background: var(--frame);
+      border-radius: 36px;
+      box-shadow: var(--shadow);
+      border: 1px solid rgba(255, 255, 255, 0.75);
+      padding: 28px 34px 24px;
+      position: relative;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 16px;
+    }
+
+    .slide::before,
+    .slide::after {
+      content: "";
+      position: absolute;
+      border-radius: 999px;
+      pointer-events: none;
+    }
+
+    .slide::before {
+      width: 220px;
+      height: 220px;
+      top: -70px;
+      right: -70px;
+      background: rgba(36, 83, 230, 0.08);
+    }
+
+    .slide::after {
+      width: 180px;
+      height: 180px;
+      left: -70px;
+      bottom: -70px;
+      background: rgba(22, 125, 102, 0.08);
+    }
+
+    .header,
+    .board,
+    .footer {
+      position: relative;
+      z-index: 1;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: var(--purple-soft);
+      color: var(--purple);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 46px;
+      line-height: 1.08;
+      letter-spacing: -0.04em;
+    }
+
+    .sub {
+      margin: 0;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.45;
+    }
+
+    .board {
+      border-radius: 30px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(240,246,255,0.98));
+      border: 1px solid rgba(22, 36, 60, 0.08);
+      box-shadow: 0 14px 32px rgba(22, 34, 56, 0.06);
+      overflow: hidden;
+      position: relative;
+      min-height: 520px;
+    }
+
+    .canvas {
+      position: absolute;
+      inset: 0;
+    }
+
+    svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    .node,
+    .query,
+    .result,
+    .label {
+      position: absolute;
+      z-index: 2;
+      text-align: center;
+    }
+
+    .node,
+    .query,
+    .result,
+    .label {
+      border-radius: 22px;
+      background: #ffffff;
+      border: 1px solid rgba(22, 36, 60, 0.1);
+      box-shadow: 0 10px 22px rgba(22, 34, 56, 0.08);
+      padding: 12px 14px;
+    }
+
+    .node strong,
+    .query strong,
+    .result strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .node span,
+    .query span,
+    .result span,
+    .label span {
+      display: block;
+      font-size: 13px;
+      line-height: 1.35;
+      color: var(--muted);
+    }
+
+    .node.paper { background: #f5f9ff; }
+    .node.concept { background: #f8f5ff; }
+    .node.condition { background: #fff9ef; }
+    .node.metric { background: #f2fbf7; }
+    .node.evidence { background: #f6fbff; }
+
+    .query {
+      top: 22px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 410px;
+      background: var(--blue-soft);
+      border-color: rgba(36, 83, 230, 0.14);
+    }
+
+    .result {
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 450px;
+      background: var(--green-soft);
+      border-color: rgba(22, 125, 102, 0.14);
+    }
+
+    .label {
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.03em;
+      color: var(--muted);
+      background: rgba(255,255,255,0.92);
+    }
+
+    .badge {
+      position: absolute;
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 800;
+      color: #fff;
+      box-shadow: 0 10px 18px rgba(22, 34, 56, 0.14);
+      z-index: 3;
+    }
+
+    .badge.one { background: var(--red); }
+    .badge.two { background: var(--purple); }
+    .badge.three { background: var(--blue); }
+    .badge.four { background: var(--green); }
+
+    .footer {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .step {
+      position: relative;
+      padding: 14px 16px 14px 52px;
+      border-radius: 22px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: 0 10px 24px rgba(22, 34, 56, 0.06);
+      min-height: 84px;
+    }
+
+    .step strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .step p {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.4;
+      color: var(--muted);
+    }
+
+    .step .mini-badge {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .step.arrow::after {
+      content: "→";
+      position: absolute;
+      top: 50%;
+      right: -10px;
+      transform: translateY(-50%);
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #ffffff;
+      border: 1px solid var(--line);
+      color: var(--blue);
+      font-weight: 800;
+    }
+
+    .slide-number {
+      position: absolute;
+      right: 28px;
+      bottom: 22px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid var(--line);
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 700;
+      z-index: 3;
+    }
+  </style>
+</head>
+<body>
+  <main class="slide">
+    <header class="header">
+      <div class="eyebrow">Future Direction</div>
+      <h1>Ontology + Graph RAG</h1>
+      <p class="sub">Read it as one connected flow: extract concepts, link them, retrieve by path, answer with evidence.</p>
+    </header>
+
+    <section class="board">
+      <div class="canvas">
+        <svg viewBox="0 0 1200 560" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M600 104L360 176" stroke="#B8C8E7" stroke-width="4" stroke-linecap="round"/>
+          <path d="M600 104L840 176" stroke="#B8C8E7" stroke-width="4" stroke-linecap="round"/>
+          <path d="M360 176L258 294" stroke="#C8D5EB" stroke-width="4" stroke-linecap="round"/>
+          <path d="M360 176L470 294" stroke="#C8D5EB" stroke-width="4" stroke-linecap="round"/>
+          <path d="M840 176L730 294" stroke="#C8D5EB" stroke-width="4" stroke-linecap="round"/>
+          <path d="M840 176L942 294" stroke="#C8D5EB" stroke-width="4" stroke-linecap="round"/>
+          <path d="M470 294L600 396" stroke="#B8C8E7" stroke-width="4" stroke-linecap="round"/>
+          <path d="M730 294L600 396" stroke="#B8C8E7" stroke-width="4" stroke-linecap="round"/>
+          <path d="M258 294L600 396" stroke="#D8E0EF" stroke-width="3" stroke-dasharray="10 8" stroke-linecap="round"/>
+          <path d="M942 294L600 396" stroke="#D8E0EF" stroke-width="3" stroke-dasharray="10 8" stroke-linecap="round"/>
+          <path d="M600 56L600 104" stroke="#2453E6" stroke-width="4" stroke-dasharray="10 8" stroke-linecap="round"/>
+          <path d="M600 396L600 470" stroke="#167D66" stroke-width="4" stroke-dasharray="10 8" stroke-linecap="round"/>
+        </svg>
+
+        <div class="label" style="top: 150px; left: 18px;"><span>paper layer</span></div>
+        <div class="label" style="top: 150px; right: 18px;"><span>relation layer</span></div>
+        <div class="label" style="bottom: 138px; left: 50%; transform: translateX(-50%);"><span>Graph RAG retrieval path</span></div>
+
+        <div class="badge one" style="top: 162px; left: 112px;">1</div>
+        <div class="badge two" style="top: 210px; left: 50%; transform: translateX(-50%);">2</div>
+        <div class="badge three" style="top: 322px; left: 50%; transform: translateX(-50%);">3</div>
+        <div class="badge four" style="bottom: 88px; left: 50%; transform: translateX(180px);">4</div>
+
+        <div class="query">
+          <strong>Query</strong>
+          <span>Which acid catalyst condition gave the best yield?</span>
+        </div>
+
+        <div class="node paper" style="top: 138px; left: 146px; width: 132px;">
+          <strong>Paper A</strong>
+          <span>acid hydrolysis</span>
+        </div>
+        <div class="node paper" style="top: 138px; right: 146px; width: 132px;">
+          <strong>Paper B</strong>
+          <span>pretreatment</span>
+        </div>
+
+        <div class="node concept" style="top: 92px; left: 50%; transform: translateX(-50%); width: 168px;">
+          <strong>Concept</strong>
+          <span>acid catalyst</span>
+        </div>
+        <div class="node concept" style="top: 246px; left: 410px; width: 128px;">
+          <strong>Material</strong>
+          <span>cellulose</span>
+        </div>
+        <div class="node condition" style="top: 246px; left: 50%; transform: translateX(-50%); width: 150px;">
+          <strong>Condition</strong>
+          <span>180°C / 30 min</span>
+        </div>
+        <div class="node concept" style="top: 246px; right: 410px; width: 128px;">
+          <strong>Process</strong>
+          <span>pretreatment</span>
+        </div>
+        <div class="node metric" style="top: 374px; left: 50%; transform: translateX(-50%); width: 152px;">
+          <strong>Metric</strong>
+          <span>yield 72%</span>
+        </div>
+        <div class="node evidence" style="top: 268px; left: 178px; width: 116px;">
+          <strong>Evidence</strong>
+          <span>table</span>
+        </div>
+        <div class="node evidence" style="top: 268px; right: 178px; width: 116px;">
+          <strong>Evidence</strong>
+          <span>section</span>
+        </div>
+
+        <div class="result">
+          <strong>Output</strong>
+          <span>comparison table + grounded answer + relation path</span>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <article class="step arrow">
+        <div class="mini-badge" style="background: var(--red);">1</div>
+        <strong>Extract</strong>
+        <p>papers → candidate concepts</p>
+      </article>
+      <article class="step arrow">
+        <div class="mini-badge" style="background: var(--purple);">2</div>
+        <strong>Link</strong>
+        <p>ontology rules → graph edges</p>
+      </article>
+      <article class="step arrow">
+        <div class="mini-badge" style="background: var(--blue);">3</div>
+        <strong>Retrieve</strong>
+        <p>semantic search + graph traversal</p>
+      </article>
+      <article class="step">
+        <div class="mini-badge" style="background: var(--green);">4</div>
+        <strong>Answer</strong>
+        <p>comparison + explainable result</p>
+      </article>
+    </footer>
+
+    <div class="slide-number">Future / 1</div>
+  </main>
+</body>
+</html>

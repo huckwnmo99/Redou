@@ -1,0 +1,53 @@
+<svg width="1200" height="640" viewBox="0 0 1200 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="72" y1="62" x2="1128" y2="596" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FBFDFF"/>
+      <stop offset="1" stop-color="#F3F8FF"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1200" height="640" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#20314E" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="640" rx="32" fill="url(#bg)"/>
+  <rect x="74" y="70" width="156" height="36" rx="18" fill="#E8F7F2"/>
+  <text x="112" y="94" fill="#167D66" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">WHAT IS AN AGENT?</text>
+
+  <g filter="url(#shadow)">
+    <circle cx="600" cy="320" r="106" fill="white"/>
+    <rect x="534" y="282" width="132" height="76" rx="24" fill="#E8F7F2"/>
+    <circle cx="576" cy="320" r="14" fill="#167D66"/>
+    <circle cx="624" cy="320" r="14" fill="#167D66"/>
+    <circle cx="600" cy="348" r="16" fill="#167D66"/>
+    <text x="546" y="394" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="28" font-weight="700">Agent</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="162" y="132" width="236" height="126" rx="28" fill="white"/>
+    <text x="202" y="184" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="30" font-weight="700">1. Observe</text>
+    <text x="202" y="216" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="500">Understand the user's task</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="804" y="132" width="236" height="126" rx="28" fill="white"/>
+    <text x="858" y="184" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="30" font-weight="700">2. Plan</text>
+    <text x="846" y="216" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="500">Choose what to do first</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="162" y="398" width="236" height="126" rx="28" fill="white"/>
+    <text x="218" y="450" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="30" font-weight="700">4. Check</text>
+    <text x="196" y="482" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="500">Verify the result and improve</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="804" y="398" width="236" height="126" rx="28" fill="white"/>
+    <text x="874" y="450" fill="#162238" font-family="Inter, Pretendard, sans-serif" font-size="30" font-weight="700">3. Act</text>
+    <text x="854" y="482" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="500">Search, parse, extract, answer</text>
+  </g>
+
+  <path d="M398 194C474 194 492 232 520 270" stroke="#D5E1F4" stroke-width="7" stroke-linecap="round"/>
+  <path d="M804 194C730 194 708 232 680 270" stroke="#D5E1F4" stroke-width="7" stroke-linecap="round"/>
+  <path d="M398 462C474 462 494 418 520 372" stroke="#D5E1F4" stroke-width="7" stroke-linecap="round"/>
+  <path d="M804 462C730 462 708 418 680 372" stroke="#D5E1F4" stroke-width="7" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,879 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Redou Pipeline Presentation</title>
+  <style>
+    :root {
+      --bg: #edf3f9;
+      --frame: #f8fbff;
+      --panel: rgba(255, 255, 255, 0.9);
+      --panel-strong: #ffffff;
+      --line: rgba(27, 46, 86, 0.12);
+      --text: #16243c;
+      --muted: #5c6d8b;
+      --blue: #2453e6;
+      --blue-soft: #eaf1ff;
+      --green: #167d66;
+      --green-soft: #e8f7f2;
+      --orange: #d1871d;
+      --orange-soft: #fff1df;
+      --purple: #6c4fd7;
+      --purple-soft: #f2edff;
+      --red: #d9485f;
+      --red-soft: #ffe8ed;
+      --shadow: 0 22px 54px rgba(22, 34, 56, 0.12);
+      --slide-w: min(92vw, 1440px);
+      --radius-xl: 30px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      font-family: "Pretendard", "Noto Sans KR", "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top right, rgba(36, 83, 230, 0.12), transparent 24%),
+        radial-gradient(circle at bottom left, rgba(22, 125, 102, 0.12), transparent 22%),
+        var(--bg);
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      padding: 20px;
+    }
+
+    .topbar {
+      width: var(--slide-w);
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .brand strong {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .brand span {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .controls button {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 16px;
+      background: var(--panel-strong);
+      color: var(--text);
+      box-shadow: 0 8px 20px rgba(23, 34, 56, 0.08);
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .stage {
+      width: var(--slide-w);
+      margin: 0 auto;
+      aspect-ratio: 16 / 9;
+      position: relative;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: none;
+      background: var(--frame);
+      border: 1px solid rgba(255, 255, 255, 0.65);
+      border-radius: 36px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      padding: 38px 42px;
+      grid-template-columns: 1fr;
+      gap: 18px;
+    }
+
+    .slide.active {
+      display: grid;
+    }
+
+    .slide::before,
+    .slide::after {
+      content: "";
+      position: absolute;
+      border-radius: 999px;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .slide::before {
+      width: 220px;
+      height: 220px;
+      right: -70px;
+      top: -70px;
+      background: rgba(36, 83, 230, 0.08);
+    }
+
+    .slide::after {
+      width: 180px;
+      height: 180px;
+      left: -70px;
+      bottom: -70px;
+      background: rgba(22, 125, 102, 0.08);
+    }
+
+    .section,
+    .panel,
+    .image-panel,
+    .hero-layout,
+    .mini-grid,
+    .note-row,
+    .key-row,
+    .flow-summary {
+      position: relative;
+      z-index: 1;
+      min-width: 0;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 14px;
+      border-radius: 999px;
+      background: var(--blue-soft);
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      margin-bottom: 18px;
+      text-transform: uppercase;
+    }
+
+    .eyebrow.green {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .eyebrow.orange {
+      background: var(--orange-soft);
+      color: var(--orange);
+    }
+
+    .eyebrow.purple {
+      background: var(--purple-soft);
+      color: var(--purple);
+    }
+
+    .eyebrow.red {
+      background: var(--red-soft);
+      color: var(--red);
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 46px;
+      line-height: 1.08;
+      letter-spacing: -0.04em;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 34px;
+      line-height: 1.12;
+      letter-spacing: -0.03em;
+    }
+
+    .lead {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.58;
+      color: var(--muted);
+    }
+
+    .hero-layout,
+    .two-col {
+      display: grid;
+      grid-template-columns: 1.02fr 0.98fr;
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      padding: 18px;
+      box-shadow: 0 14px 32px rgba(23, 34, 56, 0.06);
+    }
+
+    .image-panel {
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      padding: 14px;
+      box-shadow: 0 14px 32px rgba(23, 34, 56, 0.06);
+    }
+
+    .image-panel img {
+      width: 100%;
+      height: 360px;
+      object-fit: contain;
+      display: block;
+      border-radius: 22px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.94), rgba(237,245,255,0.96));
+    }
+
+    .image-panel.hero img {
+      height: 336px;
+    }
+
+    .mini-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .mini-card {
+      background: rgba(255, 255, 255, 0.86);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 18px;
+    }
+
+    .mini-card h3 {
+      margin: 0 0 8px;
+      font-size: 20px;
+      letter-spacing: -0.02em;
+    }
+
+    .mini-card p {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.5;
+      color: var(--muted);
+    }
+
+    .key-row,
+    .note-row {
+      display: grid;
+      gap: 12px;
+    }
+
+    .key-row {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .key-pill,
+    .note-card,
+    .flow-card {
+      background: rgba(255, 255, 255, 0.84);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 14px 16px;
+    }
+
+    .key-pill strong,
+    .note-card strong,
+    .flow-card strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+
+    .key-pill p,
+    .note-card p,
+    .flow-card p {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+
+    .note-row.cols-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .note-row.cols-5 {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .summary-box {
+      padding: 18px 20px;
+      border-radius: 24px;
+      background: linear-gradient(135deg, rgba(232, 247, 242, 0.9), rgba(237, 245, 255, 0.95));
+      border: 1px solid rgba(22, 125, 102, 0.12);
+    }
+
+    .summary-box strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 15px;
+      letter-spacing: 0.03em;
+      color: var(--green);
+      text-transform: uppercase;
+    }
+
+    .summary-box p {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.45;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .flow-summary {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .flow-card {
+      position: relative;
+      min-height: 150px;
+    }
+
+    .flow-card.arrow::after {
+      content: "→";
+      position: absolute;
+      top: 50%;
+      right: -12px;
+      transform: translateY(-50%);
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--panel-strong);
+      border: 1px solid var(--line);
+      color: var(--blue);
+      font-size: 14px;
+      font-weight: 800;
+      z-index: 2;
+    }
+
+    .slide-number {
+      position: absolute;
+      right: 28px;
+      bottom: 22px;
+      z-index: 2;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.86);
+      border: 1px solid var(--line);
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .progress {
+      width: var(--slide-w);
+      margin: 0 auto;
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(36, 83, 230, 0.18);
+      transition: transform 0.15s ease, background 0.15s ease;
+    }
+
+    .dot.active {
+      background: var(--blue);
+      transform: scale(1.15);
+    }
+
+    @media (max-width: 1320px) {
+      .slide {
+        padding: 28px;
+      }
+
+      h1 {
+        font-size: 38px;
+      }
+
+      h2 {
+        font-size: 30px;
+      }
+
+      .lead {
+        font-size: 18px;
+      }
+
+      .hero-layout,
+      .two-col,
+      .mini-grid,
+      .key-row,
+      .note-row.cols-3,
+      .note-row.cols-5,
+      .flow-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .flow-card.arrow::after {
+        display: none;
+      }
+    }
+
+    @media print {
+      body {
+        background: white;
+        padding: 0;
+        display: block;
+      }
+
+      .topbar,
+      .progress {
+        display: none !important;
+      }
+
+      .stage {
+        width: 100%;
+        aspect-ratio: auto;
+      }
+
+      .slide {
+        position: relative;
+        display: grid !important;
+        width: 100%;
+        min-height: 100vh;
+        page-break-after: always;
+        box-shadow: none;
+        border-radius: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <strong>Redou Pipeline Deck</strong>
+      <span>Diagram-first slides for explaining how paper PDFs move through models, OCR, storage, search, and agent branches.</span>
+    </div>
+    <div class="controls">
+      <button type="button" id="prevBtn">Prev</button>
+      <button type="button" id="nextBtn">Next</button>
+      <span class="hint">Arrow keys work. Print to PDF is also supported.</span>
+    </div>
+  </header>
+
+  <main class="stage">
+    <section class="slide active">
+      <div class="hero-layout">
+        <div class="section">
+          <div class="eyebrow">Build Logic</div>
+          <h1>How Redou turns a paper PDF into reusable research data</h1>
+          <p class="lead">
+            This talk is not about a single chatbot. It is about a pipeline:
+            parse the paper, repair weak parts with OCR, store clean artifacts,
+            then reuse them for Q&amp;A and table generation.
+          </p>
+          <div class="key-row" style="margin-top: 18px;">
+            <div class="key-pill">
+              <strong>Input</strong>
+              <p>Local research PDF</p>
+            </div>
+            <div class="key-pill">
+              <strong>Parsing</strong>
+              <p>Specialist models split the work</p>
+            </div>
+            <div class="key-pill">
+              <strong>Repair</strong>
+              <p>OCR fixes tables and equations</p>
+            </div>
+            <div class="key-pill">
+              <strong>Reuse</strong>
+              <p>Search, Q&amp;A, and table agent</p>
+            </div>
+          </div>
+        </div>
+        <div class="image-panel hero">
+          <img src="visual-01-pipeline-overview.svg" alt="Redou pipeline overview" />
+        </div>
+      </div>
+      <div class="slide-number">1 / 10</div>
+    </section>
+
+    <section class="slide">
+      <div class="section">
+        <div class="eyebrow orange">Why Pipeline</div>
+        <h2>Why one model is not enough</h2>
+        <p class="lead">
+          A paper PDF mixes metadata, layout, tables, figures, equations, and references.
+          Each part fails in a different way, so the system is easier to explain as a team of specialists.
+        </p>
+      </div>
+      <div class="mini-grid">
+        <article class="mini-card">
+          <h3>Metadata</h3>
+          <p>Title, authors, DOI, year, and references need bibliographic parsing.</p>
+        </article>
+        <article class="mini-card">
+          <h3>Layout</h3>
+          <p>Two-column papers break simple text reading order.</p>
+        </article>
+        <article class="mini-card">
+          <h3>OCR</h3>
+          <p>Tables and equations often behave like images, not clean text.</p>
+        </article>
+        <article class="mini-card">
+          <h3>Retrieval</h3>
+          <p>Later the system must find the right evidence for a new question.</p>
+        </article>
+      </div>
+      <div class="summary-box">
+        <strong>Design choice</strong>
+        <p>Redou separates the pipeline into parsing, OCR, storage, retrieval, and response generation.</p>
+      </div>
+      <div class="slide-number">2 / 10</div>
+    </section>
+
+    <section class="slide">
+      <div class="section">
+        <div class="eyebrow green">Full Pipeline</div>
+        <h2>The full paper pipeline at a glance</h2>
+        <p class="lead">
+          Start here in the presentation: show the whole map first, then zoom into each stage.
+        </p>
+      </div>
+      <div class="image-panel">
+        <img src="visual-01-pipeline-overview.svg" alt="Full Redou pipeline overview diagram" />
+      </div>
+      <div class="note-row cols-3">
+        <div class="note-card">
+          <strong>Stage 1</strong>
+          <p>Read the PDF with specialist parsers.</p>
+        </div>
+        <div class="note-card">
+          <strong>Stage 2</strong>
+          <p>Repair weak tables and equations with OCR.</p>
+        </div>
+        <div class="note-card">
+          <strong>Stage 3</strong>
+          <p>Store the results so later modules can search and reuse them.</p>
+        </div>
+      </div>
+      <div class="slide-number">3 / 10</div>
+    </section>
+
+    <section class="slide">
+      <div class="section">
+        <div class="eyebrow">Step 1</div>
+        <h2>Parallel ingest: MinerU and GROBID</h2>
+        <p class="lead">
+          The same PDF is processed by two different readers in parallel, because they are strong at different jobs.
+        </p>
+      </div>
+      <div class="image-panel">
+        <img src="visual-02-ingestion-parallel.svg" alt="Parallel ingest diagram with MinerU and GROBID" />
+      </div>
+      <div class="note-row cols-3">
+        <div class="note-card">
+          <strong>MinerU</strong>
+          <p>Extracts body structure, sections, chunks, tables, and figures.</p>
+        </div>
+        <div class="note-card">
+          <strong>GROBID</strong>
+          <p>Extracts metadata, bibliographic signals, and references.</p>
+        </div>
+        <div class="note-card">
+          <strong>Merge</strong>
+          <p>Both outputs become one paper record for the next stage.</p>
+        </div>
+      </div>
+      <div class="slide-number">4 / 10</div>
+    </section>
+
+    <section class="slide">
+      <div class="section">
+        <div class="eyebrow orange">Step 2</div>
+        <h2>OCR enhancement: fix the weak spots only</h2>
+        <p class="lead">
+          Redou does not OCR the whole paper. It sends only suspicious regions to OCR so the pipeline stays fast and targeted.
+        </p>
+      </div>
+      <div class="image-panel">
+        <img src="visual-03-ocr-augmentation.svg" alt="OCR enhancement diagram with GLM-OCR and UniMERNet" />
+      </div>
+      <div class="note-row cols-3">
+        <div class="note-card">
+          <strong>Hints</strong>
+          <p>Heuristics tell the OCR stage which pages or crops need help.</p>
+        </div>
+        <div class="note-card">
+          <strong>GLM-OCR</strong>
+          <p>Reconstructs table HTML from rendered table images.</p>
+        </div>
+        <div class="note-card">
+          <strong>UniMERNet</strong>
+          <p>Converts equation images into LaTeX.</p>
+        </div>
+      </div>
+      <div class="slide-number">5 / 10</div>
+    </section>
+
+    <section class="slide">
+      <div class="section">
+        <div class="eyebrow green">Step 3</div>
+        <h2>Structured storage: the paper becomes data</h2>
+        <p class="lead">
+          After parsing and OCR, the paper is no longer just a document. It becomes a set of rows and artifacts that later modules can query.
+        </p>
+      </div>
+      <div class="two-col">
+        <div class="mini-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+          <article class="mini-card">
+            <h3>Metadata</h3>
+            <p>title, authors, DOI, year, abstract, journal</p>
+          </article>
+          <article class="mini-card">
+            <h3>Text units</h3>
+            <p>sections and chunks become the main search units</p>
+          </article>
+          <article class="mini-card">
+            <h3>Visual units</h3>
+            <p>tables, figures, equations keep OCR outputs and image links</p>
+          </article>
+          <article class="mini-card">
+            <h3>References</h3>
+            <p>reference rows help trace paper identity and citations</p>
+          </article>
+        </div>
+        <div class="summary-box" style="height: 100%; display: flex; flex-direction: column; justify-content: center;">
+          <strong>Why this matters</strong>
+          <p>Every next step reads from these stored artifacts instead of reopening the raw PDF from scratch.</p>
+        </div>
+      </div>
+      <div class="slide-number">6 / 10</div>
+    </section>
+
+    <section class="slide">
+      <div class="section">
+        <div class="eyebrow purple">Step 4</div>
+        <h2>Retrieval layer: embeddings, parallel search, reranking</h2>
+        <p class="lead">
+          Once the paper is stored, Redou builds a searchable knowledge layer so the user can ask vague questions later.
+        </p>
+      </div>
+      <div class="image-panel">
+        <img src="visual-04-agent-downstream.svg" alt="Downstream search and agent diagram" />
+      </div>
+      <div class="key-row">
+        <div class="key-pill">
+          <strong>Store</strong>
+          <p>chunks, tables, figures, equations</p>
+        </div>
+        <div class="key-pill">
+          <strong>Embed</strong>
+          <p>Nemotron vectors for text, query, image</p>
+        </div>
+        <div class="key-pill">
+          <strong>Search</strong>
+          <p>vector, BM25, and figure search run in parallel</p>
+        </div>
+        <div class="key-pill">
+          <strong>Rerank</strong>
+          <p>bge-reranker-base builds the final evidence context</p>
+        </div>
+      </div>
+      <div class="slide-number">7 / 10</div>
+    </section>
+
+    <section class="slide">
+      <div class="section">
+        <div class="eyebrow">Step 5A</div>
+        <h2>Q&amp;A mode: the short branch</h2>
+        <p class="lead">
+          Q&amp;A reuses the retrieval layer, then sends the packed context to the active LLM for an evidence-based answer.
+        </p>
+      </div>
+      <div class="image-panel">
+        <img src="visual-04-agent-downstream.svg" alt="Q and A branch inside the downstream diagram" />
+      </div>
+      <div class="note-row cols-3">
+        <div class="note-card">
+          <strong>Input</strong>
+          <p>The user asks a natural language question.</p>
+        </div>
+        <div class="note-card">
+          <strong>Middle</strong>
+          <p>Parallel retrieval gathers the best chunks, tables, and figures.</p>
+        </div>
+        <div class="note-card">
+          <strong>Output</strong>
+          <p>The active LLM returns a grounded answer.</p>
+        </div>
+      </div>
+      <div class="summary-box">
+        <strong>Focus</strong>
+        <p>Q&amp;A is a reuse path: it does not re-parse the PDF, it reuses the stored knowledge layer.</p>
+      </div>
+      <div class="slide-number">8 / 10</div>
+    </section>
+
+    <section class="slide">
+      <div class="section">
+        <div class="eyebrow red">Step 5B</div>
+        <h2>Table mode: the real agent branch</h2>
+        <p class="lead">
+          Table mode is the most agentic part of Redou. Planning, retrieval, parsing, assembly, and verification all appear in one path.
+        </p>
+      </div>
+      <div class="image-panel">
+        <img src="visual-04-agent-downstream.svg" alt="Table agent branch inside the downstream diagram" />
+      </div>
+      <div class="note-row cols-5">
+        <div class="note-card">
+          <strong>Request</strong>
+          <p>Compare request</p>
+        </div>
+        <div class="note-card">
+          <strong>Plan</strong>
+          <p>Orchestrator defines queries and columns</p>
+        </div>
+        <div class="note-card">
+          <strong>Parse</strong>
+          <p>Extractor and parser read the evidence</p>
+        </div>
+        <div class="note-card">
+          <strong>Assemble</strong>
+          <p>Table agent builds the table JSON</p>
+        </div>
+        <div class="note-card">
+          <strong>Verify</strong>
+          <p>Guardian checks groundedness before final output</p>
+        </div>
+      </div>
+      <div class="summary-box">
+        <strong>Focus</strong>
+        <p>Table mode is not one model call. It is a coordinated multi-step agent pipeline.</p>
+      </div>
+      <div class="slide-number">9 / 10</div>
+    </section>
+
+    <section class="slide">
+      <div class="section">
+        <div class="eyebrow green">Final Story</div>
+        <h2>The story to tell in class</h2>
+        <p class="lead">
+          If you explain Redou as “PDF in, answer out,” the logic disappears. If you explain the middle artifacts, the whole design becomes easy to follow.
+        </p>
+      </div>
+      <div class="flow-summary">
+        <article class="flow-card arrow">
+          <strong>1. Input</strong>
+          <p>One local paper PDF enters the system.</p>
+        </article>
+        <article class="flow-card arrow">
+          <strong>2. Read</strong>
+          <p>MinerU and GROBID split the parsing work.</p>
+        </article>
+        <article class="flow-card arrow">
+          <strong>3. Repair</strong>
+          <p>GLM-OCR and UniMERNet fix weak tables and equations.</p>
+        </article>
+        <article class="flow-card arrow">
+          <strong>4. Store</strong>
+          <p>The paper becomes reusable structured artifacts.</p>
+        </article>
+        <article class="flow-card">
+          <strong>5. Reuse</strong>
+          <p>The retrieval layer feeds Q&amp;A and the table agent.</p>
+        </article>
+      </div>
+      <div class="summary-box">
+        <strong>Final one-line message</strong>
+        <p>Redou does not jump from PDF to answer. It first builds research data, then reuses that data through search and agent branches.</p>
+      </div>
+      <div class="slide-number">10 / 10</div>
+    </section>
+  </main>
+
+  <div class="progress" id="progress"></div>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll(".slide"));
+    const progress = document.getElementById("progress");
+    const prevBtn = document.getElementById("prevBtn");
+    const nextBtn = document.getElementById("nextBtn");
+    let current = 0;
+
+    function renderDots() {
+      progress.innerHTML = "";
+      slides.forEach((_, index) => {
+        const dot = document.createElement("div");
+        dot.className = "dot" + (index === current ? " active" : "");
+        dot.addEventListener("click", () => showSlide(index));
+        progress.appendChild(dot);
+      });
+    }
+
+    function showSlide(index) {
+      current = (index + slides.length) % slides.length;
+      slides.forEach((slide, i) => {
+        slide.classList.toggle("active", i === current);
+      });
+      renderDots();
+    }
+
+    prevBtn.addEventListener("click", () => showSlide(current - 1));
+    nextBtn.addEventListener("click", () => showSlide(current + 1));
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowRight", "PageDown", " "].includes(event.key)) {
+        event.preventDefault();
+        showSlide(current + 1);
+      } else if (["ArrowLeft", "PageUp"].includes(event.key)) {
+        event.preventDefault();
+        showSlide(current - 1);
+      }
+    });
+
+    renderDots();
+    showSlide(0);
+  </script>
+</body>
+</html>

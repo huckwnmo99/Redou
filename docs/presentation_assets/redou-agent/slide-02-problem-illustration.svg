@@ -1,0 +1,99 @@
+<svg width="1200" height="640" viewBox="0 0 1200 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="84" y1="56" x2="1118" y2="602" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FCFEFF"/>
+      <stop offset="1" stop-color="#F3F8FF"/>
+    </linearGradient>
+    <linearGradient id="footer" x1="196" y1="526" x2="1012" y2="602" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E8F7F2"/>
+      <stop offset="1" stop-color="#EDF9FF"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1200" height="640" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#20314E" flood-opacity="0.08"/>
+    </filter>
+    <filter id="soft" x="0" y="0" width="1200" height="640" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#20314E" flood-opacity="0.06"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="640" rx="32" fill="url(#bg)"/>
+  <circle cx="1064" cy="98" r="86" fill="#E9F1FF"/>
+  <circle cx="122" cy="548" r="96" fill="#E8F8F2"/>
+
+  <rect x="74" y="70" width="166" height="38" rx="19" fill="#FFF1DF"/>
+  <text x="110" y="95" fill="#D1871D" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="700">THE PROBLEM</text>
+
+  <text x="74" y="158" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="42" font-weight="800">Why students need</text>
+  <text x="74" y="204" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="42" font-weight="800">an agent for papers</text>
+
+  <g filter="url(#soft)">
+    <rect x="62" y="236" width="332" height="238" rx="30" fill="white"/>
+    <rect x="90" y="262" width="120" height="28" rx="14" fill="#EEF4FF"/>
+    <text x="118" y="281" fill="#2453E6" font-family="Inter, Pretendard, sans-serif" font-size="14" font-weight="700">PROBLEM 1</text>
+    <text x="90" y="330" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="30" font-weight="700">Too many PDFs</text>
+
+    <rect x="94" y="358" width="88" height="102" rx="18" fill="#EEF4FF"/>
+    <rect x="108" y="372" width="56" height="10" rx="5" fill="#4E7CF8"/>
+    <rect x="108" y="390" width="46" height="8" rx="4" fill="#D5E1F4"/>
+    <rect x="108" y="406" width="50" height="8" rx="4" fill="#D5E1F4"/>
+    <rect x="136" y="344" width="88" height="102" rx="18" fill="#FFF1DF"/>
+    <rect x="150" y="358" width="56" height="10" rx="5" fill="#D1871D"/>
+    <rect x="150" y="376" width="46" height="8" rx="4" fill="#F0DAB7"/>
+    <rect x="150" y="392" width="50" height="8" rx="4" fill="#F0DAB7"/>
+    <rect x="178" y="330" width="88" height="102" rx="18" fill="white" stroke="#D5E1F4" stroke-width="2"/>
+    <rect x="192" y="344" width="56" height="10" rx="5" fill="#6C4FD7"/>
+    <rect x="192" y="362" width="46" height="8" rx="4" fill="#E6EDF9"/>
+    <rect x="192" y="378" width="50" height="8" rx="4" fill="#E6EDF9"/>
+
+    <text x="90" y="518" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="500">Papers keep piling up faster than</text>
+    <text x="90" y="544" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="500">students can organize them.</text>
+  </g>
+
+  <g filter="url(#soft)">
+    <rect x="434" y="236" width="332" height="238" rx="30" fill="white"/>
+    <rect x="462" y="262" width="120" height="28" rx="14" fill="#FFF1DF"/>
+    <text x="490" y="281" fill="#D1871D" font-family="Inter, Pretendard, sans-serif" font-size="14" font-weight="700">PROBLEM 2</text>
+    <text x="462" y="330" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="30" font-weight="700">Hard to remember</text>
+
+    <rect x="508" y="360" width="186" height="88" rx="22" fill="white" stroke="#D5E1F4" stroke-width="2"/>
+    <rect x="534" y="384" width="98" height="12" rx="6" fill="#EAF1FF"/>
+    <rect x="534" y="408" width="128" height="10" rx="5" fill="#E6EDF9"/>
+    <rect x="534" y="426" width="88" height="10" rx="5" fill="#E6EDF9"/>
+    <circle cx="666" cy="422" r="28" fill="#FFF1DF" stroke="#D1871D" stroke-width="4"/>
+    <path d="M678 434L694 450" stroke="#D1871D" stroke-width="6" stroke-linecap="round"/>
+    <text x="650" y="428" fill="#D1871D" font-family="Inter, Pretendard, sans-serif" font-size="20" font-weight="700">?</text>
+
+    <text x="462" y="518" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="500">Useful sentences and results are easy</text>
+    <text x="462" y="544" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="500">to forget after reading many papers.</text>
+  </g>
+
+  <g filter="url(#soft)">
+    <rect x="806" y="236" width="332" height="238" rx="30" fill="white"/>
+    <rect x="834" y="262" width="120" height="28" rx="14" fill="#F2EDFF"/>
+    <text x="862" y="281" fill="#6C4FD7" font-family="Inter, Pretendard, sans-serif" font-size="14" font-weight="700">PROBLEM 3</text>
+    <text x="834" y="330" fill="#172238" font-family="Inter, Pretendard, sans-serif" font-size="30" font-weight="700">Comparison takes time</text>
+
+    <rect x="854" y="360" width="92" height="104" rx="18" fill="white" stroke="#D5E1F4" stroke-width="2"/>
+    <rect x="994" y="360" width="92" height="104" rx="18" fill="white" stroke="#D5E1F4" stroke-width="2"/>
+    <rect x="872" y="378" width="56" height="10" rx="5" fill="#EAF1FF"/>
+    <rect x="1012" y="378" width="56" height="10" rx="5" fill="#EAF1FF"/>
+    <rect x="870" y="404" width="22" height="12" rx="6" fill="#FFF1DF"/>
+    <rect x="902" y="404" width="22" height="12" rx="6" fill="#E8F7F2"/>
+    <rect x="1010" y="404" width="22" height="12" rx="6" fill="#E8F7F2"/>
+    <rect x="1042" y="404" width="22" height="12" rx="6" fill="#F2EDFF"/>
+    <rect x="870" y="430" width="22" height="12" rx="6" fill="#F2EDFF"/>
+    <rect x="1010" y="430" width="22" height="12" rx="6" fill="#FFF1DF"/>
+    <path d="M948 412H986" stroke="#2453E6" stroke-width="4" stroke-linecap="round"/>
+    <path d="M978 402L990 412L978 422" stroke="#2453E6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <text x="834" y="518" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="500">Manual comparison is slow and often</text>
+    <text x="834" y="544" fill="#5F6D86" font-family="Inter, Pretendard, sans-serif" font-size="18" font-weight="500">misses important details.</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="184" y="522" width="832" height="86" rx="28" fill="url(#footer)"/>
+    <rect x="212" y="546" width="126" height="28" rx="14" fill="white" fill-opacity="0.72"/>
+    <text x="240" y="565" fill="#167D66" font-family="Inter, Pretendard, sans-serif" font-size="14" font-weight="700">WHAT REDOU DOES</text>
+    <text x="212" y="595" fill="#167D66" font-family="Inter, Pretendard, sans-serif" font-size="24" font-weight="700">It turns scattered papers into searchable, comparable research memory.</text>
+  </g>
+</svg>
