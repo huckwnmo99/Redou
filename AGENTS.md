@@ -199,6 +199,7 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Status | Date | Agent | Scope | Files | Out of Scope | Dependency |
 |--------|------|-------|-------|-------|--------------|------------|
+| DONE | 2026-05-05 | Codex | Update integration strategy after checkpoint and latest branch state | `docs/features/proposals/2026-05-05-integration-strategy-update.md`, `AGENTS.md` | Performing the actual merge, resolving merge conflicts, changing runtime code | `docs/features/proposals/2026-04-28-integration-strategy.md`, checkpoint `1637751` |
 | DONE | 2026-05-04 | Codex | Upload reusable skills package to `huckwnmo99/Skills` | `AGENTS.md`; external repo `huckwnmo99/Skills` | Changing skill contents, publishing Redou app code | Prepared `docs/exports/Skills` package |
 | DONE | 2026-05-04 | Codex | Prepare reusable GitHub skills repository package | `docs/exports/Skills/**`, `AGENTS.md` | Pushing to GitHub, modifying skill contents | User request to reuse skills via `huckwnmo99/Skills` |
 | DONE | 2026-05-04 | Codex | Redou Style import dialog copy cleanup with minimal code changes | `frontend/src/features/import/ImportPdfDialog.tsx`, `AGENTS.md` | Redesigning the whole app, changing import pipeline behavior, adding supplementary UI | User preference for current design and minimal code edits |
@@ -219,6 +220,7 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Date | Agent | Work | Files |
 |------|-------|------|-------|
+| 2026-05-05 | Codex | Created a 2026-05-05 integration strategy update after checkpointing and pushing `1637751`, re-ran merge-tree against `origin/main`, confirmed the 22 conflict files still hold, and upgraded the recommendation from Option B to Option B+ with explicit preservation audit guardrails for security fixes, supplementary source tracking, Stage 3d, and entity graph integration | `docs/features/proposals/2026-05-05-integration-strategy-update.md`, `AGENTS.md` |
 | 2026-05-04 | Codex | Uploaded the reusable Codex skills package to `https://github.com/huckwnmo99/Skills` on `main` with commit `affe12f`, verified the remote `skills` directory contains 29 skill folders, and left the Redou-local export copy in `docs/exports/Skills` | external repo `huckwnmo99/Skills`, `AGENTS.md` |
 | 2026-05-04 | Codex | Prepared a reusable GitHub skills repository package under `docs/exports/Skills`, copied the project-local skills into `skills/<skill-name>/SKILL.md`, and added README install instructions for global Codex, project-local Codex, and single-skill reuse | `docs/exports/Skills/**`, `AGENTS.md` |
 | 2026-05-04 | Codex | Applied a minimal Redou Style cleanup to the PDF import dialog by replacing developer-facing pipeline copy, hiding full source paths and internal queue IDs, and keeping the existing import, result, and job-status logic unchanged | `frontend/src/features/import/ImportPdfDialog.tsx`, `AGENTS.md` |
@@ -273,13 +275,13 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 ## 9. Latest Handoff
 
 ```md
-DONE | Codex - Skills uploaded to GitHub
-- Done: pushed the prepared reusable Codex skills package to `https://github.com/huckwnmo99/Skills`.
-- Commit: `affe12f` on `main` with message `Add reusable Codex skills`.
-- Contents: remote `skills` directory contains 29 skill folders.
-- Changed local files: `AGENTS.md`; existing export copy remains at `docs/exports/Skills/**`.
-- Verification: `gh api repos/huckwnmo99/Skills/contents/skills?ref=main --jq "length"` returned `29`; latest remote SHA is `affe12fe06b9d1d0ca389b848e02218174136aad`.
-- Out of scope: did not modify skill contents and did not publish Redou app code to the skills repo.
+DONE | Codex - Integration strategy updated after checkpoint
+- Done: committed and pushed checkpoint `1637751` (`Checkpoint before integration strategy update`) to `origin/feature/pipeline-v2-only`.
+- Done: re-ran `git merge-tree feature/pipeline-v2-only origin/main`; latest conflict set still contains 22 files, but now includes the 2026-05 checkpoint semantics.
+- Done: added `docs/features/proposals/2026-05-05-integration-strategy-update.md`.
+- Decision: keep the 2026-04-28 proposal direction, but update recommendation to Option B+ — safety-first integration with a pre-merge preservation audit.
+- New guardrails: preserve 2026-05-03 security/RLS fixes, 2026-05-04 supplementary source tracking, Stage 3d recovery behavior, V2-only pipeline behavior, and origin/main entity graph behavior.
+- Out of scope: did not perform the actual merge and did not resolve merge conflicts.
 ```
 
 ## 10. Known Issues & Potential Bugs
