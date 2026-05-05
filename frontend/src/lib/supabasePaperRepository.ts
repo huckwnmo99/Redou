@@ -174,6 +174,7 @@ interface FigureRow {
 
 interface ProcessingJobRow {
   paper_id: string | null;
+  job_type: string;
   status: ProcessingJobStatus;
   created_at: string;
 }
@@ -431,7 +432,11 @@ async function fetchPaperSignals() {
   const [noteRes, figureRes, jobRes] = await Promise.all([
     supabase.from("notes").select("paper_id"),
     supabase.from("figures").select("paper_id"),
-    supabase.from("processing_jobs").select("paper_id, status, created_at").order("created_at", { ascending: false }),
+    supabase
+      .from("processing_jobs")
+      .select("paper_id, job_type, status, created_at")
+      .eq("job_type", "import_pdf")
+      .order("created_at", { ascending: false }),
   ]);
 
   if (noteRes.error) console.warn("[fetchPaperSignals] notes query failed:", noteRes.error.message);
@@ -561,25 +566,35 @@ async function movePaperToFolderAssignment(paperId: string, folderId: string, us
   }
 }
 
-async function insertPaperFile(paperId: string, storedFile: FileImportResult) {
-  const { error } = await supabase.from("paper_files").insert({
+async function insertPaperFile(
+  paperId: string,
+  storedFile: FileImportResult,
+  options: { fileKind?: "main_pdf" | "supplementary_pdf"; isPrimary?: boolean } = {},
+) {
+  const { data, error } = await supabase
+    .from("paper_files")
+    .insert({
     paper_id: paperId,
-    file_kind: "main_pdf",
+    file_kind: options.fileKind ?? "main_pdf",
     original_filename: storedFile.originalFilename,
     stored_filename: storedFile.storedFilename,
     stored_path: storedFile.storedPath,
     checksum_sha256: storedFile.checksum,
     file_size_bytes: storedFile.fileSize,
     mime_type: "application/pdf",
-    is_primary: true,
-  });
+    is_primary: options.isPrimary ?? true,
+  })
+    .select("id")
+    .single();
 
-  if (error) {
-    throw new Error(error.message);
+  if (error || !data?.id) {
+    throw new Error(error?.message ?? "Unable to create the paper file record.");
   }
+
+  return data.id as string;
 }
 
-async function createImportJob(paperId: string, userId: string, storedPath: string) {
+async function createImportJob(paperId: string, userId: string, storedPath: string, sourceFileId?: string) {
   const { data, error } = await supabase
     .from("processing_jobs")
     .insert({
@@ -588,6 +603,7 @@ async function createImportJob(paperId: string, userId: string, storedPath: stri
       job_type: "import_pdf",
       status: "queued",
       source_path: storedPath,
+      source_file_id: sourceFileId ?? null,
     })
     .select("id")
     .single();
@@ -803,13 +819,13 @@ export const supabasePaperRepository = {
       const createdPaperId = paperRow.id;
       paperId = createdPaperId;
 
-      await insertPaperFile(createdPaperId, storedFile);
+      const sourceFileId = await insertPaperFile(createdPaperId, storedFile);
 
       if (draft.folderId) {
         await attachPaperToFolder(createdPaperId, draft.folderId, userId);
       }
 
-      const processingJobId = await createImportJob(createdPaperId, userId, storedFile.storedPath);
+      const processingJobId = await createImportJob(createdPaperId, userId, storedFile.storedPath, sourceFileId);
       const paper = await this.getPaperById(createdPaperId);
 
       if (!paper) {
@@ -1006,6 +1022,16 @@ export const supabasePaperRepository = {
 
   async deleteHighlightPreset(id: string): Promise<string> {
     const userId = await currentUserId();
+    const { count, error: countError } = await supabase
+      .from("highlights")
+      .select("id", { count: "exact", head: true })
+      .eq("preset_id", id)
+      .eq("user_id", userId);
+    if (countError) throw new Error(countError.message);
+    if ((count ?? 0) > 0) {
+      throw new Error("This preset is used by existing highlights. Reassign or delete those highlights before deleting the preset.");
+    }
+
     const { error } = await supabase
       .from("highlight_presets")
       .delete()
@@ -1356,6 +1382,31 @@ export const supabasePaperRepository = {
 
     if (figErr) console.warn("[deletePaper] Failed to query figures:", figErr.message);
 
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const deleteAuth =
+      session?.user?.id && session.access_token
+        ? { userId: session.user.id, accessToken: session.access_token }
+        : {};
+
+    // Clean up disk files via Electron IPC while DB ownership rows still exist.
+    const api = (globalThis as any).window?.redouDesktop;
+    const cleanupTasks: Promise<unknown>[] = [];
+    if (api?.file?.delete) {
+      for (const f of files ?? []) {
+        if (f.stored_path) {
+          cleanupTasks.push(api.file.delete({ storedPath: f.stored_path, ...deleteAuth }).catch(() => {}));
+        }
+      }
+      for (const f of figures ?? []) {
+        if (f.image_path) {
+          cleanupTasks.push(api.file.delete({ storedPath: f.image_path, ...deleteAuth }).catch(() => {}));
+        }
+      }
+    }
+    await Promise.all(cleanupTasks);
+
     // Hard delete the paper (all related rows CASCADE)
     const { error } = await supabase
       .from("papers")
@@ -1364,21 +1415,6 @@ export const supabasePaperRepository = {
 
     if (error) {
       throw new Error(error.message);
-    }
-
-    // Clean up disk files via Electron IPC (best-effort)
-    const api = (globalThis as any).window?.redouDesktop;
-    if (api?.file?.delete) {
-      for (const f of files ?? []) {
-        if (f.stored_path) {
-          api.file.delete({ storedPath: f.stored_path }).catch(() => {});
-        }
-      }
-      for (const f of figures ?? []) {
-        if (f.image_path) {
-          api.file.delete({ storedPath: f.image_path }).catch(() => {});
-        }
-      }
     }
 
     return { id: paperId };

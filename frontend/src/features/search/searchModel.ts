@@ -35,6 +35,7 @@ export interface SearchFigureResult {
   id: string;
   paperId: string;
   figureNo: string;
+  itemType: PaperFigure["itemType"];
   title: string;
   body: string;
   countLabel: string;
@@ -180,6 +181,7 @@ export function buildSearchGroups(input: {
         id: figure.id,
         paperId: figure.paperId,
         figureNo: figure.figureNo,
+        itemType: figure.itemType,
         title: paper?.title ?? "Untitled paper",
         body: buildSnippet(figure.caption ?? figure.summaryText ?? "Figure caption not extracted yet.", normalized, 150),
         countLabel: figure.isPresentationCandidate ? `${figure.figureNo} - deck candidate` : figure.figureNo,
@@ -338,13 +340,17 @@ export function buildUnifiedResults(input: {
     }
   }
 
-  // Text figures (figure captions)
-  if (includeFigures) {
+  // Text figures, tables, and equations (caption fallback when embeddings are unavailable)
+  if (includeFigures || includeEquations) {
     for (const f of input.textFigures) {
+      const isFigType = f.itemType === "figure";
+      const isTableOrEq = f.itemType === "table" || f.itemType === "equation";
+      if ((isFigType && !includeFigures) || (isTableOrEq && !includeEquations)) continue;
       const e = entry(f.paperId);
       e.score = Math.max(e.score, 0.35);
       if (countSource(e.evidence, "figure") < 1) {
-        e.evidence.push({ source: "figure", snippet: f.body, page: f.page, label: f.figureNo });
+        const typeLabel = f.itemType === "table" ? "Table" : f.itemType === "equation" ? "Equation" : "Figure";
+        e.evidence.push({ source: "figure", snippet: f.body, page: f.page, label: `${typeLabel} ${f.figureNo}` });
       }
     }
   }

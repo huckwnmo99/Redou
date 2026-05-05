@@ -37,6 +37,7 @@ export interface FileImportResult {
   originalFilename: string;
   checksum: string;
   fileSize: number;
+  cleanupToken?: string;
 }
 
 export interface PdfInspectionResult {
@@ -87,14 +88,20 @@ export interface ChatSendMessageParams {
   scopeFolderId?: string | null;
   scopeAll?: boolean;
   mode?: "table" | "qa";
+  userId?: string;
+  accessToken?: string;
 }
 
 export interface ChatAbortParams {
   conversationId: string;
+  userId?: string;
+  accessToken?: string;
 }
 
 export interface ChatExportCsvParams {
   tableId: string;
+  userId?: string;
+  accessToken?: string;
 }
 
 export interface ChatTokenEvent {
@@ -160,7 +167,7 @@ export interface RedouDesktopApi {
     inspectPdf: (args: { sourcePath: string }) => Promise<DbResult<PdfInspectionResult>>;
     getPath: (args: { storedPath: string }) => Promise<DbResult<string>>;
     openPath: (args: { filePath: string }) => Promise<DbResult>;
-    delete: (args: { storedPath: string }) => Promise<DbResult>;
+    delete: (args: { storedPath: string; cleanupToken?: string; userId?: string; accessToken?: string }) => Promise<DbResult>;
     openInExplorer: (args: { filePath: string }) => Promise<DbResult>;
     selectDialog: () => Promise<DbResult<string[]>>;
   };
@@ -197,8 +204,8 @@ export interface RedouDesktopApi {
   };
   llm: {
     listModels: () => Promise<DbResult<OllamaModel[]>>;
-    getModel: () => Promise<DbResult<LlmModelInfo>>;
-    setModel: (args: { model: string }) => Promise<DbResult<{ model: string }>>;
+    getModel: (args?: { userId?: string; accessToken?: string }) => Promise<DbResult<LlmModelInfo>>;
+    setModel: (args: { model: string; userId?: string; accessToken?: string }) => Promise<DbResult<{ model: string }>>;
   };
   openExternal: (url: string) => Promise<void>;
   getFilePathForDrop: (file: File) => string;

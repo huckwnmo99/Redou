@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { importPdfToLibrary } from "./desktop";
+import { deleteImportedLibraryFile, importPdfToLibrary } from "./desktop";
 import { supabasePaperRepository as paperRepository } from "./supabasePaperRepository";
 import type {
   ImportedPaperDraft,
@@ -362,8 +362,13 @@ export function useImportDesktopPapers() {
           shortTitle: draft.title,
         });
 
-        const result = await paperRepository.createImportedPaper(draft, storedFile);
-        results.push(result);
+        try {
+          const result = await paperRepository.createImportedPaper(draft, storedFile);
+          results.push(result);
+        } catch (error) {
+          await deleteImportedLibraryFile(storedFile.storedPath, storedFile.cleanupToken);
+          throw error;
+        }
       }
 
       return results;

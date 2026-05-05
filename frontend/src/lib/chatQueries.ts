@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useChatStore } from "@/stores/chatStore";
+import { supabase } from "./supabase";
 import type {
   ChatConversation,
   ChatMessage,
@@ -48,6 +49,22 @@ function requireDesktopApi(): RedouDesktopApi {
   return api;
 }
 
+async function getAuthContext() {
+  const {
+    data: { session },
+    error,
+  } = await supabase.auth.getSession();
+
+  if (error || !session?.user?.id || !session.access_token) {
+    throw new Error(error?.message ?? "Your session is no longer available. Sign in again.");
+  }
+
+  return {
+    userId: session.user.id,
+    accessToken: session.access_token,
+  };
+}
+
 // ============================================================
 // Queries
 // ============================================================
@@ -56,17 +73,14 @@ export function useChatConversations() {
   return useQuery({
     queryKey: chatKeys.conversations,
     queryFn: async (): Promise<ChatConversation[]> => {
-      const api = requireDesktopApi();
-      const result = await api.db.query<ChatConversation>({
-        table: "chat_conversations",
-        method: "select",
-        params: {
-          columns: "*",
-          order: { column: "updated_at", ascending: false },
-        },
-      });
-      if (!result.success) throw new Error(result.error ?? "Failed to load conversations");
-      return result.data ?? [];
+      const { userId } = await getAuthContext();
+      const { data, error } = await supabase
+        .from("chat_conversations")
+        .select("*")
+        .eq("owner_user_id", userId)
+        .order("updated_at", { ascending: false });
+      if (error) throw new Error(error.message);
+      return (data ?? []) as ChatConversation[];
     },
   });
 }
@@ -76,18 +90,14 @@ export function useChatMessages(conversationId: string | null) {
     queryKey: chatKeys.messages(conversationId ?? "none"),
     queryFn: async (): Promise<ChatMessage[]> => {
       if (!conversationId) return [];
-      const api = requireDesktopApi();
-      const result = await api.db.query<ChatMessage>({
-        table: "chat_messages",
-        method: "select",
-        params: {
-          columns: "*",
-          filters: [["conversation_id", "eq", conversationId]],
-          order: { column: "created_at", ascending: true },
-        },
-      });
-      if (!result.success) throw new Error(result.error ?? "Failed to load messages");
-      return result.data ?? [];
+      await getAuthContext();
+      const { data, error } = await supabase
+        .from("chat_messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true });
+      if (error) throw new Error(error.message);
+      return (data ?? []) as ChatMessage[];
     },
     enabled: Boolean(conversationId),
   });
@@ -98,18 +108,15 @@ export function useChatTable(tableId: string | null) {
     queryKey: chatKeys.table(tableId ?? "none"),
     queryFn: async (): Promise<ChatGeneratedTable | null> => {
       if (!tableId) return null;
-      const api = requireDesktopApi();
-      const result = await api.db.query<ChatGeneratedTable>({
-        table: "chat_generated_tables",
-        method: "select",
-        params: {
-          columns: "*",
-          filters: [["id", "eq", tableId]],
-          limit: 1,
-        },
-      });
-      if (!result.success) throw new Error(result.error ?? "Failed to load table");
-      return result.data?.[0] ?? null;
+      await getAuthContext();
+      const { data, error } = await supabase
+        .from("chat_generated_tables")
+        .select("*")
+        .eq("id", tableId)
+        .limit(1)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      return (data ?? null) as ChatGeneratedTable | null;
     },
     enabled: Boolean(tableId),
   });
@@ -126,6 +133,7 @@ export function useSendChatMessage() {
   return useMutation({
     mutationFn: async (params: ChatSendMessageParams) => {
       const api = requireDesktopApi();
+      const authContext = await getAuthContext();
       // Start streaming BEFORE the IPC call (handler blocks until LLM finishes)
       const tempConvId = params.conversationId ?? "pending";
       startStreaming(tempConvId);
@@ -134,7 +142,7 @@ export function useSendChatMessage() {
 
       // Include mode from chatStore if not explicitly provided
       const mode = params.mode ?? useChatStore.getState().conversationType;
-      const result = await api.chat.sendMessage({ ...params, mode }) as unknown as {
+      const result = await api.chat.sendMessage({ ...params, mode, ...authContext }) as unknown as {
         conversationId: string;
         messageId?: string;
         hasTable?: boolean;
@@ -161,7 +169,8 @@ export function useAbortChat() {
   return useMutation({
     mutationFn: async (conversationId: string) => {
       const api = requireDesktopApi();
-      await api.chat.abort({ conversationId });
+      const authContext = await getAuthContext();
+      await api.chat.abort({ conversationId, ...authContext });
     },
   });
 }
@@ -172,13 +181,13 @@ export function useDeleteConversation() {
 
   return useMutation({
     mutationFn: async (conversationId: string) => {
-      const api = requireDesktopApi();
-      const result = await api.db.mutate({
-        table: "chat_conversations",
-        method: "delete",
-        params: { match: { id: conversationId } },
-      });
-      if (!result.success) throw new Error(result.error ?? "Failed to delete conversation");
+      const { userId } = await getAuthContext();
+      const { error } = await supabase
+        .from("chat_conversations")
+        .delete()
+        .eq("id", conversationId)
+        .eq("owner_user_id", userId);
+      if (error) throw new Error(error.message);
     },
     onSuccess: (_, conversationId) => {
       queryClient.invalidateQueries({ queryKey: chatKeys.conversations });
@@ -194,16 +203,13 @@ export function useRenameConversation() {
 
   return useMutation({
     mutationFn: async ({ conversationId, title }: { conversationId: string; title: string }) => {
-      const api = requireDesktopApi();
-      const result = await api.db.mutate({
-        table: "chat_conversations",
-        method: "update",
-        params: {
-          data: { title },
-          match: { id: conversationId },
-        },
-      });
-      if (!result.success) throw new Error(result.error ?? "Failed to rename conversation");
+      const { userId } = await getAuthContext();
+      const { error } = await supabase
+        .from("chat_conversations")
+        .update({ title })
+        .eq("id", conversationId)
+        .eq("owner_user_id", userId);
+      if (error) throw new Error(error.message);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: chatKeys.conversations });
@@ -215,7 +221,8 @@ export function useExportChatCsv() {
   return useMutation({
     mutationFn: async (tableId: string) => {
       const api = requireDesktopApi();
-      const result = await api.chat.exportCsv({ tableId }) as unknown as {
+      const authContext = await getAuthContext();
+      const result = await api.chat.exportCsv({ tableId, ...authContext }) as unknown as {
         filePath?: string;
         error?: string;
       };
@@ -241,6 +248,9 @@ export function useChatStreamBridge() {
       // Accept tokens if streaming, regardless of conversation ID match
       // (new conversations start with "pending" ID)
       if (store.isStreaming) {
+        if (store.activeConversationId === "pending") {
+          store.setActiveConversationId(event.conversationId);
+        }
         store.appendToken(event.token);
       }
     });
@@ -270,6 +280,9 @@ export function useChatStreamBridge() {
     const unsubStatus = api.onChatStatus((event: ChatStatusEvent) => {
       const store = useChatStore.getState();
       if (store.isStreaming) {
+        if (store.activeConversationId === "pending") {
+          store.setActiveConversationId(event.conversationId);
+        }
         if (event.stage) {
           store.setPipelineStage(event.stage, event.message, event.detail);
         } else {
@@ -312,7 +325,8 @@ export function useActiveLlmModel() {
     queryFn: async (): Promise<LlmModelInfo | null> => {
       const api = getDesktopApi();
       if (!api) return null;
-      const result = await api.llm.getModel();
+      const authContext = await getAuthContext();
+      const result = await api.llm.getModel(authContext);
       if (!result.success) throw new Error(result.error ?? "Failed to get model");
       return result.data ?? null;
     },
@@ -326,7 +340,8 @@ export function useSetLlmModel() {
   return useMutation({
     mutationFn: async (model: string) => {
       const api = requireDesktopApi();
-      const result = await api.llm.setModel({ model });
+      const authContext = await getAuthContext();
+      const result = await api.llm.setModel({ model, ...authContext });
       if (!result.success) throw new Error(result.error ?? "Failed to set model");
       return result.data;
     },

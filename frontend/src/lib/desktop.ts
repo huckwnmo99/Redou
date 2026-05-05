@@ -177,6 +177,16 @@ export async function importPdfToLibrary(args: FileImportParams): Promise<FileIm
   return expectSuccess(result, "Unable to import the selected PDF into the desktop library.");
 }
 
+export async function deleteImportedLibraryFile(storedPath: string, cleanupToken?: string): Promise<void> {
+  const api = getDesktopApi();
+  if (!api) return;
+
+  const result = await api.file.delete({ storedPath, cleanupToken });
+  if (!result.success) {
+    console.warn("[desktop] Unable to clean up imported PDF:", result.error);
+  }
+}
+
 export async function inspectDesktopPdfMetadata(sourcePath: string): Promise<PdfInspectionResult> {
   const api = requireDesktopApi();
   const result = await api.file.inspectPdf({ sourcePath });

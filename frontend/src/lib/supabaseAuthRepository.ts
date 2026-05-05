@@ -11,6 +11,13 @@ import type {
 } from "@/types/auth";
 import type { User } from "@supabase/supabase-js";
 
+const DEFAULT_HIGHLIGHT_PRESETS = [
+  { name: "Important", color_hex: "#F2C94C", description: "Key claim or result", sort_order: 1 },
+  { name: "Method", color_hex: "#6FCF97", description: "Methods and experimental details", sort_order: 2 },
+  { name: "Question", color_hex: "#56CCF2", description: "Open question or follow-up", sort_order: 3 },
+  { name: "Concern", color_hex: "#EB5757", description: "Limitation, caveat, or conflict", sort_order: 4 },
+];
+
 function normalizeEmail(email: string | null | undefined): string {
   return email?.trim().toLowerCase() ?? "";
 }
@@ -111,12 +118,12 @@ async function recoverFromAuthError(message: string | null | undefined) {
   return true;
 }
 
-async function ensureAppUser(user: User) {
+async function ensureAppUser(user: User): Promise<boolean> {
   // Ensure the JWT is actually set before making DB calls (fixes 401 race condition)
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
     console.warn("[ensureAppUser] No active session — skipping profile upsert");
-    return;
+    return false;
   }
 
   const { error } = await supabase.from("app_users").upsert(
@@ -133,10 +140,44 @@ async function ensureAppUser(user: User) {
   if (error) {
     throw new Error(`Unable to prepare the workspace profile: ${error.message}`);
   }
+
+  return true;
+}
+
+async function ensureDefaultHighlightPresets(userId: string) {
+  const { count, error: countError } = await supabase
+    .from("highlight_presets")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId);
+
+  if (countError) {
+    throw new Error(`Unable to inspect highlight presets: ${countError.message}`);
+  }
+
+  if ((count ?? 0) > 0) {
+    return;
+  }
+
+  const { error } = await supabase.from("highlight_presets").insert(
+    DEFAULT_HIGHLIGHT_PRESETS.map((preset) => ({
+      user_id: userId,
+      ...preset,
+      is_system_default: true,
+      is_active: true,
+    })),
+  );
+
+  if (error) {
+    throw new Error(`Unable to prepare default highlight presets: ${error.message}`);
+  }
 }
 
 async function bootstrapWorkspaceUser(user: User) {
-  await ensureAppUser(user);
+  const isReady = await ensureAppUser(user);
+  if (!isReady) {
+    return;
+  }
+  await ensureDefaultHighlightPresets(user.id);
 }
 
 export const supabaseAuthRepository = {

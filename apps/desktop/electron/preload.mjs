@@ -104,7 +104,7 @@ contextBridge.exposeInMainWorld("redouDesktop", {
 
   llm: {
     listModels: () => ipcRenderer.invoke(IPC_CHANNELS.LLM_LIST_MODELS),
-    getModel: () => ipcRenderer.invoke(IPC_CHANNELS.LLM_GET_MODEL),
+    getModel: (args) => ipcRenderer.invoke(IPC_CHANNELS.LLM_GET_MODEL, args),
     setModel: (args) => ipcRenderer.invoke(IPC_CHANNELS.LLM_SET_MODEL, args),
   },
 

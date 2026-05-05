@@ -4,7 +4,7 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { IPC_CHANNELS, IPC_EVENTS } from "./types/ipc-channels.mjs";
 import { createClient } from "@supabase/supabase-js";
 import zlib from "node:zlib";
@@ -88,6 +88,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 // ============================================================
 let mainWindow = null;
 const detachedWindows = new Map();
+const fileDeleteCleanupTokens = new Map();
 const PROCESSING_POLL_INTERVAL_MS = 2500;
 let processingInterval = null;
 let extractionInFlight = false;
@@ -119,9 +120,6 @@ const DB_QUERY_TABLES = new Set([
   "chunk_embeddings",
   "highlight_embeddings",
   "figure_chunk_links",
-  "chat_conversations",
-  "chat_messages",
-  "chat_generated_tables",
 ]);
 const DB_MUTATE_TABLES = new Set([
   "papers",
@@ -144,9 +142,6 @@ const DB_MUTATE_TABLES = new Set([
   "chunk_embeddings",
   "highlight_embeddings",
   "figure_chunk_links",
-  "chat_conversations",
-  "chat_messages",
-  "chat_generated_tables",
 ]);
 
 // --- Contextual chunking helpers ---
@@ -373,6 +368,84 @@ function assertLibraryPath(filePath, label = "File path") {
   return resolvedPath;
 }
 
+function resolveRedouFilePath(requestUrl) {
+  const url = new URL(requestUrl);
+  if (url.protocol !== "redou-file:") {
+    throw new Error("Unsupported file protocol.");
+  }
+
+  let localPath = decodeURIComponent(url.pathname);
+  if (process.platform === "win32" && /^\/[A-Za-z]:\//.test(localPath)) {
+    localPath = localPath.slice(1);
+  } else if (url.hostname) {
+    localPath = `//${url.hostname}${localPath}`;
+  }
+
+  return assertLibraryPath(localPath, "redou-file path");
+}
+
+function normalizePanelId(panelId) {
+  if (typeof panelId !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(panelId)) {
+    throw new Error("Invalid detached panel id.");
+  }
+
+  return panelId;
+}
+
+async function resolveAuthenticatedUserId(authContext) {
+  const userId = typeof authContext?.userId === "string" ? authContext.userId : "";
+  const accessToken = typeof authContext?.accessToken === "string" ? authContext.accessToken : "";
+  if (!userId || !accessToken) {
+    throw new Error("Authentication is required.");
+  }
+
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser(accessToken);
+
+  if (error || user?.id !== userId) {
+    throw new Error("Invalid auth session.");
+  }
+
+  return userId;
+}
+
+async function isOwnedDeletableLibraryPath(resolvedPath, userId) {
+  const { data: paperFile, error: paperFileError } = await supabase
+    .from("paper_files")
+    .select("id, papers!inner(owner_user_id)")
+    .eq("stored_path", resolvedPath)
+    .eq("papers.owner_user_id", userId)
+    .limit(1)
+    .maybeSingle();
+  if (paperFileError) throw new Error(paperFileError.message);
+  if (paperFile?.id) return true;
+
+  const { data: figureFile, error: figureFileError } = await supabase
+    .from("figures")
+    .select("id, papers!inner(owner_user_id)")
+    .eq("image_path", resolvedPath)
+    .eq("papers.owner_user_id", userId)
+    .limit(1)
+    .maybeSingle();
+  if (figureFileError) throw new Error(figureFileError.message);
+
+  return Boolean(figureFile?.id);
+}
+
+async function applyUserLlmPreference(userId) {
+  const { data: pref, error } = await supabase
+    .from("user_workspace_preferences")
+    .select("llm_model")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+
+  setActiveModel(pref?.llm_model || null);
+  return getActiveModel();
+}
+
 async function ensurePaperSummary(paperId, userId) {
   const { data: existing, error: existingError } = await supabase
     .from("paper_summaries")
@@ -424,12 +497,13 @@ function mergeMetadata({ grobid, mineruSections, fallbackTitle, currentPaper }) 
 async function persistV2Results({
   paperId, userId, sourceFileId, metadata,
   sections, chunks, tables, equations, figures, references,
-  storedPath, mineruImages, grobid,
+  storedPath, mineruImages, grobid, shouldUpdatePaperMetadata = true,
 }) {
-  // Delete existing data for this paper
-  await supabase.from("paper_chunks").delete().eq("paper_id", paperId);
-  await supabase.from("figures").delete().eq("paper_id", paperId);
-  await supabase.from("paper_sections").delete().eq("paper_id", paperId);
+  // Delete only the rows produced by this source file so supplementary
+  // processing cannot wipe the main PDF extraction output.
+  await supabase.from("paper_chunks").delete().eq("paper_id", paperId).eq("source_file_id", sourceFileId);
+  await supabase.from("figures").delete().eq("paper_id", paperId).eq("source_file_id", sourceFileId);
+  await supabase.from("paper_sections").delete().eq("paper_id", paperId).eq("source_file_id", sourceFileId);
 
   // --- Sections ---
   const sectionIdByOrder = new Map();
@@ -439,6 +513,7 @@ async function persistV2Results({
       .insert(
         sections.map((s) => ({
           paper_id: paperId,
+          source_file_id: sourceFileId,
           section_name: s.sectionName,
           section_order: s.sectionOrder,
           page_start: s.pageStart ?? null,
@@ -463,6 +538,7 @@ async function persistV2Results({
       .insert(
         chunks.map((c) => ({
           paper_id: paperId,
+          source_file_id: sourceFileId,
           section_id: sectionIdByOrder.get(c.sectionOrder) ?? null,
           chunk_order: c.chunkOrder,
           page: c.page ?? null,
@@ -485,7 +561,7 @@ async function persistV2Results({
   const figureImageMap = new Map();
   if (figures.length > 0) {
     try {
-      const saved = await saveFigureImages(paperId, figures, LIBRARY_ROOT);
+      const saved = await saveFigureImages(path.join(paperId, sourceFileId), figures, LIBRARY_ROOT);
       for (const [k, v] of saved) figureImageMap.set(k, v);
     } catch (err) {
       console.warn("[v2] Figure image save failed:", err.message);
@@ -506,7 +582,7 @@ async function persistV2Results({
         for (const fi of pdfjsImages) {
           if (fi.jpegBuffer || fi.rgbaData) {
             const safeName = fi.figureNo.replace(/[^a-zA-Z0-9]/g, "_");
-            const figureDir = path.join(LIBRARY_ROOT, "Figures", paperId);
+            const figureDir = path.join(LIBRARY_ROOT, "Figures", paperId, sourceFileId);
             await fs.mkdir(figureDir, { recursive: true });
             if (fi.rgbaData && fi.width && fi.height) {
               const p = path.join(figureDir, `${safeName}.png`);
@@ -541,7 +617,7 @@ async function persistV2Results({
   const tableImageMap = new Map();
   if (tables.length > 0 && mineruImages) {
     try {
-      const saved = await saveTableImages(paperId, tables, mineruImages, LIBRARY_ROOT);
+      const saved = await saveTableImages(path.join(paperId, sourceFileId), tables, mineruImages, LIBRARY_ROOT);
       for (const [k, v] of saved) tableImageMap.set(k, v);
     } catch (err) {
       console.warn("[v2] Table image save failed:", err.message);
@@ -594,6 +670,7 @@ async function persistV2Results({
       .from("figures")
       .select("id, figure_no, page, item_type")
       .eq("paper_id", paperId)
+      .eq("source_file_id", sourceFileId)
       .in("item_type", ["table", "equation"]);
 
     if (insertedFigures && insertedFigures.length > 0) {
@@ -624,7 +701,7 @@ async function persistV2Results({
   }
 
   // --- References ---
-  if (references && references.length > 0) {
+  if (shouldUpdatePaperMetadata && references && references.length > 0) {
     await supabase.from("paper_references").delete().eq("paper_id", paperId);
     const linkedRefs = await linkReferencesToExistingPapers(references, supabase);
     const { error: refError } = await supabase.from("paper_references").insert(
@@ -645,6 +722,7 @@ async function persistV2Results({
     if (refError) throw new Error(refError.message);
   }
 
+  if (shouldUpdatePaperMetadata) {
   // --- Update paper metadata ---
   const paperPatch = {
     updated_at: new Date().toISOString(),
@@ -673,6 +751,7 @@ async function persistV2Results({
 
   // --- Paper summary ---
   await upsertPaperSummaryV2(paperId, userId, sections, metadata, grobid);
+  }
 
   return {
     sectionCount: sections.length,
@@ -733,7 +812,8 @@ async function upsertPaperSummaryV2(paperId, userId, sections, metadata, grobid)
 }
 
 async function processWithMineruGrobid({
-  paperId, userId, sourceFileId, storedPath, paperTitle, currentPaper, grobidAvailable = true, onProgress,
+  paperId, userId, sourceFileId, storedPath, paperTitle, currentPaper, grobidAvailable = true,
+  shouldUpdatePaperMetadata = true, onProgress,
 }) {
   const pdfBuffer = await fs.readFile(storedPath);
 
@@ -791,6 +871,7 @@ async function processWithMineruGrobid({
     storedPath,
     mineruImages: mineruResult.value.images,
     grobid,
+    shouldUpdatePaperMetadata,
   });
 
   onProgress?.({ progress: 70, message: `V2 추출 완료: ${result.sectionCount}섹션, ${result.tableCount}테이블, ${result.equationCount}수식, ${result.referenceCount}참고문헌` });
@@ -839,24 +920,47 @@ async function processImportPdfJob(job) {
     message: "Stored PDF verified inside the desktop library.",
   });
 
-  const { data: primaryFiles, error: fileError } = await supabase
-    .from("paper_files")
-    .select("id, stored_path")
-    .eq("paper_id", job.paper_id)
-    .eq("is_primary", true)
-    .limit(1);
-
-  if (fileError) {
-    throw new Error(fileError.message);
+  let sourceFile = null;
+  if (job.source_file_id) {
+    const { data, error } = await supabase
+      .from("paper_files")
+      .select("id, stored_path, file_kind, is_primary")
+      .eq("paper_id", job.paper_id)
+      .eq("id", job.source_file_id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    sourceFile = data ?? null;
   }
 
-  const primaryFile = primaryFiles?.[0];
-  if (!primaryFile) {
-    throw new Error("Primary paper file is missing for this processing job.");
+  if (!sourceFile) {
+    const { data, error } = await supabase
+      .from("paper_files")
+      .select("id, stored_path, file_kind, is_primary")
+      .eq("paper_id", job.paper_id)
+      .eq("stored_path", job.source_path)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    sourceFile = data ?? null;
   }
 
-  const resolvedStoredPath = assertLibraryPath(primaryFile.stored_path ?? job.source_path, "Primary paper file path");
+  if (!sourceFile) {
+    const { data: primaryFiles, error: fileError } = await supabase
+      .from("paper_files")
+      .select("id, stored_path, file_kind, is_primary")
+      .eq("paper_id", job.paper_id)
+      .eq("is_primary", true)
+      .limit(1);
+    if (fileError) throw new Error(fileError.message);
+    sourceFile = primaryFiles?.[0] ?? null;
+  }
+
+  if (!sourceFile) {
+    throw new Error("Paper source file is missing for this processing job.");
+  }
+
+  const resolvedStoredPath = assertLibraryPath(sourceFile.stored_path ?? job.source_path, "Paper source file path");
   await fs.access(resolvedStoredPath);
+  const shouldUpdatePaperMetadata = sourceFile.is_primary && sourceFile.file_kind === "main_pdf";
 
   // --- Single pipeline: MinerU + GROBID (V2) ---
   // MinerU is REQUIRED. GROBID is optional (degraded mode: warn and proceed).
@@ -883,11 +987,12 @@ async function processImportPdfJob(job) {
   const extractionResult = await processWithMineruGrobid({
     paperId: job.paper_id,
     userId: job.user_id ?? null,
-    sourceFileId: primaryFile.id,
+    sourceFileId: sourceFile.id,
     storedPath: resolvedStoredPath,
     paperTitle: paperRow.title ?? "",
     currentPaper: paperRow,
     grobidAvailable,
+    shouldUpdatePaperMetadata,
     onProgress: ({ progress, message }) => {
       broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
         jobId: job.id, paperId: job.paper_id, status: "running", progress, message,
@@ -917,6 +1022,7 @@ async function processImportPdfJob(job) {
       .from("figures")
       .select("id, figure_no, page")
       .eq("paper_id", job.paper_id)
+      .eq("source_file_id", sourceFile.id)
       .eq("item_type", "table")
       .or("summary_text.is.null,summary_text.eq.");
 
@@ -965,6 +1071,7 @@ async function processImportPdfJob(job) {
       job_type: "generate_embeddings",
       status: "queued",
       source_path: resolvedStoredPath,
+      source_file_id: sourceFile.id,
     });
   }
 }
@@ -998,11 +1105,15 @@ async function processEmbeddingJob(job) {
   });
 
   // Fetch all chunks for this paper
-  const { data: chunks, error: chunkError } = await supabase
+  let chunkQuery = supabase
     .from("paper_chunks")
     .select("id, text, section_id")
     .eq("paper_id", job.paper_id)
     .order("chunk_order", { ascending: true });
+  if (job.source_file_id) {
+    chunkQuery = chunkQuery.eq("source_file_id", job.source_file_id);
+  }
+  const { data: chunks, error: chunkError } = await chunkQuery;
 
   if (chunkError) {
     throw new Error(chunkError.message);
@@ -1272,7 +1383,7 @@ async function tryStartExtractionJob() {
   try {
     const { data: queuedJobs, error: jobError } = await supabase
       .from("processing_jobs")
-      .select("id, paper_id, user_id, source_path, job_type, status, created_at")
+      .select("id, paper_id, user_id, source_path, source_file_id, job_type, status, created_at")
       .eq("status", "queued")
       .neq("job_type", "generate_embeddings")
       .order("created_at", { ascending: true })
@@ -1321,7 +1432,7 @@ async function tryStartEmbeddingJob() {
   try {
     const { data: queuedJobs, error: jobError } = await supabase
       .from("processing_jobs")
-      .select("id, paper_id, user_id, source_path, job_type, status, created_at")
+      .select("id, paper_id, user_id, source_path, source_file_id, job_type, status, created_at")
       .eq("status", "queued")
       .eq("job_type", "generate_embeddings")
       .order("created_at", { ascending: true })
@@ -1427,7 +1538,7 @@ async function requeueOutdatedPapers() {
       // Get the stored PDF path
       const { data: fileRow } = await supabase
         .from("paper_files")
-        .select("stored_path")
+        .select("id, stored_path")
         .eq("paper_id", paper.id)
         .eq("is_primary", true)
         .limit(1)
@@ -1449,6 +1560,7 @@ async function requeueOutdatedPapers() {
         job_type: "import_pdf",
         status: "queued",
         source_path: fileRow.stored_path,
+        source_file_id: fileRow.id,
       });
 
       queuedCount += 1;
@@ -1557,6 +1669,8 @@ ipcMain.handle(IPC_CHANNELS.FILE_IMPORT_PDF, async (_event, { sourcePath, year, 
     await fs.copyFile(resolvedSourcePath, destPath);
     const checksum = await computeSha256(destPath);
     const stat = await fs.stat(destPath);
+    const cleanupToken = crypto.randomUUID();
+    fileDeleteCleanupTokens.set(cleanupToken, destPath);
 
     return {
       success: true,
@@ -1566,6 +1680,7 @@ ipcMain.handle(IPC_CHANNELS.FILE_IMPORT_PDF, async (_event, { sourcePath, year, 
         originalFilename: path.basename(resolvedSourcePath),
         checksum,
         fileSize: stat.size,
+        cleanupToken,
       },
     };
   } catch (err) {
@@ -1610,10 +1725,27 @@ ipcMain.handle(IPC_CHANNELS.FILE_OPEN_PATH, async (_event, { filePath }) => {
   }
 });
 
-ipcMain.handle(IPC_CHANNELS.FILE_DELETE, async (_event, { storedPath }) => {
+ipcMain.handle(IPC_CHANNELS.FILE_DELETE, async (_event, { storedPath, cleanupToken, userId, accessToken }) => {
   try {
     const resolvedPath = assertLibraryPath(storedPath, "Delete path");
+    let tokenMatched = false;
+    if (typeof cleanupToken === "string") {
+      const tokenPath = fileDeleteCleanupTokens.get(cleanupToken);
+      tokenMatched = Boolean(tokenPath) && path.resolve(tokenPath) === resolvedPath;
+    }
+
+    if (!tokenMatched) {
+      const ownerId = await resolveAuthenticatedUserId({ userId, accessToken });
+      const isOwned = await isOwnedDeletableLibraryPath(resolvedPath, ownerId);
+      if (!isOwned) {
+        return { success: false, error: "Delete path is not registered to the current workspace user." };
+      }
+    }
+
     await fs.unlink(resolvedPath);
+    if (tokenMatched) {
+      fileDeleteCleanupTokens.delete(cleanupToken);
+    }
     return { success: true };
   } catch (err) {
     return { success: false, error: getErrorMessage(err) };
@@ -1661,10 +1793,11 @@ ipcMain.handle(IPC_CHANNELS.APP_GET_LIBRARY_PATH, () => LIBRARY_ROOT);
 // IPC Handlers: Window Management
 // ============================================================
 
-ipcMain.handle(IPC_CHANNELS.WINDOW_DETACH_PANEL, async (_event, { panelId, url }) => {
-  if (detachedWindows.has(panelId)) {
-    detachedWindows.get(panelId).focus();
-    return { success: true, windowId: panelId };
+ipcMain.handle(IPC_CHANNELS.WINDOW_DETACH_PANEL, async (_event, { panelId }) => {
+  const safePanelId = normalizePanelId(panelId);
+  if (detachedWindows.has(safePanelId)) {
+    detachedWindows.get(safePanelId).focus();
+    return { success: true, windowId: safePanelId };
   }
 
   const win = new BrowserWindow({
@@ -1677,8 +1810,8 @@ ipcMain.handle(IPC_CHANNELS.WINDOW_DETACH_PANEL, async (_event, { panelId, url }
     },
   });
 
-  const targetUrl = url ?? `${rendererUrl}#/detached/${panelId}`;
-  const detachedHash = `/detached/${panelId}`;
+  const targetUrl = `${rendererUrl}#/detached/${safePanelId}`;
+  const detachedHash = `/detached/${safePanelId}`;
   if (app.isPackaged) {
     const packagedRendererPath = resolvePackagedRendererPath();
     if (!packagedRendererPath) {
@@ -1694,30 +1827,31 @@ ipcMain.handle(IPC_CHANNELS.WINDOW_DETACH_PANEL, async (_event, { panelId, url }
       (packagedRendererPath) => {
         win.loadFile(packagedRendererPath, { hash: detachedHash });
       },
-      `detached panel ${panelId}`
+      `detached panel ${safePanelId}`
     );
     win.loadURL(targetUrl);
   }
 
-  detachedWindows.set(panelId, win);
+  detachedWindows.set(safePanelId, win);
   win.on("closed", () => {
-    detachedWindows.delete(panelId);
+    detachedWindows.delete(safePanelId);
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(IPC_EVENTS.FILE_CHANGED, {
         type: "panel-reattached",
-        panelId,
+        panelId: safePanelId,
       });
     }
   });
 
-  return { success: true, windowId: panelId };
+  return { success: true, windowId: safePanelId };
 });
 
 ipcMain.handle(IPC_CHANNELS.WINDOW_REATTACH_PANEL, async (_event, { panelId }) => {
-  const win = detachedWindows.get(panelId);
+  const safePanelId = normalizePanelId(panelId);
+  const win = detachedWindows.get(safePanelId);
   if (win) {
     win.close();
-    detachedWindows.delete(panelId);
+    detachedWindows.delete(safePanelId);
   }
   return { success: true };
 });
@@ -1950,36 +2084,26 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 app.whenReady().then(async () => {
-  // Handle redou-file:// protocol — mirrors file:// for local access
+  // Handle redou-file:// protocol for files inside the Redou library only.
   protocol.handle("redou-file", (request) => {
-    const fileUrl = request.url.replace("redou-file:", "file:");
-    console.log(`[redou-file] ${request.url} → ${fileUrl}`);
+    const resolvedPath = resolveRedouFilePath(request.url);
+    const fileUrl = pathToFileURL(resolvedPath).toString();
+    console.log(`[redou-file] ${request.url} -> ${fileUrl}`);
     return net.fetch(fileUrl);
   });
 
   await ensureDir(LIBRARY_ROOT);
-  // Load user-selected LLM model from DB
-  try {
-    const { data: pref } = await supabase
-      .from("user_workspace_preferences")
-      .select("llm_model")
-      .limit(1)
-      .maybeSingle();
-    if (pref?.llm_model) {
-      setActiveModel(pref.llm_model);
-      console.log(`[LLM] Loaded user model from DB: ${getActiveModel()}`);
-    } else {
-      console.log(`[LLM] No user preference found, using default: ${getActiveModel()}`);
-    }
-  } catch (err) {
-    console.warn(`[LLM] Failed to load model preference from DB:`, err.message);
-  }
+  console.log(`[LLM] Startup model: ${getActiveModel()}. User preference is applied per authenticated request.`);
   createMainWindow();
   await resetStaleRunningJobs();
   await requeueOutdatedPapers();
   startProcessingLoop();
-  // Background: fill missing DOIs via CrossRef
-  setImmediate(() => fillMissingDois().catch((e) => console.warn("[DOI] fillMissingDois error:", e.message)));
+  // Background DOI lookup is opt-in because it sends paper titles to CrossRef.
+  if (process.env.REDOU_ENABLE_CROSSREF_DOI === "1") {
+    setImmediate(() => fillMissingDois().catch((e) => console.warn("[DOI] fillMissingDois error:", e.message)));
+  } else {
+    console.log("[DOI] CrossRef auto lookup disabled. Set REDOU_ENABLE_CROSSREF_DOI=1 to enable it.");
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -2079,6 +2203,21 @@ async function getPaperIdsInFolderTree(folderId) {
   }
   const { data: links } = await supabase.from("paper_folders").select("paper_id").in("folder_id", folderIds);
   return [...new Set((links ?? []).map((l) => l.paper_id))];
+}
+
+async function getPaperIdsForUser(userId) {
+  const { data, error } = await supabase
+    .from("papers")
+    .select("id")
+    .eq("owner_user_id", userId)
+    .is("trashed_at", null);
+  if (error) throw new Error(`[supabase] papers owner filter: ${error.message}`);
+  return (data ?? []).map((row) => row.id);
+}
+
+function intersectPaperIds(basePaperIds, scopedPaperIds) {
+  const allowed = new Set(basePaperIds);
+  return scopedPaperIds.filter((paperId) => allowed.has(paperId));
 }
 
 // --- Chat helper: extract key terms from user messages for re-ranking ---
@@ -3006,15 +3145,15 @@ async function runAgenticNullRecovery({
 }
 
 // --- Q&A Pipeline Handler ---
-async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAll, abortController) {
+async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAll, abortController, ownerPaperIds) {
   console.log("[Chat/QA] Starting Q&A pipeline...");
 
   // Stage 1: RAG search
   broadcastToWindows(IPC_EVENTS.CHAT_STATUS, { conversationId: convId, stage: "searching", message: "관련 논문 데이터 검색 중..." });
 
-  let filterPaperIds = null;
+  let filterPaperIds = ownerPaperIds;
   if (!scopeAll && scopeFolderId) {
-    filterPaperIds = await getPaperIdsInFolderTree(scopeFolderId);
+    filterPaperIds = intersectPaperIds(ownerPaperIds, await getPaperIdsInFolderTree(scopeFolderId));
   }
 
   // Use the user's message directly as the search query (simplified vs table pipeline)
@@ -3094,18 +3233,17 @@ async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAl
 }
 
 // --- CHAT_SEND_MESSAGE (Multi-agent pipeline) ---
-ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, message, scopeFolderId, scopeAll, mode }) => {
+ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, message, scopeFolderId, scopeAll, mode, userId, accessToken }) => {
   let convId = conversationId;
   let conversationType = mode || "table"; // default to table for backward compatibility
 
   try {
+    const ownerId = await resolveAuthenticatedUserId({ userId, accessToken });
+    await applyUserLlmPreference(ownerId);
+    const ownerPaperIds = await getPaperIdsForUser(ownerId);
+
     // 1. Create or load conversation
     if (!convId) {
-      const { data: appUser } = await supabase.from("app_users").select("id").order("created_at", { ascending: true }).limit(1).maybeSingle();
-      if (!appUser?.id) {
-        return { conversationId: null, error: "사용자를 찾을 수 없습니다. 먼저 로그인해주세요." };
-      }
-      const ownerId = appUser.id;
       const title = message.slice(0, 40) + (message.length > 40 ? "…" : "");
       const conv = unwrapSingle(await supabase
         .from("chat_conversations")
@@ -3114,7 +3252,12 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
         .single(), "chat_conversations insert");
       convId = conv.id;
     } else {
-      const { data: conv, error: convErr } = await supabase.from("chat_conversations").select("id, scope_folder_id, scope_all, conversation_type").eq("id", convId).maybeSingle();
+      const { data: conv, error: convErr } = await supabase
+        .from("chat_conversations")
+        .select("id, scope_folder_id, scope_all, conversation_type")
+        .eq("id", convId)
+        .eq("owner_user_id", ownerId)
+        .maybeSingle();
       if (convErr) throw new Error(`[supabase] chat_conversations load: ${convErr.message}`);
       if (!conv) throw new Error(`[supabase] chat_conversations load: 존재하지 않는 대화입니다 (${convId})`);
       if (!scopeFolderId && conv.scope_folder_id) scopeFolderId = conv.scope_folder_id;
@@ -3144,20 +3287,28 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
 
     // ===== Q&A Pipeline Branch =====
     if (conversationType === "qa") {
-      return await handleQaPipeline(convId, message, history, scopeFolderId, scopeAll, abortController);
+      return await handleQaPipeline(convId, message, history, scopeFolderId, scopeAll, abortController, ownerPaperIds);
     }
 
     // ===== Table Pipeline (existing) =====
 
     // Fetch paper list for Orchestrator context
-    const { data: allPapers } = await supabase.from("papers").select("id, title, authors, publication_year");
+    const { data: allPapers } = await supabase
+      .from("papers")
+      .select("id, title, authors, publication_year")
+      .eq("owner_user_id", ownerId)
+      .is("trashed_at", null);
     // 논문별 테이블 캡션 조회 (Orchestrator context용)
     const paperIdsForCaptions = (allPapers ?? []).map((p) => p.id);
-    const { data: tableFigsForOrchestrator } = await supabase
-      .from("figures")
-      .select("paper_id, figure_no, caption")
-      .eq("item_type", "table")
-      .in("paper_id", paperIdsForCaptions);
+    let tableFigsForOrchestrator = [];
+    if (paperIdsForCaptions.length > 0) {
+      const { data } = await supabase
+        .from("figures")
+        .select("paper_id, figure_no, caption")
+        .eq("item_type", "table")
+        .in("paper_id", paperIdsForCaptions);
+      tableFigsForOrchestrator = data ?? [];
+    }
 
     const captionsByPaperId = new Map();
     for (const f of tableFigsForOrchestrator ?? []) {
@@ -3241,9 +3392,9 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     });
     console.log(`[Chat] Stage 2: RAG — ${plan.search_queries.length} queries`);
 
-    let filterPaperIds = null;
+    let filterPaperIds = ownerPaperIds;
     if (!scopeAll && scopeFolderId) {
-      filterPaperIds = await getPaperIdsInFolderTree(scopeFolderId);
+      filterPaperIds = intersectPaperIds(ownerPaperIds, await getPaperIdsInFolderTree(scopeFolderId));
     }
 
     const ragResults = await runMultiQueryRag(plan.search_queries, plan.keyword_hints, filterPaperIds, "table");
@@ -3749,7 +3900,23 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
 });
 
 // --- CHAT_ABORT ---
-ipcMain.handle(IPC_CHANNELS.CHAT_ABORT, (_event, { conversationId }) => {
+ipcMain.handle(IPC_CHANNELS.CHAT_ABORT, async (_event, { conversationId, userId, accessToken }) => {
+  let ownerId;
+  try {
+    ownerId = await resolveAuthenticatedUserId({ userId, accessToken });
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+  if (conversationId && conversationId !== "pending") {
+    const { data: conv, error } = await supabase
+      .from("chat_conversations")
+      .select("id")
+      .eq("id", conversationId)
+      .eq("owner_user_id", ownerId)
+      .maybeSingle();
+    if (error) return { success: false, error: error.message };
+    if (!conv) return { success: false, error: "Conversation is not available for this user." };
+  }
   const ctrl = chatAbortControllers.get(conversationId);
   if (ctrl) {
     ctrl.abort();
@@ -3759,13 +3926,15 @@ ipcMain.handle(IPC_CHANNELS.CHAT_ABORT, (_event, { conversationId }) => {
 });
 
 // --- CHAT_EXPORT_CSV ---
-ipcMain.handle(IPC_CHANNELS.CHAT_EXPORT_CSV, async (_event, { tableId }) => {
+ipcMain.handle(IPC_CHANNELS.CHAT_EXPORT_CSV, async (_event, { tableId, userId, accessToken }) => {
   let table;
   try {
+    const ownerId = await resolveAuthenticatedUserId({ userId, accessToken });
     table = unwrapSingle(await supabase
       .from("chat_generated_tables")
-      .select("table_title, headers, rows, source_refs")
+      .select("table_title, headers, rows, source_refs, chat_conversations!inner(owner_user_id)")
       .eq("id", tableId)
+      .eq("chat_conversations.owner_user_id", ownerId)
       .single(), "csv-export-table");
   } catch (e) {
     return { success: false, error: e.message };
@@ -3833,20 +4002,29 @@ ipcMain.handle(IPC_CHANNELS.LLM_LIST_MODELS, async () => {
   }
 });
 
-ipcMain.handle(IPC_CHANNELS.LLM_GET_MODEL, async () => {
+ipcMain.handle(IPC_CHANNELS.LLM_GET_MODEL, async (_event, authContext = {}) => {
   try {
-    const model = getActiveModel();
+    const userId = await resolveAuthenticatedUserId(authContext);
     // Determine source: check DB first, then env, then default
-    const { data: pref } = await supabase
+    const { data: pref, error } = await supabase
       .from("user_workspace_preferences")
       .select("llm_model")
-      .limit(1)
+      .eq("user_id", userId)
       .maybeSingle();
+    if (error) throw new Error(error.message);
+
+    let model;
     let source = "default";
     if (pref?.llm_model) {
+      model = pref.llm_model;
+      setActiveModel(model);
       source = "user";
-    } else if (process.env.REDOU_LLM_MODEL) {
-      source = "env";
+    } else {
+      setActiveModel(null);
+      model = getActiveModel();
+      if (process.env.REDOU_LLM_MODEL) {
+        source = "env";
+      }
     }
     return { success: true, data: { model, source } };
   } catch (err) {
@@ -3854,34 +4032,13 @@ ipcMain.handle(IPC_CHANNELS.LLM_GET_MODEL, async () => {
   }
 });
 
-ipcMain.handle(IPC_CHANNELS.LLM_SET_MODEL, async (_event, { model }) => {
+ipcMain.handle(IPC_CHANNELS.LLM_SET_MODEL, async (_event, { model, userId, accessToken }) => {
   try {
-    // Upsert into user_workspace_preferences
-    const { data: existing } = await supabase
+    const ownerId = await resolveAuthenticatedUserId({ userId, accessToken });
+    const { error } = await supabase
       .from("user_workspace_preferences")
-      .select("id")
-      .limit(1)
-      .maybeSingle();
-
-    if (existing) {
-      await supabase
-        .from("user_workspace_preferences")
-        .update({ llm_model: model || null })
-        .eq("id", existing.id);
-    } else {
-      // Get user ID for insert
-      const { data: appUser } = await supabase
-        .from("app_users")
-        .select("id")
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (appUser?.id) {
-        await supabase
-          .from("user_workspace_preferences")
-          .insert({ user_id: appUser.id, llm_model: model || null });
-      }
-    }
+      .upsert({ user_id: ownerId, llm_model: model || null, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+    if (error) throw new Error(error.message);
 
     // Update runtime variable
     setActiveModel(model);

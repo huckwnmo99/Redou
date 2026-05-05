@@ -170,7 +170,7 @@ export function ImportPdfDialog({
           }
         }),
       );
-      setFeedback(`${initialPaths.length} PDF files dropped. Metadata was inferred — you can edit it below before import.`);
+      setFeedback(`${initialPaths.length} PDF files added. Review the titles below before importing.`);
       setDrafts(nextDrafts);
     })();
   }, [open, initialPaths, defaultFolderId]);
@@ -221,7 +221,7 @@ export function ImportPdfDialog({
         }),
       );
 
-      setFeedback(filePaths.length + " PDF files selected. Metadata was inferred from the first page when possible, and you can still edit it below before import.");
+      setFeedback(filePaths.length + " PDF files selected. Review the titles below before importing.");
       setDrafts(nextDrafts);
     } catch (caught) {
       setFeedback(caught instanceof Error ? caught.message : "Unable to open the PDF selection dialog.");
@@ -232,7 +232,7 @@ export function ImportPdfDialog({
     try {
       const imported = await importPapers.mutateAsync(drafts);
       setResults(imported);
-      setFeedback(`${imported.length} paper records created and queued for processing.`);
+      setFeedback(`${imported.length} PDFs added to Redou. Background processing has started.`);
     } catch (caught) {
       setFeedback(caught instanceof Error ? caught.message : "Unable to complete the PDF import flow.");
     }
@@ -247,11 +247,10 @@ export function ImportPdfDialog({
       <div style={dialogStyle}>
         <div style={headerStyle}>
           <div>
-            <div style={eyebrowStyle}>Phase 3 / Import</div>
-            <h2 style={{ fontSize: 24, letterSpacing: "-0.03em", marginBottom: 6 }}>Add papers from local PDF files</h2>
+            <div style={eyebrowStyle}>Redou Style / Import</div>
+            <h2 style={{ fontSize: 24, letterSpacing: "-0.03em", marginBottom: 6 }}>Add PDFs to Redou</h2>
             <p style={{ fontSize: 13, lineHeight: 1.7, color: "var(--color-text-secondary)", maxWidth: 620 }}>
-              This first slice copies PDFs into the desktop library, creates `papers` and `paper_files` rows, and seeds a queued
-              `processing_jobs` entry for the extraction pipeline.
+              Choose local PDF files, confirm the paper titles, and Redou will start processing them in the background.
             </p>
           </div>
           <button type="button" aria-label="Close import dialog" onClick={onClose} style={closeButtonStyle}>
@@ -261,10 +260,10 @@ export function ImportPdfDialog({
 
         <div style={statusRowStyle}>
           <div style={statusCardStyle}>
-            <span style={eyebrowStyle}>Runtime</span>
-            <strong style={{ fontSize: 16 }}>{desktopReady ? "Electron desktop shell" : "Browser preview"}</strong>
+            <span style={eyebrowStyle}>App</span>
+            <strong style={{ fontSize: 16 }}>{desktopReady ? "Redou Desktop" : "Preview mode"}</strong>
             <span style={{ fontSize: 12.5, lineHeight: 1.6, color: "var(--color-text-secondary)" }}>
-              {desktopReady ? "Desktop file dialogs and library copy are available." : "Run inside Electron to import PDFs."}
+              {desktopReady ? "PDF selection and library import are available." : "Open Redou Desktop to import PDFs."}
             </span>
           </div>
           <div style={statusCardStyle}>
@@ -278,7 +277,7 @@ export function ImportPdfDialog({
             <span style={eyebrowStyle}>Selection</span>
             <strong style={{ fontSize: 16 }}>{fileCountLabel}</strong>
             <span style={{ fontSize: 12.5, lineHeight: 1.6, color: "var(--color-text-secondary)" }}>
-              Multi-file selection is supported, and Redou now tries to infer cleaner titles before import.
+              Select one or more PDFs. Redou will fill in title details where possible.
             </span>
           </div>
         </div>
@@ -355,7 +354,7 @@ export function ImportPdfDialog({
               </>
             ) : (
               <>
-                <div style={sectionHeaderStyle}>Import Metadata</div>
+                <div style={sectionHeaderStyle}>Selected PDFs</div>
                 {drafts.length === 0 ? (
                   <div style={emptyStateStyle}>
                     <FileUp size={28} style={{ opacity: 0.4 }} />
@@ -369,7 +368,6 @@ export function ImportPdfDialog({
                       <div key={`${draft.sourcePath}-${index}`} style={draftCardStyle}>
                         <div style={{ display: "grid", gap: 4, marginBottom: 12 }}>
                           <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: "-0.02em" }}>{getFilename(draft.sourcePath)}</div>
-                          <div style={{ fontSize: 12, color: "var(--color-text-muted)", wordBreak: "break-all" }}>{draft.sourcePath}</div>
                         </div>
                         <div style={fieldGridStyle}>
                           <Field label="Title">
@@ -403,12 +401,12 @@ export function ImportPdfDialog({
           </div>
 
           <div style={resultsColumnStyle}>
-            <div style={sectionHeaderStyle}>Queue Result</div>
+            <div style={sectionHeaderStyle}>Import Result</div>
             {results.length === 0 ? (
               <div style={emptyStateStyle}>
                 <CheckCircle2 size={28} style={{ opacity: 0.25 }} />
                 <div style={{ fontSize: 13, color: "var(--color-text-secondary)", textAlign: "center" }}>
-                  When import succeeds, the created paper records and queued processing jobs will appear here.
+                  Imported PDFs will appear here while Redou starts processing them.
                 </div>
               </div>
             ) : (
@@ -420,11 +418,7 @@ export function ImportPdfDialog({
                       <div style={queuedChipStyle}>{(jobStatuses[result.processingJobId]?.status ?? "queued").toUpperCase()}</div>
                     </div>
                     <div style={{ fontSize: 12.5, lineHeight: 1.7, color: "var(--color-text-secondary)", wordBreak: "break-word" }}>
-                      Paper ID: {result.paper.id}
-                      <br />
-                      Processing Job: {result.processingJobId}
-                      <br />
-                      Stored File: {result.storedFilename}
+                      Redou added this PDF to the workspace and started background processing.
                     </div>
                   </div>
                 ))}

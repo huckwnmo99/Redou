@@ -84,7 +84,16 @@ Read this file before starting work. Update it when you finish.
 - Presentation assets now include a standalone future-direction HTML slide that explains the planned ontology and Graph RAG expansion as a visual knowledge-graph workflow for lectures and demos.
 - Stage 3d Agentic NULL Recovery is implemented for SRAG table generation: after Stage 3c merge, remaining NULL cells can trigger paper-scoped recovery search, skip LLM extraction when no new chunk/figure context is found, and only apply recovered values with `confidence === "high"`.
 
-### Verified Today (2026-04-22)
+### Verified Today (2026-05-03)
+- `apps/desktop/electron/main.mjs`: `node --check` passes after critical security/workflow fixes.
+- `apps/desktop/electron/preload.mjs`: `node --check` passes after LLM IPC signature update.
+- `frontend`: `npm run build` passes after chat auth scoping, PDF processing-state, highlight, search, and import cleanup fixes.
+- `apps/desktop`: `npm run build` passes after preload API update.
+- `supabase/migrations/20260503010000_secure_chat_tables.sql`: applied manually to the running local Supabase DB via `docker exec ... psql`; `chat_conversations`, `chat_messages`, and `chat_generated_tables` now report RLS enabled.
+- `git diff --check` passes; only existing CRLF/git-ignore permission warnings remain.
+- Dedicated validation agents reviewed the patch twice; first pass found 2 P2 and 1 P3 follow-up, second pass found no blocking issue and confirmed the follow-ups were resolved.
+
+### Previously Verified (2026-04-22)
 - `apps/desktop/electron/main.mjs`: `node --check` passes after Stage 3d Agentic NULL Recovery wiring.
 - `apps/desktop/electron/llm-orchestrator.mjs`: `node --check` passes after adding `extractNullCellsFromPaper`.
 
@@ -116,6 +125,7 @@ Read this file before starting work. Update it when you finish.
 - `README.md`
 - `AGENTS.md`
 - `docs/presentation_assets/redou-agent/redou-ontology-future-slide.html`
+- `docs/features/new/10-supplementary-files.md`
 - `docs/features/new/09-agentic-research-null.md`
 - `docs/harness/main/feature-status.md`
 - `docs/harness/detail/electron/llm.md`
@@ -189,6 +199,15 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Status | Date | Agent | Scope | Files | Out of Scope | Dependency |
 |--------|------|-------|-------|-------|--------------|------------|
+| DONE | 2026-05-04 | Codex | Upload reusable skills package to `huckwnmo99/Skills` | `AGENTS.md`; external repo `huckwnmo99/Skills` | Changing skill contents, publishing Redou app code | Prepared `docs/exports/Skills` package |
+| DONE | 2026-05-04 | Codex | Prepare reusable GitHub skills repository package | `docs/exports/Skills/**`, `AGENTS.md` | Pushing to GitHub, modifying skill contents | User request to reuse skills via `huckwnmo99/Skills` |
+| DONE | 2026-05-04 | Codex | Redou Style import dialog copy cleanup with minimal code changes | `frontend/src/features/import/ImportPdfDialog.tsx`, `AGENTS.md` | Redesigning the whole app, changing import pipeline behavior, adding supplementary UI | User preference for current design and minimal code edits |
+| DONE | 2026-05-04 | Codex | Download external design reference repository for future UI guidance | `docs/reference/awesome-design-md/**`, `AGENTS.md` | Applying the design rules to Redou UI | `VoltAgent/awesome-design-md` |
+| DONE | 2026-05-04 | Codex | Plan next supplementary implementation slices with parallel subagents | `docs/features/new/10-supplementary-files.md`, `AGENTS.md` | Implementing PDF attach, RAG labels, DOCX conversion | User request to use subagents for the next plan |
+| DONE | 2026-05-04 | Codex | Implement first supplementary prerequisite slice: source-file ownership and source-scoped extraction persistence | `supabase/migrations/20260504010000_add_supplementary_source_tracking.sql`, `apps/desktop/electron/main.mjs`, `frontend/src/lib/supabasePaperRepository.ts`, `AGENTS.md` | Supplementary UI, DOCX conversion, RAG source-label rendering | `docs/features/new/10-supplementary-files.md`, parallel subagent analysis |
+| DONE | 2026-05-04 | Codex | Install requested external Codex skills into the project-local `.agents/skills` folder | `.agents/skills/**`, `AGENTS.md` | Changing project runtime code, executing app tests | User-provided skill repository URLs |
+| DONE | 2026-05-04 | Codex | Plan supplementary file ingestion, document conversion, source-scoped extraction, and citation labeling | `docs/features/new/10-supplementary-files.md`, `AGENTS.md` | Implementing the feature, DB migration execution, runtime QA | User request for supplementary docs/PDF support |
+| DONE | 2026-05-03 | Codex | Fix critical review findings in small safety-focused slices | `apps/desktop/electron/main.mjs`, `apps/desktop/electron/preload.mjs`, `frontend/src/lib/chatQueries.ts`, `frontend/src/lib/desktop.ts`, `frontend/src/lib/queries.ts`, `frontend/src/lib/supabaseAuthRepository.ts`, `frontend/src/lib/supabasePaperRepository.ts`, `frontend/src/features/search/searchModel.ts`, `frontend/src/types/desktop.ts`, `supabase/migrations/20260503010000_secure_chat_tables.sql`, `AGENTS.md` | Large renderer replacement, broad refactors, unrelated feature expansion | Critical findings review from 2026-05-03 |
 | DONE | 2026-04-22 | Codex | Implement Stage 3d Agentic NULL Recovery for table generation | `apps/desktop/electron/llm-orchestrator.mjs`, `apps/desktop/electron/main.mjs`, `frontend/src/types/desktop.ts`, `frontend/src/features/chat/ChatPipelineStatus.tsx`, `docs/harness/main/feature-status.md`, `docs/harness/detail/electron/llm.md`, `docs/harness/detail/electron/rag-pipeline.md`, `AGENTS.md` | Editing `runMultiQueryRag` or `extractColumnsFromPaper`, DB migrations, IPC channel changes | `docs/features/new/09-agentic-research-null.md` |
 | DONE | 2026-04-18 | Codex | Implement V2-only PDF processing pipeline from `docs/features/new/08-pipeline-v2-only.md` | `apps/desktop/electron/main.mjs`, `apps/desktop/electron/pdf-heuristics.mjs`, `apps/desktop/electron/ocr-extraction.mjs`, `docs/harness/**`, `AGENTS.md` | DB schema changes, IPC channel renames, removing `enhanceEmptyTablesWithOcr`, removing import metadata/figure-image helpers | MinerU required, GROBID degraded mode allowed |
 | DONE | 2026-04-18 | Codex | Move Phase 3 extraction from heuristic text parsing toward layout-aware ordering with OCR-ready scanned-PDF hooks and worker messaging | AGENTS.md, pps/desktop/electron/pdf-heuristics.mjs, pps/desktop/electron/main.mjs, rontend/src/types/desktop.ts | Cloud OCR provider integration, embeddings, retrieval, detached panels | Local desktop build and Supabase available |
@@ -200,6 +219,15 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Date | Agent | Work | Files |
 |------|-------|------|-------|
+| 2026-05-04 | Codex | Uploaded the reusable Codex skills package to `https://github.com/huckwnmo99/Skills` on `main` with commit `affe12f`, verified the remote `skills` directory contains 29 skill folders, and left the Redou-local export copy in `docs/exports/Skills` | external repo `huckwnmo99/Skills`, `AGENTS.md` |
+| 2026-05-04 | Codex | Prepared a reusable GitHub skills repository package under `docs/exports/Skills`, copied the project-local skills into `skills/<skill-name>/SKILL.md`, and added README install instructions for global Codex, project-local Codex, and single-skill reuse | `docs/exports/Skills/**`, `AGENTS.md` |
+| 2026-05-04 | Codex | Applied a minimal Redou Style cleanup to the PDF import dialog by replacing developer-facing pipeline copy, hiding full source paths and internal queue IDs, and keeping the existing import, result, and job-status logic unchanged | `frontend/src/features/import/ImportPdfDialog.tsx`, `AGENTS.md` |
+| 2026-05-04 | Codex | Downloaded `VoltAgent/awesome-design-md` as a project-local design reference under `docs/reference/awesome-design-md`, removed its nested `.git` metadata, and left it as standalone Markdown reference material for future UI work | `docs/reference/awesome-design-md/**`, `AGENTS.md` |
+| 2026-05-04 | Codex | Used parallel subagents to plan the next supplementary implementation slices and updated the feature plan with the locked order: supplementary PDF attach first, RAG/source attribution labels second, DOCX/DOC to PDF conversion third | `docs/features/new/10-supplementary-files.md`, `AGENTS.md` |
+| 2026-05-04 | Codex | Implemented the first supplementary prerequisite slice: added source-file tracking/backfill migration for sections, chunks, and processing jobs; applied it to local Supabase without reset; changed Electron extraction persistence to delete/insert by `source_file_id`; made import jobs resolve the actual paper file instead of always primary; queued embeddings per source file; and passed the new source file id from the frontend main-PDF import path | `supabase/migrations/20260504010000_add_supplementary_source_tracking.sql`, `apps/desktop/electron/main.mjs`, `frontend/src/lib/supabasePaperRepository.ts`, `AGENTS.md` |
+| 2026-05-04 | Codex | Installed project-local Codex skills from `forrestchang/andrej-karpathy-skills` and `mattpocock/skills`, including the Karpathy guideline skill plus Matt Pocock engineering, productivity, misc, personal, and deprecated skill folders with `SKILL.md` files | `.agents/skills/**`, `AGENTS.md` |
+| 2026-05-04 | Codex | Planned supplementary file support with source-scoped extraction, PDF-first ingestion, DOCX-to-PDF conversion as a later slice, and RAG/source attribution labels that keep paper citations as `[N]` while marking supplementary evidence in the source line | `docs/features/new/10-supplementary-files.md`, `AGENTS.md` |
+| 2026-05-03 | Codex | Fixed critical review findings in small slices: chat user scoping/RLS, Electron detached-window and `redou-file` bounds, import-only PDF readiness, per-user LLM preference persistence, opt-in CrossRef DOI lookup, default highlight presets, guarded preset deletion, text fallback for tables/equations, orphan PDF cleanup, first-chat abort ID sync, validation follow-up for constrained file deletion, per-request LLM preference application, and generated-table RLS message/conversation consistency | `apps/desktop/electron/main.mjs`, `apps/desktop/electron/preload.mjs`, `frontend/src/lib/chatQueries.ts`, `frontend/src/lib/desktop.ts`, `frontend/src/lib/queries.ts`, `frontend/src/lib/supabaseAuthRepository.ts`, `frontend/src/lib/supabasePaperRepository.ts`, `frontend/src/features/search/searchModel.ts`, `frontend/src/types/desktop.ts`, `supabase/migrations/20260503010000_secure_chat_tables.sql`, `AGENTS.md` |
 | 2026-03-09 | Main | Initial project analysis and first shared context document | `AGENTS.md` |
 | 2026-03-09 | Main | Local Supabase setup, initial schema migration, seed data, and IPC implementation | `supabase/**`, `apps/desktop/electron/**`, `apps/desktop/src/types/**`, `apps/desktop/package.json`, `AGENTS.md` |
 | 2026-03-09 | Codex | Frontend baseline created and expanded with library, search, notes, figures, settings, paper detail, nested folders, and workspace flows | `frontend/**`, `AGENTS.md` |
@@ -245,13 +273,13 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 ## 9. Latest Handoff
 
 ```md
-DONE | Codex - Stage 3d Agentic NULL Recovery
-- Done: added `NULL_RECOVERY_EXTRACTION_PROMPT` and `extractNullCellsFromPaper()` to `llm-orchestrator.mjs`; added Stage 3d helpers and `runAgenticNullRecovery()` to `main.mjs`; inserted the recovery pass after `mergeExtractionResults()` and before `cleanCellValue()`; added `researching` status support in frontend types/UI; updated harness docs.
-- Guardrails: did not edit `runMultiQueryRag()` or `extractColumnsFromPaper()`; Gate 1 skips LLM extraction unless recovery search finds a new `chunk_id` or `figure_id`; Gate 2 only applies recovered rows with `confidence === "high"`; `runAgenticNullRecovery()` is fail-soft and returns the original table on top-level errors.
-- Changed files: `apps/desktop/electron/main.mjs`, `apps/desktop/electron/llm-orchestrator.mjs`, `frontend/src/types/desktop.ts`, `frontend/src/features/chat/ChatPipelineStatus.tsx`, `docs/harness/main/feature-status.md`, `docs/harness/detail/electron/llm.md`, `docs/harness/detail/electron/rag-pipeline.md`, `AGENTS.md`
-- Verified: `node --check apps/desktop/electron/main.mjs` and `node --check apps/desktop/electron/llm-orchestrator.mjs` both pass.
-- Risks: syntax-level verification only; full Electron table generation with live Ollama/RAG was not exercised in-window.
-- Next: run one table-generation request that leaves NULL cells and confirm Stage 3d metadata records `agenticRecovery.perPaper[]` plus UI `researching` status.
+DONE | Codex - Skills uploaded to GitHub
+- Done: pushed the prepared reusable Codex skills package to `https://github.com/huckwnmo99/Skills`.
+- Commit: `affe12f` on `main` with message `Add reusable Codex skills`.
+- Contents: remote `skills` directory contains 29 skill folders.
+- Changed local files: `AGENTS.md`; existing export copy remains at `docs/exports/Skills/**`.
+- Verification: `gh api repos/huckwnmo99/Skills/contents/skills?ref=main --jq "length"` returned `29`; latest remote SHA is `affe12fe06b9d1d0ca389b848e02218174136aad`.
+- Out of scope: did not modify skill contents and did not publish Redou app code to the skills repo.
 ```
 
 ## 10. Known Issues & Potential Bugs
