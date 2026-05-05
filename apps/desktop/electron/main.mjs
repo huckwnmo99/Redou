@@ -2684,6 +2684,81 @@ function normalizeColumnKey(name) {
     .trim();
 }
 
+function normalizeFallbackTableToSpec(tableJson, tableSpec) {
+  const requestedHeaders = Array.isArray(tableSpec?.column_definitions)
+    ? tableSpec.column_definitions.map((header) => String(header ?? "").trim()).filter(Boolean)
+    : [];
+  const generatedHeaders = Array.isArray(tableJson?.headers)
+    ? tableJson.headers.map((header) => String(header ?? "").trim()).filter(Boolean)
+    : [];
+  const rows = Array.isArray(tableJson?.rows)
+    ? tableJson.rows.filter((row) => Array.isArray(row))
+    : [];
+  const rowWidthsBefore = rows.map((row) => row.length);
+
+  if (requestedHeaders.length === 0) {
+    return {
+      tableJson: {
+        ...(tableJson ?? {}),
+        headers: [],
+        rows: [],
+      },
+      diagnostics: {
+        requestedHeaders,
+        generatedHeaders,
+        rowWidthsBefore,
+        rowWidthsAfter: [],
+        headerMatchesSpec: false,
+        rowWidthsMatchSpec: true,
+        normalizedToSpec: true,
+        blockedUnspecifiedFallback: true,
+        skippedReason: "missing_requested_headers",
+      },
+    };
+  }
+
+  const requestedKeys = requestedHeaders.map((header) => normalizeColumnKey(header));
+  const requestedKeySet = new Set(requestedKeys);
+  const generatedIndexByKey = new Map();
+  generatedHeaders.forEach((header, index) => {
+    const key = normalizeColumnKey(header);
+    if (key && !generatedIndexByKey.has(key)) {
+      generatedIndexByKey.set(key, index);
+    }
+  });
+
+  const headerMatchesSpec = generatedHeaders.length === requestedHeaders.length
+    && requestedKeys.every((key, index) => key === normalizeColumnKey(generatedHeaders[index]));
+  const normalizedRows = rows.map((row) => requestedKeys.map((key) => {
+    const sourceIndex = generatedIndexByKey.get(key);
+    if (sourceIndex === undefined) return "N/A";
+    const value = row[sourceIndex];
+    if (value === null || value === undefined || String(value).trim() === "") return "N/A";
+    return value;
+  }));
+  const rowWidthsAfter = normalizedRows.map((row) => row.length);
+  const rowWidthsMatchedSpecBefore = rowWidthsBefore.every((width) => width === requestedHeaders.length);
+
+  return {
+    tableJson: {
+      ...(tableJson ?? {}),
+      headers: requestedHeaders,
+      rows: normalizedRows,
+    },
+    diagnostics: {
+      requestedHeaders,
+      generatedHeaders,
+      rowWidthsBefore,
+      rowWidthsAfter,
+      headerMatchesSpec,
+      rowWidthsMatchSpec: rowWidthsAfter.every((width) => width === requestedHeaders.length),
+      normalizedToSpec: !headerMatchesSpec || !rowWidthsMatchedSpecBefore,
+      missingHeaders: requestedHeaders.filter((_, index) => !generatedIndexByKey.has(requestedKeys[index])),
+      droppedHeaders: generatedHeaders.filter((header) => !requestedKeySet.has(normalizeColumnKey(header))),
+    },
+  };
+}
+
 // --- Merge per-paper extraction results into a unified table (SRAG Stage 3c) ---
 // Code-only merge — no LLM call.
 // - extractionResults: [{paperId, paperTitle, extraction: {data_rows, ...}, success, ...}]
@@ -3682,6 +3757,7 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     let extractionMode;
     let nullSummary = null;
     let agenticRecovery = null;
+    let tableSpecAdherence = null;
 
     if (!extractionFallbackNeeded) {
       console.log("[Chat] Stage 3c: Merging per-paper extractions (code-only, no LLM)...");
@@ -3701,6 +3777,9 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
       console.log("[Chat] Stage 3c: Fallback — single-call Table Agent on combined RAG context...");
       const ragContext = assembleRagContext(ragResults.chunks, ragResults.figures, paperRefMap, parsedMatrices);
       tableJson = await generateTableFromSpec(tableSpec, ragContext, paperMetadata, abortController.signal);
+      const normalizedFallback = normalizeFallbackTableToSpec(tableJson, tableSpec);
+      tableJson = normalizedFallback.tableJson;
+      tableSpecAdherence = normalizedFallback.diagnostics;
       extractionMode = "single_call_fallback";
       agenticRecovery = buildSkippedAgenticRecovery(null, "single_call_fallback");
       nullSummary = null;
@@ -3758,6 +3837,7 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
       partialFailures: extractionResults.filter((r) => !r.success).map((r) => ({ paperId: r.paperId, paperTitle: r.paperTitle, error: r.error })),
       nullSummary,
       agenticRecovery,
+      tableSpecAdherence,
     };
 
     // Insert assistant message

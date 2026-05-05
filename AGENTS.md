@@ -199,6 +199,8 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Status | Date | Agent | Scope | Files | Out of Scope | Dependency |
 |--------|------|-------|-------|-------|--------------|------------|
+| DONE | 2026-05-05 | Codex | Create Research OS goal plan with subagent-backed checkpoints | `docs/goals/2026-05-05-research-os-goal.md`, `AGENTS.md` | Implementing every goal slice at once, merge conflict resolution, DB reset | User request to use `/goal`, skills, and subagents |
+| DONE | 2026-05-05 | Codex | G1 table-spec adherence guard for single-call fallback | `apps/desktop/electron/main.mjs`, `docs/goals/2026-05-05-research-os-goal.md`, `AGENTS.md` | Prompt rewrite, full table pipeline refactor, changing LLM defaults | Subagent A table-spec adherence analysis |
 | DONE | 2026-05-05 | Codex | Fix Stage 3d metadata on single-call fallback | `apps/desktop/electron/main.mjs`, `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` | Broad table quality fixes, changing LLM prompts, merge conflict resolution | Runtime observation table `81a19a84-ba39-49bb-bfe1-68ac3c9dd84f` |
 | DONE | 2026-05-05 | Codex | Record Stage 3d runtime observations and V1/V5 outcome | `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` | Runtime code changes, deleting validation conversations, merge conflict resolution | Stage 3d Electron IPC verification runs |
 | DONE | 2026-05-05 | Codex | Record Stage 3d V0 static verification result | `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` | Runtime Electron chat walkthrough, merge conflict resolution, DB reset | `docs/features/fix/10-stage-3d-runtime-verification.md` |
@@ -225,6 +227,7 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Date | Agent | Work | Files |
 |------|-------|------|-------|
+| 2026-05-05 | Codex | Created the Research OS goal plan using the project-local `plan` and `karpathy-guidelines` skills plus three subagents, integrated findings for G1 table-spec guard, G2 supplementary attach, and G4 Research Goal MVP, then implemented and verified G1: single-call fallback output is normalized or blocked against `tableSpec.column_definitions`, with `tableSpecAdherence` diagnostics recorded in metadata | `docs/goals/2026-05-05-research-os-goal.md`, `apps/desktop/electron/main.mjs`, `AGENTS.md` |
 | 2026-05-05 | Codex | Verified the Stage 3d single-call fallback metadata fix: `node --check` and `apps/desktop` build passed; scoped fallback runtime table `6b62d202-5c2c-4ab1-a535-3092b7245c64` stored `nullSummary: null`, `agenticRecovery.skippedReason: "single_call_fallback"`, and zero before/after recovery counters; temporary folder membership was removed and the user LLM preference was restored to `gemma4:31b` | `apps/desktop/electron/main.mjs`, `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` |
 | 2026-05-05 | Codex | Applied a minimal Stage 3d metadata fix for single-call fallback: fallback now records `skippedReason: "single_call_fallback"` in `agenticRecovery` and clears stale per-paper `nullSummary` so fallback tables do not persist misleading per-paper NULL counters with `agenticRecovery: null` | `apps/desktop/electron/main.mjs`, `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` |
 | 2026-05-05 | Codex | Ran Stage 3d Electron IPC runtime checks with the existing authenticated session: observed a real `researching` Stage 3d path on generated table `787dc23d-b697-4842-9aec-4caf30c8cee4`, confirmed recovery metadata was written, confirmed an abort run saved no generated table, restored the user's LLM model preference to `gemma4:31b`, and documented that V1/V2 remain pending because metadata-only prompts still take the full slow table pipeline | `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` |
@@ -286,13 +289,14 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 ## 9. Latest Handoff
 
 ```md
-DONE | Codex - Stage 3d fallback metadata fix verified
-- Done: patched and verified `apps/desktop/electron/main.mjs` single-call fallback metadata.
-- Verified: `node --check apps\desktop\electron\main.mjs` and `cmd /c npm run build` in `apps/desktop` passed.
-- Verified: scoped fallback table `6b62d202-5c2c-4ab1-a535-3092b7245c64` stored `nullSummary: null`, `agenticRecovery.skippedReason: "single_call_fallback"`, and zero before/after recovery counters.
+DONE | Codex - Research OS goal and G1 table-spec guard verified
+- Done: created `docs/goals/2026-05-05-research-os-goal.md` as the `/goal` equivalent.
+- Used: `plan`, `karpathy-guidelines`, and three subagents for table guard, supplementary attach, and Research Goal MVP planning.
+- Implemented: `single_call_fallback` output is normalized or blocked against `tableSpec.column_definitions`, with `metadata.tableSpecAdherence` diagnostics.
+- Verified: `node --check apps\desktop\electron\main.mjs`, `node --check apps\desktop\electron\llm-orchestrator.mjs`, and `cmd /c npm run build` in `apps/desktop` passed.
+- Runtime verified: scoped fallback table `27203151-feee-421e-b310-3c0048a26a88` stored `headers = ["Paper Title"]` instead of unrelated material-property columns.
 - Restored: temporary folder membership removed and user LLM preference is back to `gemma4:31b`.
-- Remaining issue: fallback/table-spec adherence is poor; a `Paper title` request returned material-property columns. Treat this as the next narrow table pipeline quality fix.
-- Next: commit/push this fix, then plan the table-spec adherence fix before merge conflict resolution.
+- Next: commit/push this checkpoint, then move to G2: one supplementary PDF attach from paper detail.
 ```
 
 ## 10. Known Issues & Potential Bugs
