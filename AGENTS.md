@@ -199,6 +199,7 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Status | Date | Agent | Scope | Files | Out of Scope | Dependency |
 |--------|------|-------|-------|-------|--------------|------------|
+| DONE | 2026-05-05 | Codex | Create pre-merge preservation audit plan for Option B+ integration | `docs/features/proposals/2026-05-05-pre-merge-preservation-audit.md`, `AGENTS.md` | Performing the merge, changing runtime code, resolving conflicts | `docs/features/proposals/2026-05-05-integration-strategy-update.md` |
 | DONE | 2026-05-05 | Codex | Update integration strategy after checkpoint and latest branch state | `docs/features/proposals/2026-05-05-integration-strategy-update.md`, `AGENTS.md` | Performing the actual merge, resolving merge conflicts, changing runtime code | `docs/features/proposals/2026-04-28-integration-strategy.md`, checkpoint `1637751` |
 | DONE | 2026-05-04 | Codex | Upload reusable skills package to `huckwnmo99/Skills` | `AGENTS.md`; external repo `huckwnmo99/Skills` | Changing skill contents, publishing Redou app code | Prepared `docs/exports/Skills` package |
 | DONE | 2026-05-04 | Codex | Prepare reusable GitHub skills repository package | `docs/exports/Skills/**`, `AGENTS.md` | Pushing to GitHub, modifying skill contents | User request to reuse skills via `huckwnmo99/Skills` |
@@ -220,6 +221,7 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Date | Agent | Work | Files |
 |------|-------|------|-------|
+| 2026-05-05 | Codex | Created the Option B+ pre-merge preservation audit, naming the exact security/RLS, supplementary source tracking, Stage 3d, V2-only pipeline, and entity graph files/functions/migrations that must survive the later merge; also recorded conflict-resolution order and validation checks | `docs/features/proposals/2026-05-05-pre-merge-preservation-audit.md`, `AGENTS.md` |
 | 2026-05-05 | Codex | Created a 2026-05-05 integration strategy update after checkpointing and pushing `1637751`, re-ran merge-tree against `origin/main`, confirmed the 22 conflict files still hold, and upgraded the recommendation from Option B to Option B+ with explicit preservation audit guardrails for security fixes, supplementary source tracking, Stage 3d, and entity graph integration | `docs/features/proposals/2026-05-05-integration-strategy-update.md`, `AGENTS.md` |
 | 2026-05-04 | Codex | Uploaded the reusable Codex skills package to `https://github.com/huckwnmo99/Skills` on `main` with commit `affe12f`, verified the remote `skills` directory contains 29 skill folders, and left the Redou-local export copy in `docs/exports/Skills` | external repo `huckwnmo99/Skills`, `AGENTS.md` |
 | 2026-05-04 | Codex | Prepared a reusable GitHub skills repository package under `docs/exports/Skills`, copied the project-local skills into `skills/<skill-name>/SKILL.md`, and added README install instructions for global Codex, project-local Codex, and single-skill reuse | `docs/exports/Skills/**`, `AGENTS.md` |
@@ -275,13 +277,13 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 ## 9. Latest Handoff
 
 ```md
-DONE | Codex - Integration strategy updated after checkpoint
-- Done: committed and pushed checkpoint `1637751` (`Checkpoint before integration strategy update`) to `origin/feature/pipeline-v2-only`.
-- Done: re-ran `git merge-tree feature/pipeline-v2-only origin/main`; latest conflict set still contains 22 files, but now includes the 2026-05 checkpoint semantics.
-- Done: added `docs/features/proposals/2026-05-05-integration-strategy-update.md`.
-- Decision: keep the 2026-04-28 proposal direction, but update recommendation to Option B+ — safety-first integration with a pre-merge preservation audit.
-- New guardrails: preserve 2026-05-03 security/RLS fixes, 2026-05-04 supplementary source tracking, Stage 3d recovery behavior, V2-only pipeline behavior, and origin/main entity graph behavior.
-- Out of scope: did not perform the actual merge and did not resolve merge conflicts.
+DONE | Codex - Pre-merge preservation audit created
+- Done: created `docs/features/proposals/2026-05-05-pre-merge-preservation-audit.md`.
+- Scope: named exact files/functions/migrations/IPC surfaces that must survive the later `feature/pipeline-v2-only` + `origin/main` merge.
+- Guardrails covered: security/RLS/chat ownership, supplementary `source_file_id`, Stage 3d Agentic NULL Recovery, V2-only PDF pipeline, and origin/main entity graph.
+- Added conflict resolution order and post-merge validation checklist.
+- Out of scope: did not perform the actual merge and did not change runtime code.
+- Next: run Stage 3d verification on the current feature branch before any merge conflict resolution.
 ```
 
 ## 10. Known Issues & Potential Bugs
