@@ -199,6 +199,7 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Status | Date | Agent | Scope | Files | Out of Scope | Dependency |
 |--------|------|-------|-------|-------|--------------|------------|
+| DONE | 2026-05-05 | Codex | Record Stage 3d V0 static verification result | `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` | Runtime Electron chat walkthrough, merge conflict resolution, DB reset | `docs/features/fix/10-stage-3d-runtime-verification.md` |
 | DONE | 2026-05-05 | Codex | Plan Stage 3d runtime verification before integration | `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` | Performing the merge, changing runtime code, executing destructive DB reset | `docs/features/proposals/2026-05-05-pre-merge-preservation-audit.md` |
 | DONE | 2026-05-05 | Codex | Create pre-merge preservation audit plan for Option B+ integration | `docs/features/proposals/2026-05-05-pre-merge-preservation-audit.md`, `AGENTS.md` | Performing the merge, changing runtime code, resolving conflicts | `docs/features/proposals/2026-05-05-integration-strategy-update.md` |
 | DONE | 2026-05-05 | Codex | Update integration strategy after checkpoint and latest branch state | `docs/features/proposals/2026-05-05-integration-strategy-update.md`, `AGENTS.md` | Performing the actual merge, resolving merge conflicts, changing runtime code | `docs/features/proposals/2026-04-28-integration-strategy.md`, checkpoint `1637751` |
@@ -222,6 +223,7 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Date | Agent | Work | Files |
 |------|-------|------|-------|
+| 2026-05-05 | Codex | Executed Stage 3d V0 static verification: `node --check` passed for `apps/desktop/electron/main.mjs` and `apps/desktop/electron/llm-orchestrator.mjs`, `cmd /c npm run build` passed in both `frontend` and `apps/desktop`, and recorded the result while noting the existing frontend chunk-size warning | `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` |
 | 2026-05-05 | Codex | Created the Stage 3d runtime verification plan before integration, splitting checks into V0 static health, V1 gate-not-met, V2 no-new-context, V3 high-confidence recovery, V4 low-confidence ignore, and V5 abort/timeout safety, with explicit blockers and minimal-fix ownership | `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` |
 | 2026-05-05 | Codex | Created the Option B+ pre-merge preservation audit, naming the exact security/RLS, supplementary source tracking, Stage 3d, V2-only pipeline, and entity graph files/functions/migrations that must survive the later merge; also recorded conflict-resolution order and validation checks | `docs/features/proposals/2026-05-05-pre-merge-preservation-audit.md`, `AGENTS.md` |
 | 2026-05-05 | Codex | Created a 2026-05-05 integration strategy update after checkpointing and pushing `1637751`, re-ran merge-tree against `origin/main`, confirmed the 22 conflict files still hold, and upgraded the recommendation from Option B to Option B+ with explicit preservation audit guardrails for security fixes, supplementary source tracking, Stage 3d, and entity graph integration | `docs/features/proposals/2026-05-05-integration-strategy-update.md`, `AGENTS.md` |
@@ -279,12 +281,13 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 ## 9. Latest Handoff
 
 ```md
-DONE | Codex - Stage 3d runtime verification plan created
-- Done: created `docs/features/fix/10-stage-3d-runtime-verification.md`.
-- Scope: split Stage 3d verification into V0 static health, V1 gate-not-met, V2 no-new-context, V3 high-confidence recovery, V4 low-confidence ignore, and V5 abort/timeout safety.
-- Guardrails covered: recovery gate, paper-scoped new-context gate, high-confidence-only application, metadata evidence, renderer `researching` status, and merge-blocking failures.
-- Out of scope: did not perform the merge, did not change runtime code, and did not reset Supabase.
-- Next: execute V0 static health on the current feature branch, then run V1/V2 in Electron before any merge conflict resolution.
+DONE | Codex - Stage 3d V0 static verification passed
+- Done: recorded V0 in `docs/features/fix/10-stage-3d-runtime-verification.md`.
+- Verified: `node --check` passed for `apps/desktop/electron/main.mjs` and `apps/desktop/electron/llm-orchestrator.mjs`.
+- Verified: `cmd /c npm run build` passed in both `frontend` and `apps/desktop`.
+- Note: frontend build still emits the existing Vite chunk-size warning.
+- Out of scope: did not run Electron chat walkthrough yet, did not merge, did not reset Supabase, and did not change runtime source code.
+- Next: run V1 gate-not-met and V2 no-new-context in the Electron app before conflict resolution.
 ```
 
 ## 10. Known Issues & Potential Bugs

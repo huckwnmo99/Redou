@@ -3,7 +3,7 @@
 Date: 2026-05-05
 Branch: `feature/pipeline-v2-only`
 Owner: Codex
-Status: Planned
+Status: V0 passed; V1/V2 pending
 
 ## Goal
 
@@ -69,6 +69,18 @@ Pass criteria:
 - Both Electron files pass `node --check`.
 - Frontend build passes.
 - No runtime code is changed during this step.
+
+Result on 2026-05-05:
+
+- PASS: `node --check apps\desktop\electron\main.mjs`
+- PASS: `node --check apps\desktop\electron\llm-orchestrator.mjs`
+- PASS: `cmd /c npm run build` in `frontend`
+- PASS: `cmd /c npm run build` in `apps/desktop`
+
+Notes:
+
+- The frontend build still reports the existing Vite chunk-size warning for the bundled app/PDF worker output.
+- No runtime source code was changed for V0.
 
 ### V1 - Gate Not Met
 
