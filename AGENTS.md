@@ -199,6 +199,7 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Status | Date | Agent | Scope | Files | Out of Scope | Dependency |
 |--------|------|-------|-------|-------|--------------|------------|
+| DONE | 2026-05-05 | Codex | Plan Stage 3d runtime verification before integration | `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` | Performing the merge, changing runtime code, executing destructive DB reset | `docs/features/proposals/2026-05-05-pre-merge-preservation-audit.md` |
 | DONE | 2026-05-05 | Codex | Create pre-merge preservation audit plan for Option B+ integration | `docs/features/proposals/2026-05-05-pre-merge-preservation-audit.md`, `AGENTS.md` | Performing the merge, changing runtime code, resolving conflicts | `docs/features/proposals/2026-05-05-integration-strategy-update.md` |
 | DONE | 2026-05-05 | Codex | Update integration strategy after checkpoint and latest branch state | `docs/features/proposals/2026-05-05-integration-strategy-update.md`, `AGENTS.md` | Performing the actual merge, resolving merge conflicts, changing runtime code | `docs/features/proposals/2026-04-28-integration-strategy.md`, checkpoint `1637751` |
 | DONE | 2026-05-04 | Codex | Upload reusable skills package to `huckwnmo99/Skills` | `AGENTS.md`; external repo `huckwnmo99/Skills` | Changing skill contents, publishing Redou app code | Prepared `docs/exports/Skills` package |
@@ -221,6 +222,7 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Date | Agent | Work | Files |
 |------|-------|------|-------|
+| 2026-05-05 | Codex | Created the Stage 3d runtime verification plan before integration, splitting checks into V0 static health, V1 gate-not-met, V2 no-new-context, V3 high-confidence recovery, V4 low-confidence ignore, and V5 abort/timeout safety, with explicit blockers and minimal-fix ownership | `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` |
 | 2026-05-05 | Codex | Created the Option B+ pre-merge preservation audit, naming the exact security/RLS, supplementary source tracking, Stage 3d, V2-only pipeline, and entity graph files/functions/migrations that must survive the later merge; also recorded conflict-resolution order and validation checks | `docs/features/proposals/2026-05-05-pre-merge-preservation-audit.md`, `AGENTS.md` |
 | 2026-05-05 | Codex | Created a 2026-05-05 integration strategy update after checkpointing and pushing `1637751`, re-ran merge-tree against `origin/main`, confirmed the 22 conflict files still hold, and upgraded the recommendation from Option B to Option B+ with explicit preservation audit guardrails for security fixes, supplementary source tracking, Stage 3d, and entity graph integration | `docs/features/proposals/2026-05-05-integration-strategy-update.md`, `AGENTS.md` |
 | 2026-05-04 | Codex | Uploaded the reusable Codex skills package to `https://github.com/huckwnmo99/Skills` on `main` with commit `affe12f`, verified the remote `skills` directory contains 29 skill folders, and left the Redou-local export copy in `docs/exports/Skills` | external repo `huckwnmo99/Skills`, `AGENTS.md` |
@@ -277,13 +279,12 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 ## 9. Latest Handoff
 
 ```md
-DONE | Codex - Pre-merge preservation audit created
-- Done: created `docs/features/proposals/2026-05-05-pre-merge-preservation-audit.md`.
-- Scope: named exact files/functions/migrations/IPC surfaces that must survive the later `feature/pipeline-v2-only` + `origin/main` merge.
-- Guardrails covered: security/RLS/chat ownership, supplementary `source_file_id`, Stage 3d Agentic NULL Recovery, V2-only PDF pipeline, and origin/main entity graph.
-- Added conflict resolution order and post-merge validation checklist.
-- Out of scope: did not perform the actual merge and did not change runtime code.
-- Next: run Stage 3d verification on the current feature branch before any merge conflict resolution.
+DONE | Codex - Stage 3d runtime verification plan created
+- Done: created `docs/features/fix/10-stage-3d-runtime-verification.md`.
+- Scope: split Stage 3d verification into V0 static health, V1 gate-not-met, V2 no-new-context, V3 high-confidence recovery, V4 low-confidence ignore, and V5 abort/timeout safety.
+- Guardrails covered: recovery gate, paper-scoped new-context gate, high-confidence-only application, metadata evidence, renderer `researching` status, and merge-blocking failures.
+- Out of scope: did not perform the merge, did not change runtime code, and did not reset Supabase.
+- Next: execute V0 static health on the current feature branch, then run V1/V2 in Electron before any merge conflict resolution.
 ```
 
 ## 10. Known Issues & Potential Bugs
