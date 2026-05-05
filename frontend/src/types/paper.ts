@@ -51,6 +51,26 @@ export interface PaperPrimaryFile {
   fileSize?: number;
 }
 
+export interface PaperSupplementaryFile {
+  id: string;
+  paperId: string;
+  storedPath: string;
+  storedFilename: string;
+  originalFilename: string;
+  fileSize?: number;
+  isPrimary: false;
+  createdAt: string;
+  processingStatus?: ProcessingJobStatus;
+  processingUpdatedAt?: string;
+}
+
+export interface SupplementaryPaperImportResult {
+  file: PaperSupplementaryFile;
+  processingJobId: string;
+  storedPath: string;
+  storedFilename: string;
+}
+
 export interface PaperSection {
   id: string;
   paperId: string;

@@ -13,6 +13,7 @@ import { localeText } from "@/lib/locale";
 import {
   toDesktopFileUrl,
   useDesktopRuntime,
+  useDesktopPdfSelection,
   useOpenDesktopFile,
   useResolvedDesktopFilePath,
   useRevealInExplorer,
@@ -23,6 +24,7 @@ import {
   useCreateNote,
   useDeleteHighlight,
   useDeleteHighlightPreset,
+  useAttachSupplementaryPdf,
   useFiguresByPaper,
   useFolders,
   useHighlightPresets,
@@ -32,6 +34,7 @@ import {
   usePrimaryPaperFile,
   useReferencesByPaper,
   useSectionsByPaper,
+  useSupplementaryPaperFiles,
   useUpdateHighlight,
   useUpdateNote,
   useUpsertHighlightEmbedding,
@@ -334,8 +337,11 @@ function PdfTab({ paper, folderName }: { paper: Paper; folderName?: string }) {
   const { data: allPresets = [] } = useHighlightPresets();
   const highlightPresets = allPresets;
   const { data: primaryFile, isLoading: isPrimaryFileLoading } = usePrimaryPaperFile(paper.id);
+  const { data: supplementaryFiles = [] } = useSupplementaryPaperFiles(paper.id);
   const { data: runtime } = useDesktopRuntime();
   const { data: resolvedPath, isLoading: isPathLoading } = useResolvedDesktopFilePath(primaryFile?.storedPath ?? null);
+  const selectSupplementaryPdf = useDesktopPdfSelection();
+  const attachSupplementaryPdf = useAttachSupplementaryPdf();
   const openDesktopFile = useOpenDesktopFile();
   const revealInExplorer = useRevealInExplorer();
   const createHighlight = useCreateHighlight();
@@ -460,6 +466,31 @@ function PdfTab({ paper, folderName }: { paper: Paper; folderName?: string }) {
       }
     } catch (cause) {
       setReaderActionError(readerActionMessage(cause, "Unable to delete the selected highlight."));
+    }
+  }
+
+  async function handleAttachSupplementaryPdf() {
+    setReaderActionError(null);
+
+    try {
+      const selectedPaths = await selectSupplementaryPdf.mutateAsync();
+      if (selectedPaths.length === 0) {
+        return;
+      }
+
+      if (selectedPaths.length > 1) {
+        throw new Error(tl("Attach one supplementary PDF at a time.", "Supplementary PDF는 한 번에 하나씩 추가하세요."));
+      }
+
+      await attachSupplementaryPdf.mutateAsync({
+        paperId: paper.id,
+        sourcePath: selectedPaths[0],
+        paperTitle: paper.title,
+        year: paper.year || undefined,
+        firstAuthor: paper.authors[0]?.name,
+      });
+    } catch (cause) {
+      setReaderActionError(readerActionMessage(cause, tl("Unable to attach the supplementary PDF.", "Supplementary PDF를 추가하지 못했습니다.")));
     }
   }
 
@@ -840,6 +871,52 @@ function PdfTab({ paper, folderName }: { paper: Paper; folderName?: string }) {
               </div>
             ) : (
               <div style={{ fontSize: 11.5, color: "var(--color-text-muted)" }}>No PDF attached.</div>
+            )}
+          </SidebarSection>
+
+          <SidebarSection title={`Supplementary PDFs (${supplementaryFiles.length})`}>
+            <button
+              onClick={handleAttachSupplementaryPdf}
+              disabled={!runtime?.available || selectSupplementaryPdf.isPending || attachSupplementaryPdf.isPending}
+              style={{ ...lightButtonStyle, width: "100%", justifyContent: "center", height: 30, fontSize: 11.5 }}
+            >
+              <FileText size={12} />
+              {selectSupplementaryPdf.isPending || attachSupplementaryPdf.isPending
+                ? tl("Attaching...", "추가 중...")
+                : tl("Attach supplementary PDF", "Supplementary PDF 추가")}
+            </button>
+            {!runtime?.available ? (
+              <div style={{ fontSize: 11.5, color: "var(--color-text-muted)", lineHeight: 1.6 }}>
+                {tl("Supplementary files can be attached in the Electron app.", "Supplementary 파일은 Electron 앱에서 추가할 수 있습니다.")}
+              </div>
+            ) : null}
+            {supplementaryFiles.length > 0 ? (
+              supplementaryFiles.map((file) => (
+                <div key={file.id} style={{ padding: 10, borderRadius: 8, border: "1px solid var(--color-border-subtle)", background: "var(--color-bg-surface)", display: "grid", gap: 7 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <FileText size={12} color="var(--color-text-muted)" />
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, fontWeight: 600, color: "var(--color-text-primary)", wordBreak: "break-word" }}>
+                      {file.originalFilename}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 10.5, color: "var(--color-text-muted)" }}>{formatFileSize(file.fileSize)}</span>
+                    {file.processingStatus ? <ProcessingBadge status={file.processingStatus} /> : null}
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button onClick={() => openDesktopFile.mutate(file.storedPath)} disabled={openDesktopFile.isPending} style={{ ...lightButtonStyle, height: 28, fontSize: 11, padding: "0 8px" }}>
+                      <ExternalLink size={11} /> {tl("System viewer", "시스템 뷰어")}
+                    </button>
+                    <button onClick={() => revealInExplorer.mutate(file.storedPath)} disabled={revealInExplorer.isPending} style={{ ...lightButtonStyle, height: 28, fontSize: 11, padding: "0 8px" }}>
+                      <FolderOpen size={11} /> Explorer
+                    </button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div style={{ fontSize: 11.5, color: "var(--color-text-muted)", lineHeight: 1.6 }}>
+                {tl("No supplementary PDFs attached yet.", "아직 추가된 Supplementary PDF가 없습니다.")}
+              </div>
             )}
           </SidebarSection>
         </div>

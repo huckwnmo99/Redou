@@ -2,7 +2,7 @@
 
 Date: 2026-05-05
 Branch: `feature/pipeline-v2-only`
-Status: G1 implemented and verified; G2 next
+Status: G1 verified; G2 code implemented and static/agent verified; runtime attach walkthrough pending
 Mode: `/goal` equivalent, maintained as project documentation
 
 ## Goal
@@ -179,13 +179,13 @@ Out of scope:
 
 ## Current Priority
 
-G1 is implemented. Move next to G2 after committing this checkpoint.
+G2 is the active checkpoint. The minimal attach path is implemented in code and needs one Electron walkthrough before treating the slice as fully runtime-verified.
 
 Reason:
 
-- It prevents incorrect artifacts from being saved.
-- It is the smallest critical safety fix before supplementary and goal objects amplify generated outputs.
-- It aligns with the current Stage 3d findings.
+- It unlocks user-provided supplementary PDFs without waiting for DOCX conversion.
+- It reuses the existing `import_pdf` worker path with `source_file_id`, so the code surface stays small.
+- It keeps the main PDF reader tied to the primary source state instead of a supplementary job's state.
 
 G1 verification:
 
@@ -203,6 +203,29 @@ G1 verification:
 Known residual:
 
 - The verified scoped fallback table had no rows. That is acceptable for G1 because incorrect columns were blocked, but a later table quality slice should improve fallback row production or return a clearer user-facing failure when no rows match the requested schema.
+
+G2 verification:
+
+- PASS: QA subagent found no blocking issues in the G2 patch.
+- PASS: `cmd /c npm run build` in `frontend`.
+- PASS: `cmd /c npm run build` in `apps/desktop`.
+- PASS: `git diff --check`.
+- PASS: Paper Detail now exposes a `Supplementary PDFs` sidebar section in the PDF tab.
+- PASS: Attach flow limits the first slice to one selected PDF.
+- PASS: Repository inserts `paper_files.file_kind = "supplementary_pdf"` and `is_primary = false`.
+- PASS: Repository queues `processing_jobs.job_type = "import_pdf"` with `source_file_id`.
+- PASS: Main paper processing status ignores supplementary source jobs when a primary `paper_files` source can be resolved.
+
+G2 runtime pending:
+
+- Attach one supplementary PDF in Electron.
+- Confirm the new `paper_files` and `processing_jobs` rows in local Supabase.
+- Confirm the main PDF reader remains open while the supplementary job is queued/running.
+- Confirm supplementary extraction rows use the supplementary `source_file_id` and main source rows survive.
+
+G2 residual:
+
+- Existing section/figure/search views are still paper-wide, so supplementary evidence can appear mixed with main-paper evidence until G3 source labels land.
 
 ## Subagents
 

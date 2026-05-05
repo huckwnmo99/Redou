@@ -199,6 +199,7 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Status | Date | Agent | Scope | Files | Out of Scope | Dependency |
 |--------|------|-------|-------|-------|--------------|------------|
+| DONE | 2026-05-05 | Codex | G2 supplementary PDF attach from paper detail | `frontend/src/features/paper/PaperDetailView.tsx`, `frontend/src/lib/queries.ts`, `frontend/src/lib/supabasePaperRepository.ts`, `frontend/src/lib/desktop.ts`, `frontend/src/types/paper.ts`, `docs/goals/2026-05-05-research-os-goal.md`, `AGENTS.md` | DOCX conversion, RAG supplementary citation labels, supplementary inline reader, new job type | Research OS goal G2 and supplementary attach subagent findings |
 | DONE | 2026-05-05 | Codex | Create Research OS goal plan with subagent-backed checkpoints | `docs/goals/2026-05-05-research-os-goal.md`, `AGENTS.md` | Implementing every goal slice at once, merge conflict resolution, DB reset | User request to use `/goal`, skills, and subagents |
 | DONE | 2026-05-05 | Codex | G1 table-spec adherence guard for single-call fallback | `apps/desktop/electron/main.mjs`, `docs/goals/2026-05-05-research-os-goal.md`, `AGENTS.md` | Prompt rewrite, full table pipeline refactor, changing LLM defaults | Subagent A table-spec adherence analysis |
 | DONE | 2026-05-05 | Codex | Fix Stage 3d metadata on single-call fallback | `apps/desktop/electron/main.mjs`, `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` | Broad table quality fixes, changing LLM prompts, merge conflict resolution | Runtime observation table `81a19a84-ba39-49bb-bfe1-68ac3c9dd84f` |
@@ -227,6 +228,7 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Date | Agent | Work | Files |
 |------|-------|------|-------|
+| 2026-05-05 | Codex | Implemented G2 supplementary PDF attach with minimal frontend/repository changes: Paper Detail PDF sidebar now lists supplementary PDFs and attaches one PDF at a time; repository inserts `paper_files.file_kind = 'supplementary_pdf'` with `is_primary = false`, queues the existing `import_pdf` job with `source_file_id`, cleans up copied files/rows/jobs on attach failure, and keeps paper processing status tied to the primary source so supplementary jobs do not hide the main PDF reader. QA subagent found no blocking issues; `frontend` build, `apps/desktop` build, and `git diff --check` passed | `frontend/src/features/paper/PaperDetailView.tsx`, `frontend/src/lib/queries.ts`, `frontend/src/lib/supabasePaperRepository.ts`, `frontend/src/lib/desktop.ts`, `frontend/src/types/paper.ts`, `docs/goals/2026-05-05-research-os-goal.md`, `AGENTS.md` |
 | 2026-05-05 | Codex | Created the Research OS goal plan using the project-local `plan` and `karpathy-guidelines` skills plus three subagents, integrated findings for G1 table-spec guard, G2 supplementary attach, and G4 Research Goal MVP, then implemented and verified G1: single-call fallback output is normalized or blocked against `tableSpec.column_definitions`, with `tableSpecAdherence` diagnostics recorded in metadata | `docs/goals/2026-05-05-research-os-goal.md`, `apps/desktop/electron/main.mjs`, `AGENTS.md` |
 | 2026-05-05 | Codex | Verified the Stage 3d single-call fallback metadata fix: `node --check` and `apps/desktop` build passed; scoped fallback runtime table `6b62d202-5c2c-4ab1-a535-3092b7245c64` stored `nullSummary: null`, `agenticRecovery.skippedReason: "single_call_fallback"`, and zero before/after recovery counters; temporary folder membership was removed and the user LLM preference was restored to `gemma4:31b` | `apps/desktop/electron/main.mjs`, `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` |
 | 2026-05-05 | Codex | Applied a minimal Stage 3d metadata fix for single-call fallback: fallback now records `skippedReason: "single_call_fallback"` in `agenticRecovery` and clears stale per-paper `nullSummary` so fallback tables do not persist misleading per-paper NULL counters with `agenticRecovery: null` | `apps/desktop/electron/main.mjs`, `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` |
@@ -289,14 +291,14 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 ## 9. Latest Handoff
 
 ```md
-DONE | Codex - Research OS goal and G1 table-spec guard verified
-- Done: created `docs/goals/2026-05-05-research-os-goal.md` as the `/goal` equivalent.
-- Used: `plan`, `karpathy-guidelines`, and three subagents for table guard, supplementary attach, and Research Goal MVP planning.
-- Implemented: `single_call_fallback` output is normalized or blocked against `tableSpec.column_definitions`, with `metadata.tableSpecAdherence` diagnostics.
-- Verified: `node --check apps\desktop\electron\main.mjs`, `node --check apps\desktop\electron\llm-orchestrator.mjs`, and `cmd /c npm run build` in `apps/desktop` passed.
-- Runtime verified: scoped fallback table `27203151-feee-421e-b310-3c0048a26a88` stored `headers = ["Paper Title"]` instead of unrelated material-property columns.
-- Restored: temporary folder membership removed and user LLM preference is back to `gemma4:31b`.
-- Next: commit/push this checkpoint, then move to G2: one supplementary PDF attach from paper detail.
+DONE | Codex - Research OS G2 supplementary PDF attach code implemented
+- Done: Paper Detail PDF sidebar now lists supplementary PDFs and attaches one PDF at a time through the existing desktop file picker/import path.
+- Implemented: supplementary files are stored as `paper_files.file_kind = "supplementary_pdf"` with `is_primary = false`; queued jobs keep `job_type = "import_pdf"` and include `source_file_id`.
+- Guarded: paper processing status now ignores supplementary source jobs when primary source jobs can be resolved, so a supplementary job should not hide the main PDF reader.
+- Cleaned up: attach failure now removes copied library files from the mutation path and removes created `processing_jobs` / `paper_files` rows from the repository path when needed.
+- Verified: QA subagent found no blocking issues; `cmd /c npm run build` passed in `frontend`; `cmd /c npm run build` passed in `apps/desktop`; `git diff --check` passed.
+- Pending: one Electron walkthrough to attach a real supplementary PDF and confirm DB rows plus main-reader readiness at runtime.
+- Next: commit this checkpoint, then continue G3 source labels so `[N] Supplementary` evidence is visible in answers.
 ```
 
 ## 10. Known Issues & Potential Bugs

@@ -133,6 +133,7 @@ function invalidateWorkspaceQueries(queryClient: ReturnType<typeof useQueryClien
   if (paperId) {
     queryClient.invalidateQueries({ queryKey: ["papers", "detail", paperId] });
     queryClient.invalidateQueries({ queryKey: ["paper-files", "primary", paperId] });
+    queryClient.invalidateQueries({ queryKey: ["paper-files", "supplementary", paperId] });
     queryClient.invalidateQueries({ queryKey: ["paper-sections", "paper", paperId] });
     queryClient.invalidateQueries({ queryKey: ["paper-figures", "paper", paperId] });
     queryClient.invalidateQueries({ queryKey: ["notes", "paper", paperId] });

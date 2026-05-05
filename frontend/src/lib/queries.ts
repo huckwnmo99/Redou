@@ -10,8 +10,10 @@ import type {
   PaperSearchResult,
   FigureSearchResult,
   PaperSection,
+  PaperSupplementaryFile,
   PaperTextSelectionAnchor,
   ResearchNote,
+  SupplementaryPaperImportResult,
 } from "@/types/paper";
 
 export const paperKeys = {
@@ -37,6 +39,7 @@ export const highlightKeys = {
 
 export const fileKeys = {
   primary: (paperId: string) => ["paper-files", "primary", paperId] as const,
+  supplementary: (paperId: string) => ["paper-files", "supplementary", paperId] as const,
 };
 
 export const chunkKeys = {
@@ -117,6 +120,14 @@ export function usePrimaryPaperFile(paperId: string | null) {
   return useQuery({
     queryKey: fileKeys.primary(paperId ?? "none"),
     queryFn: () => (paperId ? paperRepository.getPrimaryPaperFile(paperId) : Promise.resolve(undefined)),
+    enabled: Boolean(paperId),
+  });
+}
+
+export function useSupplementaryPaperFiles(paperId: string | null) {
+  return useQuery<PaperSupplementaryFile[]>({
+    queryKey: fileKeys.supplementary(paperId ?? "none"),
+    queryFn: () => (paperId ? paperRepository.getSupplementaryPaperFiles(paperId) : Promise.resolve([])),
     enabled: Boolean(paperId),
   });
 }
@@ -386,6 +397,45 @@ export function useImportDesktopPapers() {
         queryClient.invalidateQueries({ queryKey: sectionKeys.byPaper(result.paper.id) });
         queryClient.invalidateQueries({ queryKey: figureKeys.byPaper(result.paper.id) });
       }
+    },
+  });
+}
+
+export function useAttachSupplementaryPdf() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: {
+      paperId: string;
+      sourcePath: string;
+      paperTitle: string;
+      year?: number;
+      firstAuthor?: string;
+    }): Promise<SupplementaryPaperImportResult> => {
+      const storedFile = await importPdfToLibrary({
+        sourcePath: input.sourcePath,
+        year: input.year,
+        firstAuthor: input.firstAuthor,
+        shortTitle: `${input.paperTitle} supplementary`,
+      });
+
+      try {
+        return await paperRepository.attachSupplementaryPdfToPaper(input.paperId, storedFile);
+      } catch (error) {
+        await deleteImportedLibraryFile(storedFile.storedPath, storedFile.cleanupToken);
+        throw error;
+      }
+    },
+    onSuccess: (result) => {
+      const paperId = result.file.paperId;
+
+      queryClient.invalidateQueries({ queryKey: fileKeys.supplementary(paperId) });
+      queryClient.invalidateQueries({ queryKey: paperKeys.detail(paperId) });
+      queryClient.invalidateQueries({ queryKey: paperKeys.all });
+      queryClient.invalidateQueries({ queryKey: chunkKeys.all });
+      queryClient.invalidateQueries({ queryKey: figureKeys.all });
+      queryClient.invalidateQueries({ queryKey: sectionKeys.byPaper(paperId) });
+      queryClient.invalidateQueries({ queryKey: figureKeys.byPaper(paperId) });
     },
   });
 }

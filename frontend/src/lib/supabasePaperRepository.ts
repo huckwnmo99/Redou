@@ -15,10 +15,12 @@ import type {
   PaperPageAnchor,
   PaperPrimaryFile,
   PaperSelectionRect,
+  PaperSupplementaryFile,
   PaperTextSelectionAnchor,
   ProcessingJobStatus,
   ResearchHighlight,
   ResearchNote,
+  SupplementaryPaperImportResult,
 } from "@/types/paper";
 import type { FileImportResult } from "@/types/desktop";
 
@@ -135,6 +137,17 @@ interface PrimaryFileRow {
   file_size_bytes: number | null;
 }
 
+interface SupplementaryFileRow {
+  id: string;
+  paper_id: string;
+  stored_path: string;
+  stored_filename: string;
+  original_filename: string;
+  file_size_bytes: number | null;
+  is_primary: boolean;
+  created_at: string;
+}
+
 interface SectionRow {
   id: string;
   paper_id: string;
@@ -174,6 +187,7 @@ interface FigureRow {
 
 interface ProcessingJobRow {
   paper_id: string | null;
+  source_file_id: string | null;
   job_type: string;
   status: ProcessingJobStatus;
   created_at: string;
@@ -396,6 +410,21 @@ function rowToFigure(row: FigureRow): PaperFigure {
   };
 }
 
+function rowToSupplementaryFile(row: SupplementaryFileRow, processing?: ProcessingSignal): PaperSupplementaryFile {
+  return {
+    id: row.id,
+    paperId: row.paper_id,
+    storedPath: row.stored_path,
+    storedFilename: row.stored_filename,
+    originalFilename: row.original_filename,
+    fileSize: row.file_size_bytes ?? undefined,
+    isPrimary: false,
+    createdAt: row.created_at,
+    processingStatus: processing?.status,
+    processingUpdatedAt: processing?.updatedAt,
+  };
+}
+
 function rowToNote(row: NoteRow): ResearchNote {
   const linkedHighlight = firstRelationRow(row.highlight);
   const linkedSelection = selectionFromStored(
@@ -429,18 +458,20 @@ function rowToNote(row: NoteRow): ResearchNote {
 }
 
 async function fetchPaperSignals() {
-  const [noteRes, figureRes, jobRes] = await Promise.all([
+  const [noteRes, figureRes, primaryFileRes, jobRes] = await Promise.all([
     supabase.from("notes").select("paper_id"),
     supabase.from("figures").select("paper_id"),
+    supabase.from("paper_files").select("id, paper_id").eq("is_primary", true),
     supabase
       .from("processing_jobs")
-      .select("paper_id, job_type, status, created_at")
+      .select("paper_id, source_file_id, job_type, status, created_at")
       .eq("job_type", "import_pdf")
       .order("created_at", { ascending: false }),
   ]);
 
   if (noteRes.error) console.warn("[fetchPaperSignals] notes query failed:", noteRes.error.message);
   if (figureRes.error) console.warn("[fetchPaperSignals] figures query failed:", figureRes.error.message);
+  if (primaryFileRes.error) console.warn("[fetchPaperSignals] paper_files query failed:", primaryFileRes.error.message);
   if (jobRes.error) console.warn("[fetchPaperSignals] processing_jobs query failed:", jobRes.error.message);
 
   const noteMap = new Map<string, number>();
@@ -453,9 +484,15 @@ async function fetchPaperSignals() {
     figureMap.set(row.paper_id, (figureMap.get(row.paper_id) ?? 0) + 1);
   }
 
+  const primaryFileIds = new Set((primaryFileRes.data ?? []).map((row) => row.id).filter(Boolean));
+  const canFilterByPrimarySource = !primaryFileRes.error;
   const processingMap = new Map<string, ProcessingSignal>();
   for (const row of (jobRes.data ?? []) as ProcessingJobRow[]) {
     if (!row.paper_id || processingMap.has(row.paper_id)) {
+      continue;
+    }
+
+    if (canFilterByPrimarySource && row.source_file_id && !primaryFileIds.has(row.source_file_id)) {
       continue;
     }
 
@@ -613,6 +650,51 @@ async function createImportJob(paperId: string, userId: string, storedPath: stri
   }
 
   return data.id as string;
+}
+
+async function fetchSupplementaryPaperFiles(paperId: string): Promise<PaperSupplementaryFile[]> {
+  const { data, error } = await supabase
+    .from("paper_files")
+    .select("id, paper_id, stored_path, stored_filename, original_filename, file_size_bytes, is_primary, created_at")
+    .eq("paper_id", paperId)
+    .eq("file_kind", "supplementary_pdf")
+    .eq("is_primary", false)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const rows = (data ?? []) as SupplementaryFileRow[];
+  const fileIds = rows.map((row) => row.id);
+  const processingMap = new Map<string, ProcessingSignal>();
+
+  if (fileIds.length > 0) {
+    const { data: jobs, error: jobError } = await supabase
+      .from("processing_jobs")
+      .select("source_file_id, status, created_at")
+      .eq("paper_id", paperId)
+      .eq("job_type", "import_pdf")
+      .in("source_file_id", fileIds)
+      .order("created_at", { ascending: false });
+
+    if (jobError) {
+      throw new Error(jobError.message);
+    }
+
+    for (const job of (jobs ?? []) as Pick<ProcessingJobRow, "source_file_id" | "status" | "created_at">[]) {
+      if (!job.source_file_id || processingMap.has(job.source_file_id)) {
+        continue;
+      }
+
+      processingMap.set(job.source_file_id, {
+        status: job.status,
+        updatedAt: job.created_at,
+      });
+    }
+  }
+
+  return rows.map((row) => rowToSupplementaryFile(row, processingMap.get(row.id)));
 }
 
 async function getDefaultHighlightPresetId(userId: string): Promise<string> {
@@ -852,6 +934,60 @@ export const supabasePaperRepository = {
       }
 
       throw new Error("Unable to finish importing the paper.");
+    }
+  },
+
+  async getSupplementaryPaperFiles(paperId: string): Promise<PaperSupplementaryFile[]> {
+    return fetchSupplementaryPaperFiles(paperId);
+  },
+
+  async attachSupplementaryPdfToPaper(
+    paperId: string,
+    storedFile: FileImportResult,
+  ): Promise<SupplementaryPaperImportResult> {
+    const userId = await currentUserId();
+    let sourceFileId: string | null = null;
+    let processingJobId: string | null = null;
+
+    try {
+      sourceFileId = await insertPaperFile(paperId, storedFile, {
+        fileKind: "supplementary_pdf",
+        isPrimary: false,
+      });
+
+      processingJobId = await createImportJob(paperId, userId, storedFile.storedPath, sourceFileId);
+      const file = (await fetchSupplementaryPaperFiles(paperId)).find((candidate) => candidate.id === sourceFileId);
+
+      if (!file) {
+        throw new Error("The supplementary PDF was attached but could not be loaded back into the workspace.");
+      }
+
+      return {
+        file,
+        processingJobId,
+        storedPath: storedFile.storedPath,
+        storedFilename: storedFile.storedFilename,
+      };
+    } catch (cause) {
+      if (processingJobId) {
+        const { error } = await supabase.from("processing_jobs").delete().eq("id", processingJobId);
+        if (error) {
+          console.warn("[attachSupplementaryPdfToPaper] Failed to clean up supplementary processing job:", error.message);
+        }
+      }
+
+      if (sourceFileId) {
+        const { error } = await supabase.from("paper_files").delete().eq("id", sourceFileId);
+        if (error) {
+          console.warn("[attachSupplementaryPdfToPaper] Failed to clean up supplementary file row:", error.message);
+        }
+      }
+
+      if (cause instanceof Error) {
+        throw cause;
+      }
+
+      throw new Error("Unable to attach the supplementary PDF.");
     }
   },
 
