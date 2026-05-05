@@ -3,7 +3,7 @@
 Date: 2026-05-05
 Branch: `feature/pipeline-v2-only`
 Owner: Codex
-Status: V0 passed; V1/V2 pending
+Status: V0 passed; Stage 3d runtime path observed; V1/V2 pending
 
 ## Goal
 
@@ -81,6 +81,48 @@ Notes:
 
 - The frontend build still reports the existing Vite chunk-size warning for the bundled app/PDF worker output.
 - No runtime source code was changed for V0.
+
+### Runtime Observations - 2026-05-05
+
+Environment:
+
+- Electron launched against built `frontend/dist`.
+- Existing authenticated session was present for `huckwnmo100@gmail.com`.
+- Local Supabase had 4 papers, 237 chunks, and 96 figures for the active user.
+- The user's LLM preference was temporarily changed from `gemma4:31b` to `llama3.1:8b` for runtime verification, then restored to `gemma4:31b`.
+
+Observed Stage 3d run:
+
+- Prompt: compact table with `Paper title` and `Publication year`.
+- Result: generated table `787dc23d-b697-4842-9aec-4caf30c8cee4`.
+- Status events reached `orchestrating`, `searching`, `parsing`, `extracting`, `assembling`, `researching`, then `assembling`.
+- `researching` detail targeted one paper: `Adsorptive removal of ultra-low concentration H2S and THT in`.
+- `metadata.agenticRecovery.attempted === true`.
+- `metadata.agenticRecovery.recoveredCellCount === 0`.
+- `metadata.agenticRecovery.nullsBeforeRecovery === 24`.
+- `metadata.agenticRecovery.nullsAfterRecovery === 2`.
+- Per-paper recovery found new context (`newChunkCount: 15`, `newFigureCount: 8`) but recovered no cells.
+
+Interpretation:
+
+- This run confirms the real Electron IPC path can reach Stage 3d and emits the `researching` renderer status.
+- It does not satisfy V1 because the table still produced NULL cells and Stage 3d ran.
+- It does not satisfy V2 because paper-scoped recovery found new context rather than taking the `no_new_context` skip path.
+- It partially supports V4/V5 safety: no low-confidence value was applied, and no non-NULL overwrite was observed.
+
+Observed abort run:
+
+- Prompt: single-column `Paper title` table.
+- Conversation: `9bab5dde-a092-49a5-8d33-77e32e2cedf2`.
+- Timeout guard aborted after 6 minutes while the pipeline was still in `extracting (1/4)`.
+- No `chat_generated_tables` row was saved for this conversation.
+- Only the user message was persisted.
+
+Runtime concerns found:
+
+- Even metadata-only prompts still drive the full table extraction pipeline, including OCR table parsing and per-paper extraction.
+- A one-column `Paper title` request did not complete within 6 minutes on `llama3.1:8b`.
+- The generated `Paper title` / `Publication year` table contained duplicate rows for one paper and `N/A` for a year that exists in paper metadata. This looks like a broader table-pipeline quality issue, not a Stage 3d-only failure.
 
 ### V1 - Gate Not Met
 
