@@ -199,6 +199,7 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Status | Date | Agent | Scope | Files | Out of Scope | Dependency |
 |--------|------|-------|-------|-------|--------------|------------|
+| DONE | 2026-05-06 | Codex | Record G2 supplementary attach Electron runtime verification | `docs/goals/2026-05-05-research-os-goal.md`, `AGENTS.md` | New runtime code changes, DOCX conversion, G3 source labels, pushing to remote | G2 Electron bridge and DB walkthrough |
 | DONE | 2026-05-05 | Codex | G2 supplementary PDF attach from paper detail | `frontend/src/features/paper/PaperDetailView.tsx`, `frontend/src/lib/queries.ts`, `frontend/src/lib/supabasePaperRepository.ts`, `frontend/src/lib/desktop.ts`, `frontend/src/types/paper.ts`, `docs/goals/2026-05-05-research-os-goal.md`, `AGENTS.md` | DOCX conversion, RAG supplementary citation labels, supplementary inline reader, new job type | Research OS goal G2 and supplementary attach subagent findings |
 | DONE | 2026-05-05 | Codex | Create Research OS goal plan with subagent-backed checkpoints | `docs/goals/2026-05-05-research-os-goal.md`, `AGENTS.md` | Implementing every goal slice at once, merge conflict resolution, DB reset | User request to use `/goal`, skills, and subagents |
 | DONE | 2026-05-05 | Codex | G1 table-spec adherence guard for single-call fallback | `apps/desktop/electron/main.mjs`, `docs/goals/2026-05-05-research-os-goal.md`, `AGENTS.md` | Prompt rewrite, full table pipeline refactor, changing LLM defaults | Subagent A table-spec adherence analysis |
@@ -228,6 +229,7 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Date | Agent | Work | Files |
 |------|-------|------|-------|
+| 2026-05-06 | Codex | Runtime-verified G2 supplementary PDF attach in Electron: selected the actual Redou renderer window with `window.redouDesktop`, confirmed the PDF side panel renders `SUPPLEMENTARY PDFS (0)` and `Supplementary PDF 추가`, copied test PDF `01-valid.pdf` through the Electron file import bridge, inserted a `supplementary_pdf` non-primary `paper_files` row and queued `import_pdf` job with matching `source_file_id`, confirmed the primary source job stayed `succeeded` and primary sections/chunks stayed `21/51`, then removed the copied test file and DB rows so no queued/running jobs or runtime test artifacts remained | `docs/goals/2026-05-05-research-os-goal.md`, `AGENTS.md` |
 | 2026-05-05 | Codex | Implemented G2 supplementary PDF attach with minimal frontend/repository changes: Paper Detail PDF sidebar now lists supplementary PDFs and attaches one PDF at a time; repository inserts `paper_files.file_kind = 'supplementary_pdf'` with `is_primary = false`, queues the existing `import_pdf` job with `source_file_id`, cleans up copied files/rows/jobs on attach failure, and keeps paper processing status tied to the primary source so supplementary jobs do not hide the main PDF reader. QA subagent found no blocking issues; `frontend` build, `apps/desktop` build, and `git diff --check` passed | `frontend/src/features/paper/PaperDetailView.tsx`, `frontend/src/lib/queries.ts`, `frontend/src/lib/supabasePaperRepository.ts`, `frontend/src/lib/desktop.ts`, `frontend/src/types/paper.ts`, `docs/goals/2026-05-05-research-os-goal.md`, `AGENTS.md` |
 | 2026-05-05 | Codex | Created the Research OS goal plan using the project-local `plan` and `karpathy-guidelines` skills plus three subagents, integrated findings for G1 table-spec guard, G2 supplementary attach, and G4 Research Goal MVP, then implemented and verified G1: single-call fallback output is normalized or blocked against `tableSpec.column_definitions`, with `tableSpecAdherence` diagnostics recorded in metadata | `docs/goals/2026-05-05-research-os-goal.md`, `apps/desktop/electron/main.mjs`, `AGENTS.md` |
 | 2026-05-05 | Codex | Verified the Stage 3d single-call fallback metadata fix: `node --check` and `apps/desktop` build passed; scoped fallback runtime table `6b62d202-5c2c-4ab1-a535-3092b7245c64` stored `nullSummary: null`, `agenticRecovery.skippedReason: "single_call_fallback"`, and zero before/after recovery counters; temporary folder membership was removed and the user LLM preference was restored to `gemma4:31b` | `apps/desktop/electron/main.mjs`, `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` |
@@ -291,14 +293,13 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 ## 9. Latest Handoff
 
 ```md
-DONE | Codex - Research OS G2 supplementary PDF attach code implemented
-- Done: Paper Detail PDF sidebar now lists supplementary PDFs and attaches one PDF at a time through the existing desktop file picker/import path.
-- Implemented: supplementary files are stored as `paper_files.file_kind = "supplementary_pdf"` with `is_primary = false`; queued jobs keep `job_type = "import_pdf"` and include `source_file_id`.
-- Guarded: paper processing status now ignores supplementary source jobs when primary source jobs can be resolved, so a supplementary job should not hide the main PDF reader.
-- Cleaned up: attach failure now removes copied library files from the mutation path and removes created `processing_jobs` / `paper_files` rows from the repository path when needed.
-- Verified: QA subagent found no blocking issues; `cmd /c npm run build` passed in `frontend`; `cmd /c npm run build` passed in `apps/desktop`; `git diff --check` passed.
-- Pending: one Electron walkthrough to attach a real supplementary PDF and confirm DB rows plus main-reader readiness at runtime.
-- Next: commit this checkpoint, then continue G3 source labels so `[N] Supplementary` evidence is visible in answers.
+DONE | Codex - Research OS G2 supplementary PDF attach runtime verified
+- Done: Electron runtime loaded the actual Redou renderer with `window.redouDesktop`.
+- UI verified: PDF side panel renders `SUPPLEMENTARY PDFS (0)` and `Supplementary PDF 추가`.
+- Runtime verified: Electron bridge copied `01-valid.pdf`, created `paper_files.file_kind = "supplementary_pdf"` with `is_primary = false`, and queued `processing_jobs.job_type = "import_pdf"` with matching `source_file_id`.
+- Guard verified: latest paper-level import job was the supplementary queued job, while the primary source job remained `succeeded`.
+- Data verified: primary sections/chunks stayed `21/51`; copied runtime test file and DB rows were removed; queued/running jobs are zero.
+- Next: commit this verification note, then continue G3 source labels so `[N] Supplementary` evidence is visible in answers.
 ```
 
 ## 10. Known Issues & Potential Bugs

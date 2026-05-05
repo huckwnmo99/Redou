@@ -2,7 +2,7 @@
 
 Date: 2026-05-05
 Branch: `feature/pipeline-v2-only`
-Status: G1 verified; G2 code implemented and static/agent verified; runtime attach walkthrough pending
+Status: G1 verified; G2 runtime verified; G3 source labels next
 Mode: `/goal` equivalent, maintained as project documentation
 
 ## Goal
@@ -179,7 +179,7 @@ Out of scope:
 
 ## Current Priority
 
-G2 is the active checkpoint. The minimal attach path is implemented in code and needs one Electron walkthrough before treating the slice as fully runtime-verified.
+G2 is runtime verified. The next checkpoint is G3 source labels so supplementary evidence is visible in generated answers and source references.
 
 Reason:
 
@@ -215,13 +215,18 @@ G2 verification:
 - PASS: Repository inserts `paper_files.file_kind = "supplementary_pdf"` and `is_primary = false`.
 - PASS: Repository queues `processing_jobs.job_type = "import_pdf"` with `source_file_id`.
 - PASS: Main paper processing status ignores supplementary source jobs when a primary `paper_files` source can be resolved.
+- PASS: Electron runtime loaded the Redou renderer with `window.redouDesktop` available.
+- PASS: Electron UI rendered the PDF tab side panel with `SUPPLEMENTARY PDFS (0)` and `Supplementary PDF 추가`.
+- PASS: Electron bridge copied runtime PDF `01-valid.pdf` into the Redou library.
+- PASS: Runtime inserted supplementary file `7420ff5c-ff91-4450-b1aa-8343d77876e4` with `file_kind = "supplementary_pdf"` and `is_primary = false`.
+- PASS: Runtime inserted job `aeb8c820-1abe-43e3-8dd3-fe95f5132ec6` with `job_type = "import_pdf"`, `status = "queued"`, and `source_file_id = 7420ff5c-ff91-4450-b1aa-8343d77876e4`.
+- PASS: During the supplementary queued state, the primary source job for paper `685085c5-3919-4795-8953-5436659ae9f2` remained `succeeded`.
+- PASS: Primary source rows stayed intact during attach verification: sections `21 -> 21`, chunks `51 -> 51`.
+- PASS: Runtime test cleanup removed the copied library file, supplementary `paper_files` row, and supplementary `processing_jobs` row; queued/running jobs returned to zero.
 
-G2 runtime pending:
+G2 runtime note:
 
-- Attach one supplementary PDF in Electron.
-- Confirm the new `paper_files` and `processing_jobs` rows in local Supabase.
-- Confirm the main PDF reader remains open while the supplementary job is queued/running.
-- Confirm supplementary extraction rows use the supplementary `source_file_id` and main source rows survive.
+- The test used Electron bridge automation instead of manually clicking the native file picker. This still exercised the same desktop file import IPC and DB mutation path, while avoiding a persistent test artifact.
 
 G2 residual:
 
