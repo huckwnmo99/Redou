@@ -2819,6 +2819,19 @@ function shouldTriggerAgenticRecovery(nullSummary, tableJson, abortSignal) {
   return totalNulls / totalCells >= 0.05;
 }
 
+function buildSkippedAgenticRecovery(nullSummary, skippedReason) {
+  const nullsBeforeRecovery = Number(nullSummary?.totalNulls ?? 0);
+  return {
+    attempted: false,
+    ms: 0,
+    nullsBeforeRecovery,
+    nullsAfterRecovery: nullsBeforeRecovery,
+    recoveredCellCount: 0,
+    perPaper: [],
+    skippedReason,
+  };
+}
+
 function groupNullsByPaper(nullSummary) {
   const grouped = new Map();
   for (const detail of nullSummary?.details ?? []) {
@@ -3689,6 +3702,8 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
       const ragContext = assembleRagContext(ragResults.chunks, ragResults.figures, paperRefMap, parsedMatrices);
       tableJson = await generateTableFromSpec(tableSpec, ragContext, paperMetadata, abortController.signal);
       extractionMode = "single_call_fallback";
+      agenticRecovery = buildSkippedAgenticRecovery(null, "single_call_fallback");
+      nullSummary = null;
     }
 
     // ===== Stage 3d: Agentic NULL Recovery (fail-soft, per-paper max one pass) =====

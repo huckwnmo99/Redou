@@ -199,6 +199,7 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Status | Date | Agent | Scope | Files | Out of Scope | Dependency |
 |--------|------|-------|-------|-------|--------------|------------|
+| DONE | 2026-05-05 | Codex | Fix Stage 3d metadata on single-call fallback | `apps/desktop/electron/main.mjs`, `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` | Broad table quality fixes, changing LLM prompts, merge conflict resolution | Runtime observation table `81a19a84-ba39-49bb-bfe1-68ac3c9dd84f` |
 | DONE | 2026-05-05 | Codex | Record Stage 3d runtime observations and V1/V5 outcome | `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` | Runtime code changes, deleting validation conversations, merge conflict resolution | Stage 3d Electron IPC verification runs |
 | DONE | 2026-05-05 | Codex | Record Stage 3d V0 static verification result | `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` | Runtime Electron chat walkthrough, merge conflict resolution, DB reset | `docs/features/fix/10-stage-3d-runtime-verification.md` |
 | DONE | 2026-05-05 | Codex | Plan Stage 3d runtime verification before integration | `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` | Performing the merge, changing runtime code, executing destructive DB reset | `docs/features/proposals/2026-05-05-pre-merge-preservation-audit.md` |
@@ -224,6 +225,8 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Date | Agent | Work | Files |
 |------|-------|------|-------|
+| 2026-05-05 | Codex | Verified the Stage 3d single-call fallback metadata fix: `node --check` and `apps/desktop` build passed; scoped fallback runtime table `6b62d202-5c2c-4ab1-a535-3092b7245c64` stored `nullSummary: null`, `agenticRecovery.skippedReason: "single_call_fallback"`, and zero before/after recovery counters; temporary folder membership was removed and the user LLM preference was restored to `gemma4:31b` | `apps/desktop/electron/main.mjs`, `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` |
+| 2026-05-05 | Codex | Applied a minimal Stage 3d metadata fix for single-call fallback: fallback now records `skippedReason: "single_call_fallback"` in `agenticRecovery` and clears stale per-paper `nullSummary` so fallback tables do not persist misleading per-paper NULL counters with `agenticRecovery: null` | `apps/desktop/electron/main.mjs`, `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` |
 | 2026-05-05 | Codex | Ran Stage 3d Electron IPC runtime checks with the existing authenticated session: observed a real `researching` Stage 3d path on generated table `787dc23d-b697-4842-9aec-4caf30c8cee4`, confirmed recovery metadata was written, confirmed an abort run saved no generated table, restored the user's LLM model preference to `gemma4:31b`, and documented that V1/V2 remain pending because metadata-only prompts still take the full slow table pipeline | `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` |
 | 2026-05-05 | Codex | Executed Stage 3d V0 static verification: `node --check` passed for `apps/desktop/electron/main.mjs` and `apps/desktop/electron/llm-orchestrator.mjs`, `cmd /c npm run build` passed in both `frontend` and `apps/desktop`, and recorded the result while noting the existing frontend chunk-size warning | `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` |
 | 2026-05-05 | Codex | Created the Stage 3d runtime verification plan before integration, splitting checks into V0 static health, V1 gate-not-met, V2 no-new-context, V3 high-confidence recovery, V4 low-confidence ignore, and V5 abort/timeout safety, with explicit blockers and minimal-fix ownership | `docs/features/fix/10-stage-3d-runtime-verification.md`, `AGENTS.md` |
@@ -283,13 +286,13 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 ## 9. Latest Handoff
 
 ```md
-DONE | Codex - Stage 3d runtime path observed
-- Done: recorded Electron IPC runtime observations in `docs/features/fix/10-stage-3d-runtime-verification.md`.
-- Verified: real chat run reached Stage 3d `researching` and wrote `metadata.agenticRecovery` on table `787dc23d-b697-4842-9aec-4caf30c8cee4`.
-- Verified: abort guard run saved no generated table for conversation `9bab5dde-a092-49a5-8d33-77e32e2cedf2`.
-- Restored: user LLM preference is back to `gemma4:31b` after temporarily using `llama3.1:8b`.
-- Finding: metadata-only/simple table prompts still run the full slow table pipeline, and the generated metadata table quality was poor; treat that as a table-pipeline quality issue separate from Stage 3d.
-- Next: decide whether to add a tiny test seam for V1/V2 gate verification or run another manual Electron check with a narrower dataset before merge conflict resolution.
+DONE | Codex - Stage 3d fallback metadata fix verified
+- Done: patched and verified `apps/desktop/electron/main.mjs` single-call fallback metadata.
+- Verified: `node --check apps\desktop\electron\main.mjs` and `cmd /c npm run build` in `apps/desktop` passed.
+- Verified: scoped fallback table `6b62d202-5c2c-4ab1-a535-3092b7245c64` stored `nullSummary: null`, `agenticRecovery.skippedReason: "single_call_fallback"`, and zero before/after recovery counters.
+- Restored: temporary folder membership removed and user LLM preference is back to `gemma4:31b`.
+- Remaining issue: fallback/table-spec adherence is poor; a `Paper title` request returned material-property columns. Treat this as the next narrow table pipeline quality fix.
+- Next: commit/push this fix, then plan the table-spec adherence fix before merge conflict resolution.
 ```
 
 ## 10. Known Issues & Potential Bugs

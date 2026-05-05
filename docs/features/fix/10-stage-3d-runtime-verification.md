@@ -3,7 +3,7 @@
 Date: 2026-05-05
 Branch: `feature/pipeline-v2-only`
 Owner: Codex
-Status: V0 passed; Stage 3d runtime path observed; V1/V2 pending
+Status: V0 passed; Stage 3d runtime path observed; fallback metadata fix verified; V1/V2 pending
 
 ## Goal
 
@@ -123,6 +123,28 @@ Runtime concerns found:
 - Even metadata-only prompts still drive the full table extraction pipeline, including OCR table parsing and per-paper extraction.
 - A one-column `Paper title` request did not complete within 6 minutes on `llama3.1:8b`.
 - The generated `Paper title` / `Publication year` table contained duplicate rows for one paper and `N/A` for a year that exists in paper metadata. This looks like a broader table-pipeline quality issue, not a Stage 3d-only failure.
+- A scoped one-paper fallback table (`81a19a84-ba39-49bb-bfe1-68ac3c9dd84f`) saved stale per-paper `nullSummary` with `agenticRecovery: null` after switching to `single_call_fallback`.
+
+Minimal fix applied:
+
+- In `apps/desktop/electron/main.mjs`, `single_call_fallback` now writes an explicit skipped recovery object with `skippedReason: "single_call_fallback"`.
+- The stale per-paper `nullSummary` is cleared after fallback table generation so fallback metadata no longer mixes old per-paper merge counters with fallback output.
+- Fallback skipped-recovery counters use `0` because Stage 3d is not applicable to single-call fallback output.
+
+Fix verification:
+
+- PASS: `node --check apps\desktop\electron\main.mjs`.
+- PASS: `cmd /c npm run build` in `apps/desktop`.
+- PASS: scoped fallback runtime generated table `6b62d202-5c2c-4ab1-a535-3092b7245c64`.
+- PASS: table metadata now has `metadata.nullSummary === null`.
+- PASS: table metadata now has `metadata.agenticRecovery.skippedReason === "single_call_fallback"`.
+- PASS: `nullsBeforeRecovery` and `nullsAfterRecovery` are both `0`.
+- PASS: temporary `paper_folders` membership was removed after verification.
+- PASS: user LLM preference was restored to `gemma4:31b`.
+
+Remaining quality issue:
+
+- The scoped fallback table still ignored the user-requested `Paper title` column and returned extracted material-property columns instead. This confirms a broader fallback/table-spec adherence issue outside the metadata fix.
 
 ### V1 - Gate Not Met
 
