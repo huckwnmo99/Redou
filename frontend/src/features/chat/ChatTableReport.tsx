@@ -191,28 +191,36 @@ export function ChatTableReport({ table, onNavigateToPaper }: ChatTableReportPro
           <div style={{ fontWeight: 600, marginBottom: 4 }}>
             {t("References", "참고문헌")}
           </div>
-          {table.source_refs.map((ref, i) => (
-            <div
-              key={i}
-              style={{
-                marginBottom: 2,
-                cursor: ref.paperId && onNavigateToPaper ? "pointer" : undefined,
-                textDecoration: ref.paperId && onNavigateToPaper ? "underline" : undefined,
-              }}
-              onClick={() => ref.paperId && onNavigateToPaper?.(ref.paperId)}
-            >
-              [{ref.refNo}] {ref.authors ? `${ref.authors}, ` : ""}{ref.title}
-              {ref.year ? ` (${ref.year})` : ""}
-              {ref.doi ? (
-                <span
-                  style={{ color: "var(--color-accent)", marginLeft: 4, fontSize: 10.5, cursor: "pointer" }}
-                  onClick={(e) => { e.stopPropagation(); window.redouDesktop?.openExternal(`https://doi.org/${ref.doi}`); }}
+          {table.source_refs.map((ref, i) => {
+            const evidence = ref.evidenceSummary || ref.evidenceLocations?.join("; ");
+            return (
+              <div key={i} style={{ marginBottom: evidence ? 5 : 2 }}>
+                <div
+                  style={{
+                    cursor: ref.paperId && onNavigateToPaper ? "pointer" : undefined,
+                    textDecoration: ref.paperId && onNavigateToPaper ? "underline" : undefined,
+                  }}
+                  onClick={() => ref.paperId && onNavigateToPaper?.(ref.paperId)}
                 >
-                  DOI
-                </span>
-              ) : null}
-            </div>
-          ))}
+                  [{ref.refNo}] {ref.authors ? `${ref.authors}, ` : ""}{ref.title}
+                  {ref.year ? ` (${ref.year})` : ""}
+                  {ref.doi ? (
+                    <span
+                      style={{ color: "var(--color-accent)", marginLeft: 4, fontSize: 10.5, cursor: "pointer" }}
+                      onClick={(e) => { e.stopPropagation(); window.redouDesktop?.openExternal(`https://doi.org/${ref.doi}`); }}
+                    >
+                      DOI
+                    </span>
+                  ) : null}
+                </div>
+                {evidence ? (
+                  <div style={{ marginTop: 1, color: "var(--color-text-muted)", fontSize: 10.5 }}>
+                    {evidence}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

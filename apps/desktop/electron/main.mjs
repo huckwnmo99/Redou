@@ -2499,6 +2499,114 @@ const OCR_BUDGET = 70000;    // chars for raw OCR HTML tables
 const MATRIX_BUDGET = 35000; // chars for parsed matrix TSV
 const TOTAL_BUDGET = 120000; // overall cap
 
+function formatEvidencePage(page) {
+  const n = Number(page);
+  return Number.isFinite(n) && n > 0 ? `p.${n}` : "";
+}
+
+function isSupplementaryEvidence(item) {
+  return item?.source_file_kind === "supplementary_pdf";
+}
+
+function formatEvidenceLocation(item) {
+  const pageLabel = formatEvidencePage(item?.page);
+  if (isSupplementaryEvidence(item)) {
+    const filename = item?.source_filename || "supplementary file";
+    return `Supplementary: ${filename}${pageLabel ? `, ${pageLabel}` : ""}`;
+  }
+  return `Main PDF${pageLabel ? ` ${pageLabel}` : ""}`;
+}
+
+function dedupeEvidenceLocations(locations) {
+  const seen = new Set();
+  const result = [];
+  for (const location of locations ?? []) {
+    const value = String(location ?? "").trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
+function buildEvidenceLocationsByPaper(chunks, figures) {
+  const byPaper = new Map();
+  for (const item of [...(chunks ?? []), ...(figures ?? [])]) {
+    if (!item?.paper_id) continue;
+    const current = byPaper.get(item.paper_id) ?? { locations: [], hasSupplementaryEvidence: false };
+    current.locations.push(formatEvidenceLocation(item));
+    current.hasSupplementaryEvidence = current.hasSupplementaryEvidence || isSupplementaryEvidence(item);
+    byPaper.set(item.paper_id, current);
+  }
+
+  for (const [paperId, value] of byPaper) {
+    byPaper.set(paperId, {
+      ...value,
+      locations: dedupeEvidenceLocations(value.locations),
+    });
+  }
+  return byPaper;
+}
+
+function getEvidenceLocationsForPaper(evidenceLocationsByPaper, paperId) {
+  if (!paperId || !evidenceLocationsByPaper) return [];
+  const value = evidenceLocationsByPaper instanceof Map
+    ? evidenceLocationsByPaper.get(paperId)
+    : evidenceLocationsByPaper[paperId];
+  if (Array.isArray(value)) return dedupeEvidenceLocations(value);
+  return dedupeEvidenceLocations(value?.locations ?? []);
+}
+
+function getEvidencePaperIdFromRef(ref, paperRefMap) {
+  if (ref?.paperId) return ref.paperId;
+  const refNo = String(ref?.refNo ?? "");
+  if (!refNo) return null;
+  for (const [paperId, paperRef] of paperRefMap ?? []) {
+    if (String(paperRef.refNo) === refNo) return paperId;
+  }
+  return null;
+}
+
+function enrichSourceRefsWithEvidence(sourceRefs, evidenceLocationsByPaper, paperRefMap) {
+  return (sourceRefs ?? []).map((ref) => {
+    const paperId = getEvidencePaperIdFromRef(ref, paperRefMap);
+    const evidenceLocations = getEvidenceLocationsForPaper(evidenceLocationsByPaper, paperId);
+    if (evidenceLocations.length === 0) return paperId ? { ...ref, paperId } : ref;
+    return {
+      ...ref,
+      paperId: paperId ?? ref.paperId,
+      evidenceLocations,
+      evidenceSummary: evidenceLocations.join("; "),
+      hasSupplementaryEvidence: evidenceLocations.some((location) => location.startsWith("Supplementary:")),
+    };
+  });
+}
+
+function serializeEvidenceLocations(evidenceLocationsByPaper) {
+  return Object.fromEntries(
+    [...(evidenceLocationsByPaper ?? new Map()).entries()].map(([paperId, value]) => [paperId, value.locations ?? []])
+  );
+}
+
+async function loadSourceFileMetadataMap(sourceFileIds) {
+  const ids = [...new Set((sourceFileIds ?? []).filter(Boolean))];
+  if (ids.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from("paper_files")
+    .select("id, file_kind, original_filename, stored_filename")
+    .in("id", ids);
+  if (error) {
+    console.error("[Chat/RAG] source file metadata lookup error:", error.message);
+    return new Map();
+  }
+
+  return new Map((data ?? []).map((file) => [file.id, {
+    source_file_kind: file.file_kind,
+    source_filename: file.original_filename || file.stored_filename || "",
+  }]));
+}
+
 function assembleRagContext(chunks, figures, paperRefMap, parsedMatrices) {
   // --- Section 1: Parsed matrices (TSV) — most accurate, code-cleaned ---
   let matrixStr = "";
@@ -2510,7 +2618,7 @@ function assembleRagContext(chunks, figures, paperRefMap, parsedMatrices) {
       for (const t of pm.tables) {
         const headerLine = t.headers.join(" | ");
         const rowLines = t.rows.map((r) => r.join(" | ")).join("\n");
-        const entry = `[${t.caption} — ${refLabel}]\n${headerLine}\n${rowLines}`;
+        const entry = `[${t.caption} - ${refLabel}, ${formatEvidenceLocation(t)}]\n${headerLine}\n${rowLines}`;
         parts.push(entry);
       }
     }
@@ -2527,7 +2635,7 @@ function assembleRagContext(chunks, figures, paperRefMap, parsedMatrices) {
     .map((f) => {
       const ref = paperRefMap.get(f.paper_id);
       const refLabel = ref ? `[${ref.refNo}] ${ref.title}` : f.paper_id;
-      return `[${f.figure_no} — ${refLabel}]\n${f.caption ?? ""}\n${f.summary_text}`;
+      return `[${f.figure_no} - ${refLabel}, ${formatEvidenceLocation(f)}]\n${f.caption ?? ""}\n${f.summary_text}`;
     });
   let ocrTables = "";
   for (const entry of ocrEntries) {
@@ -2542,7 +2650,7 @@ function assembleRagContext(chunks, figures, paperRefMap, parsedMatrices) {
   for (let i = 0; i < chunks.length; i++) {
     const ref = paperRefMap.get(chunks[i].paper_id);
     const refLabel = ref ? `[${ref.refNo}]` : chunks[i].paper_id;
-    const entry = `[Chunk ${i + 1}, ${refLabel}]\n${chunks[i].text}\n\n`;
+    const entry = `[Chunk ${i + 1}, ${refLabel}, ${formatEvidenceLocation(chunks[i])}]\n${chunks[i].text}\n\n`;
     if (textChunksStr.length + entry.length > chunkBudget) break;
     textChunksStr += entry;
   }
@@ -2575,7 +2683,7 @@ function assemblePerPaperContext({ chunks, figures, parsedTables, paperTitle }) 
     for (const t of parsedTables) {
       const headerLine = (t.headers ?? []).join(" | ");
       const rowLines = (t.rows ?? []).map((r) => (Array.isArray(r) ? r.join(" | ") : String(r))).join("\n");
-      const entry = `[${t.caption || ""}]\n${headerLine}\n${rowLines}`;
+      const entry = `[${t.caption || ""}, ${formatEvidenceLocation(t)}]\n${headerLine}\n${rowLines}`;
       parts.push(entry);
     }
     matrixStr = parts.join("\n\n");
@@ -2588,7 +2696,7 @@ function assemblePerPaperContext({ chunks, figures, parsedTables, paperTitle }) 
   const ocrEntries = (figures ?? [])
     .filter((f) => f.summary_text && f.summary_text.length > 30)
     .sort((a, b) => (b._rrfScore ?? 0) - (a._rrfScore ?? 0))
-    .map((f) => `[${f.figure_no || ""}]\n${f.caption ?? ""}\n${f.summary_text}`);
+    .map((f) => `[${f.figure_no || ""}, ${formatEvidenceLocation(f)}]\n${f.caption ?? ""}\n${f.summary_text}`);
   let ocrTables = "";
   for (const entry of ocrEntries) {
     if (ocrTables.length + entry.length > PER_PAPER_OCR_BUDGET) break;
@@ -2601,7 +2709,7 @@ function assemblePerPaperContext({ chunks, figures, parsedTables, paperTitle }) 
   let textChunksStr = "";
   const sortedChunks = (chunks ?? []).slice().sort((a, b) => (b._rrfScore ?? 0) - (a._rrfScore ?? 0));
   for (let i = 0; i < sortedChunks.length; i++) {
-    const entry = `[Chunk ${i + 1}]\n${sortedChunks[i].text}\n\n`;
+    const entry = `[Chunk ${i + 1}, ${formatEvidenceLocation(sortedChunks[i])}]\n${sortedChunks[i].text}\n\n`;
     if (textChunksStr.length + entry.length > chunkBudget) break;
     textChunksStr += entry;
   }
@@ -2986,6 +3094,16 @@ function getFigureId(figure) {
   return figure?.figure_id ?? figure?.id ?? null;
 }
 
+function appendUniqueById(target, items, idFn) {
+  const existingIds = new Set((target ?? []).map(idFn).filter(Boolean));
+  for (const item of items ?? []) {
+    const id = idFn(item);
+    if (!id || existingIds.has(id)) continue;
+    target.push(item);
+    existingIds.add(id);
+  }
+}
+
 function isNullTableCell(value) {
   if (value === null || value === undefined) return true;
   const text = String(value).trim();
@@ -3101,6 +3219,8 @@ async function runAgenticNullRecovery({
     const workingNullSummary = cloneNullSummaryForRecovery(nullSummary);
     const groupedNulls = groupNullsByPaper(workingNullSummary);
     const perPaper = [];
+    const recoveredEvidenceChunks = [];
+    const recoveredEvidenceFigures = [];
     let recoveredCellCount = 0;
     let paperIndex = 0;
 
@@ -3195,6 +3315,10 @@ async function runAgenticNullRecovery({
           workingNullSummary
         );
         paperRecord.recoveredCount = applied;
+        if (applied > 0) {
+          recoveredEvidenceChunks.push(...newChunks);
+          recoveredEvidenceFigures.push(...newFigures);
+        }
         recoveredCellCount += applied;
         perPaper.push(paperRecord);
       } catch (err) {
@@ -3208,6 +3332,8 @@ async function runAgenticNullRecovery({
     return {
       tableJson: workingTableJson,
       nullSummary: workingNullSummary,
+      recoveredEvidenceChunks,
+      recoveredEvidenceFigures,
       agenticRecovery: {
         attempted: true,
         ms: Date.now() - startedAt,
@@ -3279,6 +3405,7 @@ async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAl
   // Build paper ref map (for assembleRagContext)
   const paperRefMap = new Map();
   paperMetadata.forEach((p, i) => paperRefMap.set(p.paperId, { refNo: i + 1, title: p.title }));
+  const evidenceLocationsByPaper = buildEvidenceLocationsByPaper(ragResults.chunks, ragResults.figures);
 
   // Assemble RAG context (text-heavy, no parsed matrices for Q&A)
   const ragContext = assembleRagContext(ragResults.chunks, ragResults.figures, paperRefMap, []);
@@ -3294,7 +3421,7 @@ async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAl
   }
 
   // Post-process: ensure source attribution
-  const { text: finalText, referencedPaperIds } = formatSourceAttribution(fullResponse, paperMetadata);
+  const { text: finalText, referencedPaperIds } = formatSourceAttribution(fullResponse, paperMetadata, evidenceLocationsByPaper);
 
   // Save assistant message
   const msg = unwrapSingle(await supabase
@@ -3307,6 +3434,7 @@ async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAl
       metadata: {
         source_chunk_ids: ragResults.chunks.map((c) => c.chunk_id),
         referenced_paper_ids: referencedPaperIds,
+        source_evidence_locations: serializeEvidenceLocations(evidenceLocationsByPaper),
       },
     })
     .select("id")
@@ -3521,16 +3649,21 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     const existingFigIds = new Set(ragResults.figures.map((f) => f.figure_id));
     const { data: allTableFigures, error: backfillErr } = await supabase
       .from("figures")
-      .select("id, paper_id, figure_no, caption, item_type, summary_text, page")
+      .select("id, paper_id, source_file_id, figure_no, caption, item_type, summary_text, page")
       .in("paper_id", paperIds)
       .eq("item_type", "table");
     if (backfillErr) console.error("[Chat/RAG] backfill query error:", backfillErr.message);
+    const backfillSourceFiles = await loadSourceFileMetadataMap((allTableFigures ?? []).map((f) => f.source_file_id));
     let backfillCount = 0;
     for (const f of allTableFigures ?? []) {
       if (existingFigIds.has(f.id)) continue;
+      const sourceFile = backfillSourceFiles.get(f.source_file_id) ?? {};
       ragResults.figures.push({
         figure_id: f.id,
         paper_id: f.paper_id,
+        source_file_id: f.source_file_id,
+        source_file_kind: sourceFile.source_file_kind ?? null,
+        source_filename: sourceFile.source_filename ?? null,
         figure_no: f.figure_no,
         caption: f.caption,
         item_type: f.item_type,
@@ -3548,6 +3681,7 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     // Build paper ref map
     const paperRefMap = new Map();
     paperMetadata.forEach((p, i) => paperRefMap.set(p.paperId, { refNo: i + 1, title: p.title }));
+    let evidenceLocationsByPaper = buildEvidenceLocationsByPaper(ragResults.chunks, ragResults.figures);
 
     // ===== Stage 3a: Parse — Code HTML parser + Extractor Agent fallback =====
     broadcastToWindows(IPC_EVENTS.CHAT_STATUS, { conversationId: convId, stage: "parsing", message: "OCR 테이블 파싱 중..." });
@@ -3601,6 +3735,10 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
               rows: t.rows,
               caption: fig.caption || fig.figure_no || "",
               source: "code",
+              source_file_id: fig.source_file_id,
+              source_file_kind: fig.source_file_kind,
+              source_filename: fig.source_filename,
+              page: fig.page,
             });
             codeParseCount++;
           }
@@ -3619,6 +3757,10 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
                 rows: extracted.rows,
                 caption: fig.caption || fig.figure_no || "",
                 source: "llm",
+                source_file_id: fig.source_file_id,
+                source_file_kind: fig.source_file_kind,
+                source_filename: fig.source_filename,
+                page: fig.page,
               });
               llmParseCount++;
             }
@@ -3809,6 +3951,11 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
       tableJson = recoveryResult.tableJson;
       nullSummary = recoveryResult.nullSummary;
       agenticRecovery = recoveryResult.agenticRecovery;
+      if ((recoveryResult.recoveredEvidenceChunks?.length ?? 0) > 0 || (recoveryResult.recoveredEvidenceFigures?.length ?? 0) > 0) {
+        appendUniqueById(ragResults.chunks, recoveryResult.recoveredEvidenceChunks, getChunkId);
+        appendUniqueById(ragResults.figures, recoveryResult.recoveredEvidenceFigures, getFigureId);
+        evidenceLocationsByPaper = buildEvidenceLocationsByPaper(ragResults.chunks, ragResults.figures);
+      }
       if (agenticRecovery?.attempted) {
         console.log(
           `[Chat] Stage 3d: Agentic NULL Recovery filled ${agenticRecovery.recoveredCellCount} cells in ${agenticRecovery.ms}ms`
@@ -3838,6 +3985,7 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
       nullSummary,
       agenticRecovery,
       tableSpecAdherence,
+      sourceEvidenceLocations: serializeEvidenceLocations(evidenceLocationsByPaper),
     };
 
     // Insert assistant message
@@ -3848,7 +3996,10 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
         role: "assistant",
         content: JSON.stringify(tableJson),
         message_type: "table_report",
-        metadata: { source_chunk_ids: ragResults.chunks.map((c) => c.chunk_id) },
+        metadata: {
+          source_chunk_ids: ragResults.chunks.map((c) => c.chunk_id),
+          source_evidence_locations: serializeEvidenceLocations(evidenceLocationsByPaper),
+        },
       })
       .select("id")
       .single(), "chat_messages insert (table_report)");
@@ -3875,6 +4026,7 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
         doi: ref.doi || doiLookup.get(ref.paperId) || "",
       }));
     }
+    sourceRefs = enrichSourceRefsWithEvidence(sourceRefs, evidenceLocationsByPaper, paperRefMap);
 
     // Insert generated table
     const tableRow = unwrapSingle(await supabase
@@ -3894,7 +4046,11 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
 
     // Update message metadata with tableId
     await supabase.from("chat_messages").update({
-      metadata: { source_chunk_ids: ragResults.chunks.map((c) => c.chunk_id), table_id: tableId },
+      metadata: {
+        source_chunk_ids: ragResults.chunks.map((c) => c.chunk_id),
+        source_evidence_locations: serializeEvidenceLocations(evidenceLocationsByPaper),
+        table_id: tableId,
+      },
     }).eq("id", msg.id);
 
     broadcastToWindows(IPC_EVENTS.CHAT_COMPLETE, {
@@ -4046,14 +4202,16 @@ ipcMain.handle(IPC_CHANNELS.CHAT_EXPORT_CSV, async (_event, { tableId, userId, a
   if (table.source_refs && table.source_refs.length > 0) {
     lines.push(""); // blank line separator
     lines.push(escape("References"));
-    lines.push([escape("No."), escape("Authors"), escape("Title"), escape("Year"), escape("DOI")].join(","));
+    lines.push([escape("No."), escape("Authors"), escape("Title"), escape("Year"), escape("DOI"), escape("Evidence")].join(","));
     for (const ref of table.source_refs) {
+      const evidence = ref.evidenceSummary || (Array.isArray(ref.evidenceLocations) ? ref.evidenceLocations.join("; ") : "");
       lines.push([
         escape(`[${ref.refNo}]`),
         escape(ref.authors ?? ""),
         escape(ref.title ?? ""),
         escape(ref.year ?? ""),
         escape(ref.doi ? `https://doi.org/${ref.doi}` : ""),
+        escape(evidence),
       ].join(","));
     }
   }

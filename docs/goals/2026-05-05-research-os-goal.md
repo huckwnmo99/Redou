@@ -2,7 +2,7 @@
 
 Date: 2026-05-05
 Branch: `feature/pipeline-v2-only`
-Status: G1 verified; G2 runtime verified; G3 source labels next
+Status: G1 verified; G2 runtime verified; G3 source labels implemented and static verified
 Mode: `/goal` equivalent, maintained as project documentation
 
 ## Goal
@@ -179,7 +179,7 @@ Out of scope:
 
 ## Current Priority
 
-G2 is runtime verified. The next checkpoint is G3 source labels so supplementary evidence is visible in generated answers and source references.
+G3 source labels are implemented and static verified. The next checkpoint after review is either a small runtime chat/table walkthrough using a real processed supplementary PDF or G4 Research Goal MVP planning.
 
 Reason:
 
@@ -231,6 +231,26 @@ G2 runtime note:
 G2 residual:
 
 - Existing section/figure/search views are still paper-wide, so supplementary evidence can appear mixed with main-paper evidence until G3 source labels land.
+
+G3 verification:
+
+- PASS: Added migration `20260506010000_add_rag_source_file_metadata.sql` to recreate RAG RPCs with `source_file_id`, `source_file_kind`, and `source_filename`.
+- PASS: Applied the migration to the running local Supabase DB without reset.
+- PASS: RPC result signatures now expose source metadata for `match_chunks`, `match_chunks_bm25`, `match_figures`, and `match_figures_bm25`.
+- PASS: BM25 smoke check on existing data returns `main_pdf` source metadata.
+- PASS: Rollback-only supplementary smoke check returns `supplementary_pdf`, `temp_supp.pdf`, and page metadata from `match_chunks_bm25`.
+- PASS: `formatSourceAttribution()` mock output keeps body citation `[1]` and appends `Main PDF p.4; Supplementary: Table S1.pdf, p.6` in the source line.
+- PASS: `node --check apps\desktop\electron\main.mjs`.
+- PASS: `node --check apps\desktop\electron\llm-qa.mjs`.
+- PASS: `cmd /c npm run build` in `frontend`.
+- PASS: `cmd /c npm run build` in `apps/desktop`.
+- PASS: `git diff --check` with only existing CRLF/git-ignore warnings.
+- PASS: Verification agent found one high-risk Stage 3d evidence-label gap; follow-up patch merged applied recovery chunks/figures into source labels, and the same agent confirmed no blocking/high-risk issue remains.
+
+G3 residual:
+
+- The source evidence is retrieved-evidence-level, not exact per-claim provenance.
+- A real Electron chat/table walkthrough with an already processed supplementary PDF is still useful before calling G3 fully runtime verified.
 
 ## Subagents
 

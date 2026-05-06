@@ -1,7 +1,7 @@
 # Supplementary File Import and Source Attribution Plan
 
 Date: 2026-05-04
-Status: Planned
+Status: Slice B implemented and static verified
 Owner: Codex
 
 ## Product Goal
@@ -262,6 +262,17 @@ Validation:
 ### Slice B: RAG and Source Attribution Labels
 
 Purpose: keep body citations as paper references like `[3]`, but make final source lines identify supplementary evidence.
+
+Status on 2026-05-06:
+
+- Implemented in `20260506010000_add_rag_source_file_metadata.sql`, Electron RAG/source attribution code, generated table references, and CSV export.
+- Local DB migration applied without reset.
+- Verified RPC return shapes include `source_file_id`, `source_file_kind`, and `source_filename`.
+- Verified existing BM25 retrieval returns `main_pdf` source metadata.
+- Verified rollback-only supplementary BM25 retrieval returns `supplementary_pdf` with filename and page.
+- Verified Q&A source attribution keeps compact body citation and appends `Main PDF` / `Supplementary` evidence labels in the final source line.
+- Verified `frontend` and `apps/desktop` builds pass.
+- Verification agent found and then rechecked a Stage 3d gap: recovered evidence now joins source labels only when recovered values are actually applied.
 
 Keep out of scope:
 

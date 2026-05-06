@@ -44,6 +44,9 @@ export interface TableReference {
   authors?: string;
   year?: number;
   doi?: string;
+  evidenceLocations?: string[];
+  evidenceSummary?: string;
+  hasSupplementaryEvidence?: boolean;
 }
 
 export interface CellVerification {
