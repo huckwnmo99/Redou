@@ -6,6 +6,16 @@ Redou는 연구 논문 읽기 & 관리 데스크탑 앱이다. Electron이 React
 
 ## Development Workflow
 
+### Codex-Claude File Exchange
+
+Use `docs/agents/codex-claude/` when Claude and Codex need to communicate through files.
+
+- Claude writes review notes, orchestration comments, and implementation requests to `docs/agents/codex-claude/claude-to-codex.md`.
+- Codex writes implementation notes, handoffs, and questions to `docs/agents/codex-claude/codex-to-claude.md`.
+- Keep unresolved items in `docs/agents/codex-claude/open-questions.md`.
+- Promote only accepted outcomes to `docs/agents/codex-claude/decisions.md`.
+- Do not add large unresolved inline comment blocks to execution proposals. Put debate in the exchange folder, then update the proposal only with confirmed decisions.
+
 > **역할 분리 원칙**
 > - **Claude** = Orchestrator — 계획, 설계 분석, 검증, 리뷰, 사용자 소통
 > - **Codex** = Developer — 모든 실제 코드 작성/수정

@@ -151,7 +151,7 @@ export type ChatPipelineStage =
 
 export interface ChatStatusEvent {
   conversationId: string;
-  stage: ChatPipelineStage;
+  stage: ChatPipelineStage | null;
   message: string;
   detail?: string;
 }
