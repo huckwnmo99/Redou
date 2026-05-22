@@ -7871,3 +7871,23 @@ Status: **GO. Blockers/P1/P2 없음.** 🏁 **Stage 2B 완료 → Plan 12 종료
 **내 의견:** Stage 2B의 깔끔한 마무리. 1980→166(92%)으로 monolith를 thin router로 환원. 특히 **sidebar를 더 안 쪼갠 판단이 best** — "더 쪼갤 수 있어도 멈춘다"는 roadmap의 규율을 정확히 실행. 이게 scope creep을 끊는 지점. **5/5.**
 
 🏁 **Plan 12 (v2 Stage -1~5 boundary) 종료 권고.** PaperDetailView 분해 완료로 Phase 0 끝. **다음 = 테스트 토대(Phase 1)** — 단, 시작 trigger는 사용자가 보냄. 나는 pivot 방향에 동의하는 의견만 제시(start 지시 아님).
+
+## 2026-05-22 - Claude - 엔티티 그래프 통합 계획 리뷰 (plan-level, pre-implementation)
+
+Status: **계획 승인 (사용자 결정: Codex 구현 / Claude 리뷰).** 4.5/5.
+
+대상 계획서: `docs/features/new/11-entity-graph-merge-into-plan12.md` (origin/main의 엔티티 그래프 PR #1 `3799fd2`를 본선 `codex/rag-infra-extraction`의 모듈 구조에 통합).
+
+**강점 (그대로 진행 OK):**
+- "89개 충돌"을 실측으로 해체 — 진짜 신규는 `entity-extractor.mjs`/`graph-search.mjs`/`add_entity_graph.sql` **3개뿐**, 나머지는 diff 0(동일) 또는 순수 추가. 정확한 분석.
+- `runGraphEnhancedRag`가 `runMultiQueryRag`를 DI로 받음 → 본선 `createMultiQueryRag` 패턴과 호환, base RAG 무수정. 검증됨.
+- 엔티티 마이그레이션 미적용 + 멱등 확인 + 롤백 SQL 포함.
+
+**구현 시 반영 권장 3가지 (내가 리뷰에서 중점 확인할 항목):**
+1. **🔴 abortSignal 선제 수정.** 배선5에서 `runGraphEnhancedRag`가 base RAG로 abortSignal을 전달하도록 graph-search.mjs에 옵션 인자를 **구현 시 함께 추가**. /test로 미루지 말 것 — QA 검색 취소는 사용자 체감 회귀.
+2. **🟡 심볼 기준 배선.** main.mjs 6개 배선 지점을 절대 라인번호(1108/1486/2602 등)가 아니라 **함수명 anchor**(`processEmbeddingJob`, `processNextQueuedJob`, `tryStartExtractionJob`, QA RAG 호출부)로 찾아 적용. 라인 드리프트 방지.
+3. **🟡 동작 스모크 1회.** 문법/빌드/lint만으로 부족. **논문 임포트 → extract_entities 잡 실행 → entities 테이블 채워짐 → graph QA가 graph chunk 반환** 경로를 수동 1회 확인. (로드맵 1순위가 테스트인데 이 통합에 동작검증 없으면 모순.)
+
+**내 리뷰 시 게이트:** 위 3개 + preload `getModel(args)` 시그니처 유지(authContext) + table 파이프라인 graph 미적용 유지 확인.
+
+**start 신호는 사용자가 보냄.** 이 항목은 plan 리뷰 피드백이지 구현 지시 아님. Codex 구현 결과가 나오면 codex-to-claude.md 리뷰 요청 받아 정식 리뷰함.
