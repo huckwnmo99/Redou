@@ -213,7 +213,7 @@ For the Stage 4 repository split, mocked frontend Vitest coverage with `vi.mock`
 
 ## Q14: RAG Abort Propagation Timing
 
-Status: ANSWERED - defer signal propagation to a later RAG extraction slice, but keep the no-persistence abort contract for Stage 2A.
+Status: ANSWERED - see D31 (`decisions.md`)
 Source: Claude review of Stage 1 audit (S14)
 Question:
 
@@ -222,6 +222,10 @@ Should `runMultiQueryRag` accept and propagate `AbortSignal` during Stage 2A, or
 Decision:
 
 Do not expand Stage 2A to full RAG abort propagation. Stage 2A should document `runMultiQueryRag` as a temporary delayed-abort segment, while preserving this contract: if the user aborts before table persistence, no assistant message or generated table should be inserted after cancellation.
+
+Final resolution:
+
+The later RAG extraction slice has now completed. `runMultiQueryRag` accepts an optional `abortSignal`, table and Q&A callers pass the active signal, and the RAG module checks abort state before/after embedding, after RPC completion, and around reranker work. `runPaperScopedRecoverySearch` moved with the RAG module and shares the same abort-aware path.
 
 ## Q15: Paper CRUD Split Scope And Supplementary/Import Collision Status
 
@@ -253,7 +257,7 @@ Use A + default. Treat supplementary/import as stable enough for the narrow Pape
 
 ## Q16: RAG Infrastructure Extraction Scope And Q14 Closure
 
-Status: OPEN
+Status: ANSWERED - default accepted and implemented; see D31 (`decisions.md`)
 Source: Claude Stage 4 closure framing; D26 confirmation pattern; Q14 deferred RAG abort propagation
 
 Before starting the RAG infrastructure extraction slice, confirm the exact scope.
@@ -300,3 +304,14 @@ Expected D9:
 - `rag/multi-query-rag.mjs`: roughly 250-350 new lines.
 - New desktop unit tests: 3-5 cases covering multi-query/RRF behavior and abort propagation.
 - Q14 becomes ready for D31 promotion after runtime verification.
+
+Decision:
+
+Use the default recommendation. The implemented slice created `apps/desktop/electron/rag/multi-query-rag.mjs`, moved `runMultiQueryRag` and `runPaperScopedRecoverySearch`, added abort propagation to the RAG path, left reranker worker internals in place, and did not touch frontend import/supplementary workflows.
+
+Measured result:
+
+- `apps/desktop/electron/main.mjs`: 2645 lines after extraction.
+- `apps/desktop/electron/rag/multi-query-rag.mjs`: 233 lines.
+- `apps/desktop/tests/multi-query-rag.test.mjs`: 141 lines.
+- Desktop Node tests now cover 7 suites / 43 tests.

@@ -427,6 +427,64 @@ Stop point:
 
 If props drilling becomes excessive, pause and create a small local context plan rather than improvising broad state refactor.
 
+Stage 2B progress:
+
+- Responsibility map created at `docs/harness/detail/frontend/paper-detail-view-responsibility-map.md`.
+- First mechanical split implemented:
+  - added `frontend/src/features/paper/paperDetail/paperDetailConstants.ts`;
+  - added `frontend/src/features/paper/paperDetail/paperDetailStyles.ts`;
+  - added `frontend/src/features/paper/paperDetail/paperDetailUtils.ts`;
+  - added `frontend/src/features/paper/paperDetail/PaperMetadataTab.tsx`;
+  - added `frontend/src/features/paper/paperDetail/PaperReferencesTab.tsx`.
+- Notes/overview split implemented:
+  - added `frontend/src/features/paper/paperDetail/PaperOverviewTab.tsx`;
+  - added `frontend/src/features/paper/paperDetail/PaperNotesTab.tsx`.
+- Extracted-items split implemented:
+  - added `frontend/src/features/paper/paperDetail/PaperExtractedItemsTab.tsx`;
+  - moved figures, tables, equations rendering plus figure/table crop and OCR/KaTeX helpers.
+- PDF tab split implemented:
+  - added `frontend/src/features/paper/paperDetail/PaperPdfTab.tsx`;
+  - moved PDF reader orchestration, highlight/note handlers, presets, source PDF controls, supplementary PDF attach, and sidebar body.
+- `PaperDetailView.tsx` now owns the coordinator only; all top-level paper detail tabs are leaf components.
+- No backend files were touched by these splits.
+- Sidebar micro-panels remain inside `PaperPdfTab` unless review finds a clear low-risk split; otherwise Stage 2B can stop here before the test-foundation pivot.
+
+Stage 2B D9 measurements:
+
+| Metric | Baseline | After first mechanical split | After notes/overview split | After extracted-items split | After PDF tab split | Notes |
+|--------|----------|------------------------------|----------------------------|-----------------------------|---------------------|-------|
+| `PaperDetailView.tsx` full / non-empty line count | 1,980 / n/a | 1,707 / 1,573 | 1,459 / 1,337 | 894 / 834 | 166 / 155 | Full count uses raw newline splitting; non-empty count excludes blank lines. |
+| `paperDetailConstants.ts` full / non-empty line count | 0 / 0 | 12 / 11 | 12 / 11 | 12 / 11 | 12 / 11 | Tab definitions. |
+| `paperDetailStyles.ts` full / non-empty line count | 0 / 0 | 30 / 27 | 30 / 27 | 30 / 27 | 30 / 27 | Shared inline style objects. |
+| `paperDetailUtils.ts` full / non-empty line count | 0 / 0 | 87 / 75 | 87 / 75 | 87 / 75 | 87 / 75 | Authors, summaries, processing labels, file size, reader fallback anchors. |
+| `PaperMetadataTab.tsx` full / non-empty line count | 0 / 0 | 49 / 47 | 49 / 47 | 49 / 47 | 49 / 47 | Presentational metadata tab. |
+| `PaperReferencesTab.tsx` full / non-empty line count | 0 / 0 | 91 / 85 | 91 / 85 | 91 / 85 | 91 / 85 | References query/render tab. |
+| `PaperOverviewTab.tsx` full / non-empty line count | 0 / 0 | 0 / 0 | 201 / 191 | 201 / 191 | 201 / 191 | Overview query/render tab. |
+| `PaperNotesTab.tsx` full / non-empty line count | 0 / 0 | 0 / 0 | 68 / 62 | 68 / 62 | 68 / 62 | Notes query/render tab. |
+| `PaperExtractedItemsTab.tsx` full / non-empty line count | 0 / 0 | 0 / 0 | 0 / 0 | 577 / 513 | 577 / 513 | Figures, tables, equations, crop helpers, OCR table HTML, KaTeX rendering. |
+| `PaperPdfTab.tsx` full / non-empty line count | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 722 / 671 | PDF reader orchestration, highlight/note handlers, presets, source and supplementary PDF sidebar. |
+
+Stage 2B verification:
+
+- `frontend`: `cmd /c npm run build` passes after the first mechanical split; existing large chunk warnings remain.
+- `git diff --check` passes with LF-to-CRLF warnings only.
+- P2 follow-up: Korean strings in the new `paperDetail/` modules were restored from `\uXXXX` escapes to readable literals; `Select-String` finds no remaining Unicode escape sequences in those files.
+- `frontend`: `cmd /c npm run build` passes after the notes/overview split; existing large chunk warnings remain.
+- `git diff --check` passes after the notes/overview split with LF-to-CRLF warnings only.
+- `frontend`: `cmd /c npm run build` passes after the extracted-items split; existing large chunk warnings remain.
+- `git diff --check` passes after the extracted-items split with LF-to-CRLF warnings only.
+- Claude reviewed the extracted-items split on 2026-05-22 with no blockers/P1/P2 and agreed the remaining Stage 2B order is PDF tab first, then sidebar micro-panels only if prop flow stays clear.
+- `frontend`: `cmd /c npm run build` passes after the PDF tab split; existing large chunk warnings remain.
+- `git diff --check` passes after the PDF tab split with LF-to-CRLF warnings only.
+- Claude reviewed the PDF tab split on 2026-05-22 with no blockers/P1/P2, agreed sidebar micro-panels should remain inside `PaperPdfTab` for now, and recommended closing Stage 2B / Plan 12 before pivoting to the test-foundation roadmap.
+
+Stage 2B closure:
+
+- All 8 top-level paper detail tabs now render through leaf components under `frontend/src/features/paper/paperDetail/`.
+- `PaperDetailView.tsx` is a coordinator/header/tab router only.
+- Sidebar micro-panels intentionally remain inside `PaperPdfTab` because splitting them now would mostly add prop plumbing around shared reader, highlight, note, preset, source, and supplementary-PDF state.
+- Recommended next work is the agreed test-foundation pivot, not Stage 5 or more broad refactoring.
+
 ## Stage 3: Source Evidence And Stage 3d Helpers
 
 Goal:
@@ -611,6 +669,7 @@ Current defaults:
 
 - Stage 2A is closed with `main.mjs <= 3600`, `shellOnly = 0`, table orchestration in `chat/table-pipeline.mjs`, and desktop tests/build passing.
 - Runtime code-changing stages continue only with the designated code-writing path available.
+- Stage 2B is the next Plan 12 runtime slice after the RAG exception. Start with the responsibility map in `docs/harness/detail/frontend/paper-detail-view-responsibility-map.md`; do not start QA branch extraction as part of Plan 12.
 - Stage 3 helper extraction is complete from the current Plan 12 scope: source evidence, Stage 3d agentic NULL recovery helpers, shared extraction normalizers, table extraction helpers, and the `includePipelineContext` test escape hatch cleanup are done.
 - Stage 4 is complete after seven frontend repository domain splits plus query hook migration measurement; the repository facade remains public until a later approved query-adapter migration.
 - Q13 is closed by D30 for this cycle. Do not add real Supabase fixtures until a later trigger justifies a separate test-infrastructure slice.
@@ -823,14 +882,45 @@ Verification:
 - Query hook migration measurement: docs-only `git diff --check` passed with LF-to-CRLF warnings only.
 - Stage 4 closure docs: `git diff --check -- AGENTS.md` passed with LF-to-CRLF warnings only, and `Select-String` found no trailing whitespace in the closure docs.
 
-Next likely architecture slice:
+Completed RAG infrastructure slice:
 
-- Stage 4 is closed. Do not keep extending it unless the user explicitly asks for a small read-only query-adapter tracer.
-- D29 records the query hook migration measurement: do not remove the facade immediately; use a small read-only query-adapter tracer if the user approves code changes.
-- D30 records the Q13 closure: mocked frontend repository coverage is enough for this cycle; real Supabase fixtures are deferred until a later trigger.
-- Claude's recommended next large architecture priority is RAG infrastructure extraction.
-- Q16 is opened for RAG scope confirmation: default is `rag/multi-query-rag.mjs`, include abort propagation/Q14 closure, move `runPaperScopedRecoverySearch` in the same slice, exclude reranker subroutine movement, and treat supplementary/import as stable for this RAG-only slice.
+- Q16 default was accepted and implemented.
+- Added `apps/desktop/electron/rag/multi-query-rag.mjs`.
+- Added `apps/desktop/tests/multi-query-rag.test.mjs`.
+- Moved `runMultiQueryRag`, RRF chunk/figure fusion, and `runPaperScopedRecoverySearch` out of `main.mjs`.
+- Kept reranker worker internals in `apps/desktop/electron/reranker-worker.mjs`; the RAG module only calls the existing worker API.
+- Q&A and table pipeline callers now pass the active abort signal into RAG.
+- The RAG module checks abort state before/after embedding, after Supabase RPC completion, and around reranker availability/re-ranking.
+- Q14 is closed by D31.
 - Broader import/supplementary/delete/app-model workflow extraction still requires explicit D26 confirmation.
+
+RAG D9 measurements:
+
+| Metric | After RAG infrastructure extraction | Notes |
+|--------|-------------------------------------|-------|
+| `main.mjs` line count | 2645 | RAG functions removed; main keeps the RAG factory wiring and Q&A/table orchestration. |
+| `rag/multi-query-rag.mjs` line count | 233 | RAG subsystem module with RRF, multi-query RAG, reranker call boundary, and recovery wrapper. |
+| `multi-query-rag.test.mjs` line count | 141 | Covers RRF, figure fusion, table-mode RPC fan-out, abort before RPC, and paper-scoped recovery. |
+| Desktop test count | 7 suites / 43 tests | Includes the new RAG suite. |
+
+Measurement note: the RAG `main.mjs` count uses full `Get-Content` line count, including blank lines. Earlier Stage 3 `2507`/`2509` notes used a non-empty-ish PowerShell/git pipeline count. On a consistent basis, the RAG extraction decreased `main.mjs` by `229` full lines (`2874 -> 2645`) or `197` non-empty-ish lines (`2509 -> 2312`).
+
+RAG verification:
+
+- RED: `cmd /c node --test tests\multi-query-rag.test.mjs` failed on missing `electron/rag/multi-query-rag.mjs`.
+- `apps/desktop/electron/rag/multi-query-rag.mjs`: `node --check` passes.
+- `apps/desktop/electron/main.mjs`: `node --check` passes.
+- `apps/desktop/electron/chat/table-pipeline.mjs`: `node --check` passes.
+- `apps/desktop`: `cmd /c node --test tests\multi-query-rag.test.mjs` passes: 1 suite / 5 tests.
+- `apps/desktop`: `cmd /c npm run test` passes: 7 suites / 43 tests.
+- `apps/desktop`: `cmd /c npm run build` passes.
+- `git diff --check` passes with LF-to-CRLF warnings only.
+
+Plan 12 realignment after RAG:
+
+- Claude reviewed the RAG infrastructure extraction and D31 closure with no blockers.
+- D33 realigns Plan 12 back to the original v2 boundary: complete or explicitly defer Stage 2B, then ask the user whether Stage 5 import/processing is still worth the risk.
+- QA branch extraction, primary-file query adapter work, and additional unnamed domain splits are outside Plan 12.
 
 ## Previous First Concrete Next Step
 

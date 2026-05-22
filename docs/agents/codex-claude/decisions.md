@@ -455,3 +455,93 @@ Real fixture isolation should be reopened as a separate series when one of these
 - Stage 5 import/processing or another reliability-focused series needs fixture-backed tests.
 
 Until then, focused mocked-unit coverage remains acceptable for small repository helper splits, while runtime workflows that cross import, supplementary, delete, auth, or RLS boundaries still require explicit planning before changing test strategy.
+
+## D31: RAG Extraction Closes Q14 Abort Propagation
+
+Date: 2026-05-17
+Status: accepted (RAG infrastructure slice completed)
+Source: Q14 and Q16 (`open-questions.md`); Claude Q16 review; RAG module extraction
+
+The RAG infrastructure slice closes the deferred Q14 abort propagation decision.
+
+`runMultiQueryRag` now lives in `apps/desktop/electron/rag/multi-query-rag.mjs` and accepts an optional `abortSignal` through its call options. It checks abort state:
+
+- before starting query work;
+- after query embedding generation;
+- after Supabase RPC results resolve;
+- before and after reranker availability/re-ranking work.
+
+`runPaperScopedRecoverySearch` moved with the RAG module because it is a small paper-filtered wrapper over `runMultiQueryRag` and is used by Stage 3d recovery.
+
+The first RAG slice intentionally does not move reranker worker internals. `reranker-worker.mjs` remains the reranker implementation boundary while the RAG module only calls it.
+
+Accepted verification:
+
+- `apps/desktop/electron/rag/multi-query-rag.mjs`: `node --check` passes.
+- `apps/desktop/electron/main.mjs`: `node --check` passes.
+- `apps/desktop/electron/chat/table-pipeline.mjs`: `node --check` passes.
+- `apps/desktop`: `cmd /c node --test tests\multi-query-rag.test.mjs` passes: 1 suite / 5 tests.
+- `apps/desktop`: `cmd /c npm run test` passes: 7 suites / 43 tests.
+- `apps/desktop`: `cmd /c npm run build` passes.
+- `git diff --check` passes with LF-to-CRLF warnings only.
+
+## D33: Plan 12 Boundary Returns To V2 Scope
+
+Date: 2026-05-20
+Status: accepted (user-approved Option A-light)
+Source: Claude strategic scope review; Codex scope-boundary response; user approval
+
+Plan 12 uses the original v2 plan stages as its boundary again.
+
+The RAG infrastructure extraction was an accepted out-of-plan exception because it closed Q14 abort propagation and was approved through Q16. It does not expand Plan 12 into an open-ended sequence of every possible extraction.
+
+Plan 12 next work:
+
+- complete or explicitly defer Stage 2B, the `PaperDetailView.tsx` mechanical split;
+- after Stage 2B, ask the user whether Stage 5 import/processing extraction is still worth the runtime risk;
+- stop Plan 12 after Stage 5 if Stage 5 proceeds.
+
+Out of Plan 12:
+
+- QA branch extraction;
+- primary-file query adapter work;
+- additional domain splits not named by the v2 plan.
+
+Review protocol for remaining Plan 12 slices should be lightweight by default: blockers/P1/P2, D9 measurements, concrete risks, and go/stop. Longer cross-agent review is reserved for real design decisions or safety risk.
+
+## D34: mattpocock Skill Role Split — Claude Plans/Analyzes/Reviews, Codex Writes Code
+
+Date: 2026-05-21
+Status: accepted (user-approved, keep current code-writing model)
+Source: Post-Plan 12 roadmap; mattpocock skills installed in `.claude/skills/`; D10/D22
+
+mattpocock 스킬이 `.claude/skills/`에 설치됨. code-writing agent는 **현행 유지 (Codex via codex:rescue).** D10/D22 그대로.
+
+스킬 역할 분담:
+
+- **Claude-side (계획/분석/리뷰 — D10 호환, 코드 안 씀):**
+  - `/to-prd` (요구사항 문서화)
+  - `/to-issues` (slice 분해)
+  - `/grill-with-docs` (요구사항 명료화)
+  - `/zoom-out` (컨텍스트)
+  - `/improve-codebase-architecture` (설계 분석)
+  - `/diagnose` (디버깅 방법론의 분석 단계)
+  - `/triage` (우선순위)
+
+- **Codex-side (코드 실행 — D10 mandate):**
+  - 실제 test + production 코드 작성
+  - Codex 자체 RED→GREEN 규율 (= `/tdd`의 본질, Plan 12 전체에서 검증됨)
+  - Claude가 넘긴 slice spec + test intent 기반
+
+- **Claude가 직접 실행하지 않는 code-writing 스킬:** `/tdd`, `/prototype` 등. 그 방법론(red-green)은 slice spec(Claude) + 실행(Codex)으로 분담.
+
+워크플로우:
+```
+Claude: /to-issues 로 slice 분해 (test intent + assertion + 완료 기준)
+   ↓ codex-claude file exchange
+Codex: RED→GREEN 구현
+   ↓
+Claude: 경량 리뷰 (blocker/D9/risk/go-stop)
+```
+
+code-writing agent 변경 (Claude가 테스트 직접 작성)은 본 결정 범위 밖이며 별도 사용자 승인 필요.
