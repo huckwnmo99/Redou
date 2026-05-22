@@ -15,6 +15,7 @@ import {
   buildEvidenceLocationsByPaper,
   serializeEvidenceLocations,
 } from "./chat/source-evidence.mjs";
+import { createMultiQueryRag } from "./rag/multi-query-rag.mjs";
 import { createClient } from "@supabase/supabase-js";
 import zlib from "node:zlib";
 import { inspectPdfMetadata, extractFigureImagesFromPdf } from "./pdf-heuristics.mjs";
@@ -27,7 +28,6 @@ import { streamChat, checkGroundedness, isLlmAvailable, isGuardianAvailable, get
 import { generateOrchestratorPlan, generateTableFromSpec, extractMatrixFromHtml, extractColumnsFromPaper, extractNullCellsFromPaper } from "./llm-orchestrator.mjs";
 import { generateQaResponse, formatSourceAttribution } from "./llm-qa.mjs";
 import { parseAllHtmlTables } from "./html-table-parser.mjs";
-import { rerankChunks, isRerankerAvailable } from "./reranker-worker.mjs";
 
 // ============================================================
 // Paths
@@ -91,6 +91,7 @@ const SUPABASE_URL = process.env.REDOU_SUPABASE_URL ?? "http://127.0.0.1:55321";
 // Main process uses service_role key to bypass RLS (trusted backend context)
 const SUPABASE_SERVICE_KEY = process.env.REDOU_SUPABASE_SERVICE_KEY ?? "";
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+const { runMultiQueryRag, runPaperScopedRecoverySearch } = createMultiQueryRag({ supabase });
 
 // ============================================================
 // Window Management
@@ -2254,217 +2255,6 @@ function rerankChunksByKeywords(chunks, keyTerms, maxChunks = 40) {
   return scored.slice(0, maxChunks);
 }
 
-// --- RRF (Reciprocal Rank Fusion): merge vector + BM25 results ---
-function rrfFusion(vectorChunks, bm25Chunks, mode = "table", k = 60) {
-  // Mode-dependent weights
-  const wBM25 = mode === "qa" ? 0.3 : 0.6;
-  const wVector = mode === "qa" ? 0.7 : 0.4;
-  const MISSING_RANK = 1000;
-
-  // Build rank maps (chunk_id → rank, 0-based)
-  const vectorRankMap = new Map();
-  vectorChunks.forEach((c, idx) => vectorRankMap.set(c.chunk_id, idx));
-
-  const bm25RankMap = new Map();
-  bm25Chunks.forEach((c, idx) => bm25RankMap.set(c.chunk_id, idx));
-
-  // Union of all chunk_ids → keep the chunk object (prefer vector copy for similarity field)
-  const chunkObjMap = new Map();
-  for (const c of vectorChunks) chunkObjMap.set(c.chunk_id, c);
-  for (const c of bm25Chunks) {
-    if (!chunkObjMap.has(c.chunk_id)) chunkObjMap.set(c.chunk_id, c);
-  }
-
-  // Compute RRF score for each chunk
-  const scored = [];
-  for (const [chunkId, chunk] of chunkObjMap) {
-    const vRank = vectorRankMap.has(chunkId) ? vectorRankMap.get(chunkId) : MISSING_RANK;
-    const bRank = bm25RankMap.has(chunkId) ? bm25RankMap.get(chunkId) : MISSING_RANK;
-    const rrfScore = wVector * (1 / (k + vRank)) + wBM25 * (1 / (k + bRank));
-    scored.push({ ...chunk, _rrfScore: rrfScore });
-  }
-
-  // Sort by RRF score descending
-  scored.sort((a, b) => b._rrfScore - a._rrfScore);
-
-  return scored.slice(0, 40);
-}
-
-// --- RRF Fusion for Figures (BM25 + Vector) ---
-function rrfFusionFigures(vectorFigures, bm25Figures, k = 60) {
-  const wBM25 = 0.6;
-  const wVector = 0.4;
-  const TABLE_BOOST = 0.005;
-  const MISSING_RANK = 1000;
-
-  // Build rank maps (figure_id → rank, 0-based)
-  const vectorRankMap = new Map();
-  vectorFigures.forEach((f, idx) => vectorRankMap.set(f.figure_id, idx));
-
-  const bm25RankMap = new Map();
-  bm25Figures.forEach((f, idx) => bm25RankMap.set(f.figure_id, idx));
-
-  // Union of all figure_ids — prefer vector copy for similarity field
-  const figObjMap = new Map();
-  for (const f of vectorFigures) figObjMap.set(f.figure_id, f);
-  for (const f of bm25Figures) {
-    if (!figObjMap.has(f.figure_id)) figObjMap.set(f.figure_id, f);
-  }
-
-  // Compute RRF score for each figure
-  const scored = [];
-  for (const [figId, fig] of figObjMap) {
-    const vRank = vectorRankMap.has(figId) ? vectorRankMap.get(figId) : MISSING_RANK;
-    const bRank = bm25RankMap.has(figId) ? bm25RankMap.get(figId) : MISSING_RANK;
-    let rrfScore = wVector * (1 / (k + vRank)) + wBM25 * (1 / (k + bRank));
-    // Boost tables (item_type='table') for table generation pipeline
-    if (fig.item_type === "table") rrfScore += TABLE_BOOST;
-    scored.push({ ...fig, _rrfScore: rrfScore });
-  }
-
-  // Sort by RRF score descending
-  scored.sort((a, b) => b._rrfScore - a._rrfScore);
-
-  return scored;
-}
-
-// --- Reranker: cross-encoder re-scoring after RRF fusion ---
-const RERANKER_TOPK = { table: 15, qa: 10 };
-
-async function rerankChunksIfAvailable(query, chunks, mode) {
-  const topK = RERANKER_TOPK[mode] ?? 15;
-  try {
-    const available = await isRerankerAvailable();
-    if (!available) {
-      console.log("[reranker] Not available, using RRF order");
-      return chunks.slice(0, topK);
-    }
-    const start = Date.now();
-    const result = await rerankChunks(query, chunks, topK);
-    console.log(`[reranker] Reranked ${chunks.length} → ${result.length} chunks in ${Date.now() - start}ms`);
-    return result;
-  } catch (err) {
-    console.warn("[reranker] Failed, falling back to RRF order:", err.message);
-    return chunks.slice(0, topK);
-  }
-}
-
-// --- Multi-query RAG: run multiple embedding searches and merge results ---
-async function runMultiQueryRag(searchQueries, keywordHints, filterPaperIds, mode = "table") {
-  const vectorChunkMap = new Map(); // chunkId → chunk (keep highest similarity)
-  const bm25ChunkMap = new Map(); // chunkId → chunk (keep highest bm25_rank)
-  const vectorFigureMap = new Map(); // figureId → figure (vector search)
-  const bm25FigureMap = new Map(); // figureId → figure (BM25 search, table mode only)
-
-  for (const sq of searchQueries) {
-    const emb = await generateEmbedding(sq.query, "query");
-
-    // BM25 query text = search query only (keyword_hints는 Orchestrator가 이미 search_queries에 반영.
-    // 합치면 OR tsquery에서 불필요한 단어가 늘어 랭킹 품질 저하)
-    const bm25QueryText = sq.query;
-
-    // Run vector search, BM25 search, figure search (+ figure BM25 in table mode) in parallel
-    const promises = [
-      supabase.rpc("match_chunks", {
-        query_embedding: emb,
-        match_threshold: 0.2,
-        match_count: 60,
-        filter_paper_ids: filterPaperIds,
-      }),
-      supabase.rpc("match_chunks_bm25", {
-        query_text: bm25QueryText,
-        match_count: 60,
-        filter_paper_ids: filterPaperIds,
-      }),
-      supabase.rpc("match_figures", {
-        query_embedding: emb,
-        match_threshold: 0.15,
-        match_count: 30,
-        filter_item_types: ["table", "figure", "equation"],
-        filter_paper_ids: filterPaperIds,
-      }),
-    ];
-    // In table mode, also run BM25 search on figures (tables only)
-    if (mode === "table") {
-      promises.push(
-        supabase.rpc("match_figures_bm25", {
-          query_text: bm25QueryText,
-          match_count: 30,
-          filter_item_types: ["table"],
-          filter_paper_ids: filterPaperIds,
-        })
-      );
-    }
-
-    const results = await Promise.all(promises);
-    const [vectorResult, bm25Result, figureResult] = results;
-    const figureBm25Result = mode === "table" ? results[3] : null;
-
-    // Accumulate vector chunks
-    if (vectorResult.error) console.error("[Chat/RAG] match_chunks error:", vectorResult.error.message);
-    for (const c of vectorResult.data ?? []) {
-      const existing = vectorChunkMap.get(c.chunk_id);
-      if (!existing || (c.similarity > existing.similarity)) {
-        vectorChunkMap.set(c.chunk_id, c);
-      }
-    }
-
-    // Accumulate BM25 chunks
-    if (bm25Result.error) console.error("[Chat/RAG] match_chunks_bm25 error:", bm25Result.error.message);
-    for (const c of bm25Result.data ?? []) {
-      const existing = bm25ChunkMap.get(c.chunk_id);
-      if (!existing || (c.bm25_rank > existing.bm25_rank)) {
-        bm25ChunkMap.set(c.chunk_id, c);
-      }
-    }
-
-    // Accumulate vector figures
-    if (figureResult.error) console.error("[Chat/RAG] match_figures error:", figureResult.error.message);
-    for (const f of figureResult.data ?? []) {
-      const existing = vectorFigureMap.get(f.figure_id);
-      if (!existing || (f.similarity > existing.similarity)) {
-        vectorFigureMap.set(f.figure_id, f);
-      }
-    }
-
-    // Accumulate BM25 figures (table mode only)
-    if (figureBm25Result) {
-      if (figureBm25Result.error) console.error("[Chat/RAG] match_figures_bm25 error:", figureBm25Result.error.message);
-      for (const f of figureBm25Result.data ?? []) {
-        const existing = bm25FigureMap.get(f.figure_id);
-        if (!existing || (f.bm25_rank > existing.bm25_rank)) {
-          bm25FigureMap.set(f.figure_id, f);
-        }
-      }
-    }
-  }
-
-  const allVectorChunks = [...vectorChunkMap.values()];
-  const allBm25Chunks = [...bm25ChunkMap.values()];
-  const allVectorFigures = [...vectorFigureMap.values()];
-  const allBm25Figures = [...bm25FigureMap.values()];
-
-  // RRF fusion for chunks
-  const rankedChunks = rrfFusion(allVectorChunks, allBm25Chunks, mode);
-
-  // RRF fusion for figures (table mode) or plain vector figures (qa mode)
-  let allFigures;
-  if (mode === "table" && allBm25Figures.length > 0) {
-    allFigures = rrfFusionFigures(allVectorFigures, allBm25Figures);
-    console.log(`[Chat/RAG] Figure RRF: ${allVectorFigures.length} vector + ${allBm25Figures.length} BM25 → ${allFigures.length} fused`);
-  } else {
-    allFigures = allVectorFigures;
-  }
-
-  // Reranker: cross-encoder re-scoring for higher-quality top-K
-  const originalQuery = searchQueries.map(sq => sq.query).join(" ");
-  const rerankedChunks = await rerankChunksIfAvailable(originalQuery, rankedChunks, mode);
-
-  console.log(`[Chat/RAG] ${searchQueries.length} queries → ${allVectorChunks.length} vector + ${allBm25Chunks.length} BM25 chunks, ${allFigures.length} figures → RRF ${rankedChunks.length} → reranked ${rerankedChunks.length} (mode=${mode})`);
-
-  return { chunks: rerankedChunks, figures: allFigures };
-}
-
 async function loadSourceFileMetadataMap(sourceFileIds) {
   const ids = [...new Set((sourceFileIds ?? []).filter(Boolean))];
   if (ids.length === 0) return new Map();
@@ -2495,27 +2285,6 @@ function groupBy(items, keyFn) {
   return map;
 }
 
-async function runPaperScopedRecoverySearch(queries, paperId, abortSignal) {
-  if (abortSignal?.aborted) {
-    const err = new Error("Agentic NULL recovery aborted");
-    err.name = "AbortError";
-    throw err;
-  }
-  if (!paperId || !Array.isArray(queries) || queries.length === 0) {
-    return { chunks: [], figures: [] };
-  }
-  const result = await runMultiQueryRag(queries, [], [paperId], "table");
-  if (abortSignal?.aborted) {
-    const err = new Error("Agentic NULL recovery aborted");
-    err.name = "AbortError";
-    throw err;
-  }
-  return {
-    chunks: result?.chunks ?? [],
-    figures: result?.figures ?? [],
-  };
-}
-
 // --- Q&A Pipeline Handler ---
 async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAll, abortController, ownerPaperIds) {
   console.log("[Chat/QA] Starting Q&A pipeline...");
@@ -2532,7 +2301,9 @@ async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAl
   // Use the user's message directly as the search query (simplified vs table pipeline)
   const searchQueries = [{ query: message, intent: "qa" }];
   const keyTerms = extractKeyTerms(message);
-  const ragResults = await runMultiQueryRag(searchQueries, keyTerms, filterPaperIds, "qa");
+  const ragResults = await runMultiQueryRag(searchQueries, keyTerms, filterPaperIds, "qa", {
+    abortSignal: abortController.signal,
+  });
   throwIfChatAborted(abortController.signal);
 
   // If no results, inform user

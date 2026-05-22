@@ -219,7 +219,9 @@ async function loadTableRagAndMetadata({
     filterPaperIds = intersectPaperIdsFn(ownerPaperIds, await getPaperIdsInFolderTreeFn(scopeFolderId));
   }
 
-  const ragResults = await runMultiQueryRagFn(plan.search_queries, plan.keyword_hints, filterPaperIds, "table");
+  const ragResults = await runMultiQueryRagFn(plan.search_queries, plan.keyword_hints, filterPaperIds, "table", {
+    abortSignal,
+  });
   throwIfChatAborted(abortSignal);
 
   if (ragResults.chunks.length === 0 && ragResults.figures.length === 0) {
