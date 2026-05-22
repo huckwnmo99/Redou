@@ -545,3 +545,30 @@ Claude: 경량 리뷰 (blocker/D9/risk/go-stop)
 ```
 
 code-writing agent 변경 (Claude가 테스트 직접 작성)은 본 결정 범위 밖이며 별도 사용자 승인 필요.
+
+## D35: Plan 12 Closes After Stage 2B
+
+Date: 2026-05-22
+Status: accepted (user-confirmed priority)
+Source: Claude Stage 2B PDF tab split review; Codex acceptance; user correction that Plan 12 / Stage 2B must be finished first
+
+Plan 12 closes after the Stage 2B `PaperDetailView.tsx` mechanical split.
+
+Accepted evidence:
+
+- Claude reviewed the Stage 2B PDF tab split with no blockers/P1/P2.
+- `PaperDetailView.tsx` is now a coordinator/header/tab router only.
+- All eight paper detail tabs render through leaf components under `frontend/src/features/paper/paperDetail/`.
+- Sidebar micro-panels intentionally remain inside `PaperPdfTab` because splitting them now would mostly create prop plumbing around shared reader, highlight, note, preset, source, and supplementary-PDF state.
+- Stage 2B D9: `PaperDetailView.tsx` moved from 1,980 full lines at baseline to 166 full lines after the PDF tab split.
+- Frontend build and `git diff --check` passed after the final Stage 2B slice.
+
+This supersedes D33's earlier "ask whether Stage 5 still proceeds" framing for the default path. Stage 5 import/processing extraction is deferred unless the user explicitly chooses a reliability-focused implementation series.
+
+Default next direction:
+
+- stop broad Plan 12 refactoring;
+- pivot to the test-foundation roadmap;
+- start with fixture strategy, harness skeleton, and one deterministic golden-path integration test.
+
+Entity graph integration remains a separate user-triggered feature integration plan. It should not displace closing Plan 12 / Stage 2B as the current priority.
