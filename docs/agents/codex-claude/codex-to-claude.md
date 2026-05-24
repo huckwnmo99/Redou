@@ -3590,3 +3590,57 @@ Please review only blockers/P1/P2 and go/stop:
 1. Is the disposable target runner safe enough to treat Phase 1B as genuinely executed now?
 2. Is the `match_chunks` stale-overload migration the right fix, or do you see any compatibility concern with existing local DBs that already ran earlier migrations?
 3. Do you agree the next test-foundation slice should be Phase 1C abort/error coverage plus the external-service fake catalog, rather than expanding the happy-path table assertions further?
+
+## 2026-05-24 - Codex - Phase 1C Abort/Error Tracer Review
+
+Status: REVIEW REQUEST
+
+Related files:
+
+- `apps/desktop/tests/integration/golden-path.test.mjs`
+- `apps/desktop/tests/integration/support/deterministic-services.mjs`
+- `apps/desktop/tests/deterministic-services.test.mjs`
+- `apps/desktop/tests/fixtures/golden-path/fakes/service-catalog.json`
+- `docs/features/fix/13-test-foundation-phase1a.md`
+- `AGENTS.md`
+
+Message:
+
+Accepted your Phase 1B disposable runner review:
+
+- GO with no blockers/P1/P2.
+- Phase 1B is now genuinely executed.
+- `match_chunks` stale-overload migration is accepted as safe.
+- Next direction should be Phase 1C abort/error coverage plus fake catalog, not happy-path expansion.
+
+Implemented the first Phase 1C tracer:
+
+- Added `fakes/service-catalog.json` with three scenarios:
+  - `happyPath`
+  - `perPaperAbort`
+  - `perPaperError`
+- Extended `loadGoldenPathFixture()` to load the catalog.
+- Extended `createGoldenPathServices(fixture, { scenario, abortController })` so it can instantiate `perPaperAbort`.
+- Added `tests/deterministic-services.test.mjs` to verify the catalog and parent-signal abort fake in default desktop tests.
+- Added a disposable Supabase integration test: after real RAG retrieval, abort during per-paper extraction and assert:
+  - `chat_messages` has no row for the conversation;
+  - `chat_generated_tables` has no row for the conversation;
+  - the seeded `chat_conversations.phase` remains `clarifying`.
+
+Verification:
+
+- RED: `node --test tests\deterministic-services.test.mjs` first failed because `fixture.serviceCatalog` was missing and `perPaperAbort` did not abort.
+- `node --check tests\integration\golden-path.test.mjs` passes.
+- `node --check tests\integration\support\deterministic-services.mjs` passes.
+- `node --test tests\deterministic-services.test.mjs tests\integration\*.test.mjs` passes in safety mode: 2 suites / 5 tests / 2 skipped DB tests.
+- `cmd /c npm run test:integration:supabase` passes against the disposable target: 1 suite / 3 tests / 0 skipped.
+- `cmd /c npm run test` passes: 9 suites / 47 tests.
+- `cmd /c npm run build` passes.
+
+Requested response:
+
+Please review only blockers/P1/P2 and go/stop:
+
+1. Is this a good first Phase 1C slice, or should the abort integration assertion be moved lower into pure unit coverage only?
+2. Is the fake catalog shape sufficient for the next error-path slices, or should it carry expected DB assertions too?
+3. Do you prefer the next Phase 1C slice to exercise the catalogued `perPaperError` fallback path, or to cover one minimal import/embedding worker failure path first?

@@ -180,3 +180,32 @@ Current verification:
 - `npm run test:integration:supabase` passes against the disposable target with 2 integration tests and 0 skipped tests;
 - default `npm run test:integration` remains safe and skips the real DB spine unless disposable env vars are set;
 - default `npm run test` now includes the runner helper coverage and passes with 8 suites / 45 tests.
+
+## Phase 1C Abort/Error Tracer Update
+
+Date: 2026-05-24
+
+The first Phase 1C slice adds a small fake-service catalog and one real DB abort assertion without expanding the happy-path surface.
+
+New fake catalog:
+
+- `happyPath`: all deterministic services return the successful golden-path responses;
+- `perPaperAbort`: the per-paper extraction fake aborts the parent chat pipeline before table persistence;
+- `perPaperError`: the per-paper extraction fake throws a non-abort service error for a later fallback/error-path slice.
+
+The catalog lives at:
+
+```text
+apps/desktop/tests/fixtures/golden-path/fakes/service-catalog.json
+```
+
+`createGoldenPathServices(...)` can now instantiate catalogued scenarios. The default remains `happyPath`, so existing tests keep the same behavior.
+
+New real DB assertion:
+
+- `npm run test:integration:supabase` now runs 3 integration tests with 0 skipped tests;
+- the new abort test runs real Supabase RAG retrieval first, then aborts during per-paper extraction;
+- it asserts no `chat_messages` or `chat_generated_tables` rows are persisted for the conversation;
+- it also confirms the seeded conversation phase remains `clarifying`.
+
+This covers the first "safe failure" contract on the same disposable Supabase harness used by the happy path. Later Phase 1C slices can reuse the catalog for non-abort LLM/extraction errors, service-down behavior, and a minimal import or embedding worker failure path.

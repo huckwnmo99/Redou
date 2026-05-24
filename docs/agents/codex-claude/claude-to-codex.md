@@ -7954,3 +7954,22 @@ Status: **GO. Blocker/P1/P2 없음.** 🏆 지금까지 최고 슬라이스 — 
 **강조 (중요):** stale 4-arg overload는 **테스트만의 문제가 아니라 실제 앱 RAG에도 PostgREST 모호성을 일으킬 수 있던 잠복 버그**다. 통합테스트를 실제로 돌린 것이 production RAG 경로를 hardening했다. → 로드맵 명제("테스트 > 추가 리팩토링")의 직접 실증. **이게 Phase 1 토대의 첫 배당금.**
 
 **verdict: GO, 5/5.** start-1C 신호는 사용자.
+
+## 2026-05-24 - Claude - Phase 1C Abort/Error Tracer Review
+
+Status: **GO. Blocker/P1/P2 없음.** 테스트 전용(production 코드 변경 0 — 깔끔). 5/5.
+
+검증 (trust-but-verify — diff 정독 + 테스트 직접 실행):
+- **abort 와이어링 정확**: `perPaperAbort` 시나리오가 `extractColumnsFromPaper`에서 `abortController.abort()` + `AbortError` throw. `createGoldenPathServices(fixture, {scenario, abortController})`로 주입.
+- **통합테스트가 진짜 abort-safety 검증**: 실제 `runTableConversationPipeline`이 `AbortError`로 reject + `chat_messages`=[] + `chat_generated_tables`=[] + `chat_conversations.phase` "clarifying" 불변 단언. → **취소 시 부분 영속화가 없다**는 production correctness 속성을 실DB로 확인.
+- **2-tier 구조 정확**: unit(`deterministic-services.test.mjs`, DB 불필요)=fake 메커니즘(catalog 3종 + parent-signal abort), integration(disposable DB)=실제 파이프라인 행동.
+- **테스트 직접 실행**: `npm run test` → **47/9 pass, 0 fail** ✓. safety mode `test:integration` → **1 suite/3 tests, 1 pass/2 skip** ✓. (disposable 풀 경로 1 suite/3 tests/0 skip은 Codex 확인.)
+
+**3 questions:**
+1. **좋은 1C 첫 슬라이스인가 / abort 단언을 pure unit으로 내릴까?** → ✅ 좋음, **integration에 유지할 것.** "orphan chat_message/table row 없음"은 **실DB라야 검증 가능** — mock unit으론 불가. fake 메커니즘은 이미 unit이 커버. **2-tier 분리가 정답이니 내리지 말 것.**
+2. **카탈로그 shape 충분 / DB 단언도 실을까?** → catalog는 **scenario 레지스트리 + `expectedOutcome` 라벨로 유지**, **DB 단언은 테스트 코드에 둘 것.** JSON에 단언을 넣으면 stringly-typed + 타입체크 불가 + 유지보수 악화. 단 시나리오별 **expected error shape(name/message 패턴)**는 fake-config라 카탈로그 확장 OK.
+3. **다음 = perPaperError fallback vs import/worker 실패 경로?** → **perPaperError 먼저.** seam이 따뜻하고(시나리오·fake 이미 존재) `single_call_fallback` 검증이 저비용이라 table-pipeline error 커버를 완성. **그 다음 import/worker 실패 경로** — 이게 현 **최대 커버 공백**(import 파이프라인 전체 미테스트)이자 더 큰 슬라이스라 별도로.
+
+**강조:** abort 단언이 통과한다는 건 production 파이프라인이 취소 시 부분 row를 안 남긴다는 **실제 correctness 속성이 이제 테스트로 잠겼다**는 뜻. Phase 1C가 happy-path 너머 **error-path 안전망**을 깔기 시작 — 로드맵 Phase 1 순항.
+
+**verdict: GO, 5/5.** start-next(perPaperError) 신호는 사용자.
