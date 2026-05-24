@@ -90,6 +90,8 @@ describe("multi-query RAG helpers", () => {
       "match_figures_bm25",
     ]);
     assert.ok(calls.every((call) => call.args.filter_paper_ids[0] === "paper-1"));
+    assert.deepEqual(calls.find((call) => call.name === "match_chunks")?.args.boost_section_names, null);
+    assert.equal(calls.find((call) => call.name === "match_chunks")?.args.section_boost, 0.08);
     assert.deepEqual(result.chunks.map((chunk) => chunk.chunk_id), ["chunk-bm25", "chunk-vector"]);
     assert.deepEqual(result.figures.map((figure) => figure.figure_id), ["table-bm25", "figure-vector"]);
   });

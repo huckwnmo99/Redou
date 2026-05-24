@@ -120,6 +120,8 @@ export function createMultiQueryRag({
           match_threshold: 0.2,
           match_count: 60,
           filter_paper_ids: filterPaperIds,
+          boost_section_names: null,
+          section_boost: 0.08,
         }),
         supabase.rpc("match_chunks_bm25", {
           query_text: bm25QueryText,
