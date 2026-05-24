@@ -15,6 +15,12 @@ function createDeterministicVector(dimensions, seed) {
   return vector;
 }
 
+function createAbortError(message = "Fake service aborted") {
+  const err = new Error(message);
+  err.name = "AbortError";
+  return err;
+}
+
 export function quietLogger() {
   return {
     log: () => {},
@@ -24,12 +30,13 @@ export function quietLogger() {
 }
 
 export async function loadGoldenPathFixture() {
-  const [metadata, extraction, table, embedding, llm] = await Promise.all([
+  const [metadata, extraction, table, embedding, llm, serviceCatalog] = await Promise.all([
     readJson("source/paper.metadata.json"),
     readJson("expected/extraction.json"),
     readJson("expected/table.json"),
     readJson("fakes/embedding-service.json"),
     readJson("fakes/llm-service.json"),
+    readJson("fakes/service-catalog.json"),
   ]);
 
   return {
@@ -43,17 +50,33 @@ export async function loadGoldenPathFixture() {
     searchQueries: llm.orchestratorPlan.search_queries,
     history: llm.history,
     llm,
+    serviceCatalog,
   };
 }
 
-export async function createGoldenPathServices(fixture) {
+export async function createGoldenPathServices(fixture, options = {}) {
+  const scenario = options.scenario ?? "happyPath";
+  if (!fixture.serviceCatalog?.scenarios?.[scenario]) {
+    throw new Error(`Unknown golden-path fake service scenario: ${scenario}`);
+  }
+
   const embedding = createDeterministicVector(fixture.embedding.dimensions, fixture.embedding.seed);
+  const extractColumnsFromPaper = async () => {
+    if (scenario === "perPaperAbort") {
+      options.abortController?.abort();
+      throw createAbortError("Fake per-paper extraction aborted");
+    }
+    if (scenario === "perPaperError") {
+      throw new Error("Fake per-paper extraction failed");
+    }
+    return fixture.llm.perPaperExtraction;
+  };
 
   return {
     embedding,
     generateEmbedding: async () => [...embedding],
     orchestratorPlan: fixture.llm.orchestratorPlan,
-    extractColumnsFromPaper: async () => fixture.llm.perPaperExtraction,
+    extractColumnsFromPaper,
     parseAllHtmlTables: () => [],
     extractMatrixFromHtml: async () => ({ headers: [], rows: [] }),
   };

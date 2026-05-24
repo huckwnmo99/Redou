@@ -1,0 +1,19 @@
+{
+  "scenarios": {
+    "happyPath": {
+      "description": "All deterministic fake services return successful golden-path responses.",
+      "failurePoint": null,
+      "expectedOutcome": "table_persisted"
+    },
+    "perPaperAbort": {
+      "description": "The per-paper extraction fake aborts the parent chat pipeline before table persistence.",
+      "failurePoint": "extractColumnsFromPaper",
+      "expectedOutcome": "abort_without_chat_message_or_table"
+    },
+    "perPaperError": {
+      "description": "The per-paper extraction fake throws a non-abort error so the pipeline can exercise fallback behavior.",
+      "failurePoint": "extractColumnsFromPaper",
+      "expectedOutcome": "single_call_fallback"
+    }
+  }
+}

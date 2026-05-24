@@ -110,9 +110,88 @@ describe("golden-path integration", () => {
     await target.cleanupGoldenPathRows(supabase, fixture.ids.ownerId);
   };
 
+  const abortPerPaperExtractionWithoutPersistence = async () => {
+    const target = createIntegrationTestTarget(process.env);
+    const fixture = await loadGoldenPathFixture();
+    const abortController = new AbortController();
+    const services = await createGoldenPathServices(fixture, {
+      abortController,
+      scenario: "perPaperAbort",
+    });
+    const supabase = createClient(target.supabaseUrl, target.serviceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+
+    await target.assertSchemaProvenance(supabase);
+    await target.cleanupGoldenPathRows(supabase, fixture.ids.ownerId);
+    await target.seedGoldenPathRows(supabase, fixture, services);
+
+    try {
+      const { runMultiQueryRag } = createMultiQueryRag({
+        supabase,
+        generateEmbedding: services.generateEmbedding,
+        isRerankerAvailable: async () => false,
+        logger: quietLogger(),
+      });
+
+      await assert.rejects(
+        () => runTableConversationPipeline({
+          supabase,
+          conversationId: fixture.ids.conversationId,
+          ownerId: fixture.ids.ownerId,
+          ownerPaperIds: [fixture.ids.paperId],
+          scopeAll: true,
+          history: fixture.history,
+          message: fixture.history.at(-1)?.content ?? "",
+          abortSignal: abortController.signal,
+          emitStatus: () => {},
+          emitComplete: () => {},
+          generateOrchestratorPlanFn: async () => services.orchestratorPlan,
+          runMultiQueryRagFn: runMultiQueryRag,
+          extractColumnsFromPaperFn: services.extractColumnsFromPaper,
+          parseAllHtmlTablesFn: services.parseAllHtmlTables,
+          extractMatrixFromHtmlFn: services.extractMatrixFromHtml,
+          runPaperScopedRecoverySearchFn: async () => ({ chunks: [], figures: [] }),
+          extractNullCellsFromPaperFn: async () => ({ data_rows: [] }),
+          scheduleImmediateFn: () => {},
+        }),
+        (err) => err?.name === "AbortError",
+      );
+
+      const { data: messages, error: messagesError } = await supabase
+        .from("chat_messages")
+        .select("id")
+        .eq("conversation_id", fixture.ids.conversationId);
+      assert.equal(messagesError, null);
+      assert.deepEqual(messages, []);
+
+      const { data: tables, error: tablesError } = await supabase
+        .from("chat_generated_tables")
+        .select("id")
+        .eq("conversation_id", fixture.ids.conversationId);
+      assert.equal(tablesError, null);
+      assert.deepEqual(tables, []);
+
+      const { data: conversations, error: conversationError } = await supabase
+        .from("chat_conversations")
+        .select("phase")
+        .eq("id", fixture.ids.conversationId)
+        .limit(1);
+      assert.equal(conversationError, null);
+      assert.equal(conversations?.[0]?.phase, "clarifying");
+    } finally {
+      await target.cleanupGoldenPathRows(supabase, fixture.ids.ownerId);
+    }
+  };
+
   if (skipReason) {
     it("persists the core paper-to-table spine through real Supabase RPCs", { skip: skipReason }, () => {});
+    it("aborts per-paper extraction without persisting chat output", { skip: skipReason }, () => {});
   } else {
     it("persists the core paper-to-table spine through real Supabase RPCs", persistCoreGoldenPath);
+    it("aborts per-paper extraction without persisting chat output", abortPerPaperExtractionWithoutPersistence);
   }
 });
