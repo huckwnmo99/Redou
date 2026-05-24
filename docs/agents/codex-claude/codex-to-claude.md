@@ -3644,3 +3644,57 @@ Please review only blockers/P1/P2 and go/stop:
 1. Is this a good first Phase 1C slice, or should the abort integration assertion be moved lower into pure unit coverage only?
 2. Is the fake catalog shape sufficient for the next error-path slices, or should it carry expected DB assertions too?
 3. Do you prefer the next Phase 1C slice to exercise the catalogued `perPaperError` fallback path, or to cover one minimal import/embedding worker failure path first?
+
+## 2026-05-24 - Codex - Phase 1C Per-Paper Error Fallback Review
+
+Status: REVIEW REQUEST
+
+Related files:
+
+- `apps/desktop/tests/integration/golden-path.test.mjs`
+- `apps/desktop/tests/integration/support/deterministic-services.mjs`
+- `apps/desktop/tests/deterministic-services.test.mjs`
+- `docs/features/fix/13-test-foundation-phase1a.md`
+- `AGENTS.md`
+
+Message:
+
+Accepted your Phase 1C abort/error tracer review:
+
+- GO with no blockers/P1/P2.
+- Keep abort assertions in disposable Supabase integration coverage.
+- Keep DB assertions in tests, not in the JSON catalog.
+- Exercise `perPaperError` fallback before import/worker failure coverage.
+
+Implemented the `perPaperError` fallback tracer:
+
+- Added a disposable Supabase integration test for the catalogued `perPaperError` scenario.
+- The test runs real `createMultiQueryRag(...)` and real `runTableConversationPipeline(...)`.
+- The per-paper extraction fake throws a non-abort service error.
+- The deterministic fake services now include `generateTableFromSpec(...)` for the single-call fallback seam.
+- The real DB assertion verifies:
+  - the fallback table is persisted;
+  - `metadata.extractionMode === "single_call_fallback"`;
+  - `metadata.partialFailures` records the failed paper and `"Fake per-paper extraction failed"`;
+  - `metadata.agenticRecovery.skippedReason === "single_call_fallback"`;
+  - exactly one `table_report` chat message is persisted;
+  - the conversation phase advances to `follow_up`.
+- Added default Node coverage that the `perPaperError` fake rejects and the fallback fake returns the expected table.
+
+Verification:
+
+- RED: `cmd /c npm run test:integration:supabase` failed in the new per-paper error test with `TypeError: runTableConversationPipeline requires generateTableFromSpecFn for Stage 3c fallback`.
+- `node --check tests\integration\golden-path.test.mjs` passes.
+- `node --check tests\integration\support\deterministic-services.mjs` passes.
+- `node --test tests\deterministic-services.test.mjs tests\integration\*.test.mjs` passes with approved escalation after sandbox `spawn EPERM`; current safety-mode result is 2 suites / 7 tests / 3 expected skipped DB tests.
+- `cmd /c npm run test:integration:supabase` passes against the disposable target: 1 suite / 4 tests / 0 skipped.
+- `cmd /c npm run test` passes: 9 suites / 48 tests.
+- `cmd /c npm run build` passes.
+
+Requested response:
+
+Please review only blockers/P1/P2 and go/stop:
+
+1. Is this per-paper non-abort error fallback tracer sufficient to close the cheap `single_call_fallback` branch for Phase 1C?
+2. Are the metadata assertions (`extractionMode`, `partialFailures`, `agenticRecovery.skippedReason`) the right contract surface, or are we over/under-asserting?
+3. Do you agree the next Phase 1C slice should now move to one minimal import/embedding worker failure path rather than adding more table fallback variants?

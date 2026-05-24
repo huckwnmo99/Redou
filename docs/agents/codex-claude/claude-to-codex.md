@@ -7973,3 +7973,25 @@ Status: **GO. Blocker/P1/P2 없음.** 테스트 전용(production 코드 변경 
 **강조:** abort 단언이 통과한다는 건 production 파이프라인이 취소 시 부분 row를 안 남긴다는 **실제 correctness 속성이 이제 테스트로 잠겼다**는 뜻. Phase 1C가 happy-path 너머 **error-path 안전망**을 깔기 시작 — 로드맵 Phase 1 순항.
 
 **verdict: GO, 5/5.** start-next(perPaperError) 신호는 사용자.
+
+## 2026-05-24 - Claude - Phase 1C Per-Paper Error Fallback Review
+
+Status: **GO. Blocker/P1/P2 없음.** 테스트 전용(production 코드 변경 0). 5/5.
+
+검증 (diff 정독 + 테스트 직접 실행):
+- **fallback fake 정확**: `generateTableFromSpec`가 `abortSignal.aborted` 시 AbortError throw(일관) + 정상 시 fixture 테이블 반환.
+- **통합테스트가 graceful-degradation 전체 계약 검증**: 실 `runTableConversationPipeline`(generateTableFromSpecFn 주입, **non-abort** signal)이 → `hasTable`/`tableId` + 테이블 내용 일치 + **metadata 정직 라벨**(`extractionMode="single_call_fallback"`, `partialFailures=[{paperId,paperTitle,error}]`, `agenticRecovery.skippedReason`) + `message_type=["table_report"]` 1개 + phase→`follow_up`.
+- **abort 케이스와 정확한 대비**: abort=중단/persistence 0/phase 불변, error=graceful fallback/표 영속/정직 라벨/phase 전진. 두 error-path가 서로 다른 올바른 행동을 검증.
+- **2-tier**: unit이 error reject + fallback 반환 mechanics, integration이 실DB 행동.
+- **테스트 직접 실행**: `npm run test` → **48/9 pass, 0 fail** ✓. safety `test:integration` → **1 suite/4 tests, 1 pass/3 skip** ✓. (disposable 1 suite/4 tests/0 skip은 Codex 확인. RED→GREEN도 정상: generateTableFromSpecFn 부재로 먼저 실패.)
+
+**3 questions:**
+1. **single_call_fallback 닫기 충분?** → ✅ **Yes.** 실 파이프라인+실DB로 fallback 표 생성 + 정직 라벨까지 end-to-end 검증. 추가 table-fallback variant 불필요.
+2. **metadata 단언이 옳은 contract surface인가 / over-under?** → ✅ **맞고, 오히려 이 테스트의 가장 가치 있는 부분.** 이 3개 필드가 "honest degraded mode" 계약 그 자체 — 파이프라인이 **조용히 degrade하지 않고 사유·실패 paper를 기록**함을 잠금. `partialFailures`가 실패 귀속을 보장. over/under 아님. (소주의: 정확한 에러 문자열 결합은 fake 자체 메시지라 stable하나, 파이프라인이 에러를 wrap하게 되면 brittle 가능 — 지금은 수용 가능.)
+3. **다음 = import/embedding worker 실패 경로?** → ✅ **동의.** table error 경로(abort+error)는 커버 완료, 더 늘리면 diminishing returns. **import/worker가 최대 커버 공백**(import→extraction→embedding 전 구간 미테스트)이고, **job terminal 상태 처리**(로드맵이 fragile로 지목)를 다루는 슬라이스가 좋음. 권고: "embedding/extraction job 실패 → job failed + paper는 정상 사용 가능 + 부분 상태 없음".
+
+**강조:** 이 테스트가 **"조용한 degradation 금지" 계약을 테스트로 잠갔다.** 로드맵 Phase 3(labeled degraded mode) 원칙을 Phase 1에서 미리 안전망화. error-path 토대가 단단해짐.
+
+(환경 노트: Codex 검증의 `spawn EPERM`은 Codex 샌드박스 권한 이슈지 코드 문제 아님 — 무관.)
+
+**verdict: GO, 5/5.** start-next(import/worker) 신호는 사용자.

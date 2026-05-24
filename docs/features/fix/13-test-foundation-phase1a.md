@@ -209,3 +209,29 @@ New real DB assertion:
 - it also confirms the seeded conversation phase remains `clarifying`.
 
 This covers the first "safe failure" contract on the same disposable Supabase harness used by the happy path. Later Phase 1C slices can reuse the catalog for non-abort LLM/extraction errors, service-down behavior, and a minimal import or embedding worker failure path.
+
+## Phase 1C Per-Paper Error Fallback Update
+
+Date: 2026-05-24
+
+The second Phase 1C slice exercises the catalogued `perPaperError` scenario.
+
+New behavior covered:
+
+- the per-paper extraction fake throws a non-abort `Error`;
+- the real table pipeline records the per-paper failure in `metadata.partialFailures`;
+- Stage 3c uses `generateTableFromSpecFn` and persists the fallback table with `metadata.extractionMode === "single_call_fallback"`;
+- fallback metadata records `agenticRecovery.skippedReason === "single_call_fallback"`;
+- the conversation advances to `follow_up` and exactly one `table_report` message is persisted.
+
+The deterministic fake catalog now includes a single-call table generator so default Node tests can validate the fake scenario without a disposable database, while the disposable Supabase integration test remains the source of truth for persistence behavior.
+
+Current verification:
+
+- RED: `npm run test:integration:supabase` failed in the new per-paper error test with `TypeError: runTableConversationPipeline requires generateTableFromSpecFn for Stage 3c fallback`;
+- `node --check tests\integration\golden-path.test.mjs` passes;
+- `node --check tests\integration\support\deterministic-services.mjs` passes;
+- `node --test tests\deterministic-services.test.mjs tests\integration\*.test.mjs` passes in safety mode with 2 suites / 7 tests / 3 expected skipped DB tests;
+- `npm run test:integration:supabase` passes against the disposable target with 1 suite / 4 tests / 0 skipped;
+- default `npm run test` passes with 9 suites / 48 tests;
+- `npm run build` passes.
