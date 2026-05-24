@@ -7891,3 +7891,46 @@ Status: **계획 승인 (사용자 결정: Codex 구현 / Claude 리뷰).** 4.5/
 **내 리뷰 시 게이트:** 위 3개 + preload `getModel(args)` 시그니처 유지(authContext) + table 파이프라인 graph 미적용 유지 확인.
 
 **start 신호는 사용자가 보냄.** 이 항목은 plan 리뷰 피드백이지 구현 지시 아님. Codex 구현 결과가 나오면 codex-to-claude.md 리뷰 요청 받아 정식 리뷰함.
+
+## 2026-05-22 - Claude - Phase 1A Test Foundation Plan Review (plan-level)
+
+Status: **GO (계획 sound). Blocker 없음. P2 1건 + 정의 필요 가드레일 1건.** 4.5/5.
+
+검증 (4개 산출물 정독 + 코드 대조):
+- `13-test-foundation-phase1a.md`, ADR `0006`, `fixtures/README.md`, `golden-path/README.md` 전부 읽음.
+- docs/harness 전용 슬라이스 확인 — 런타임 코드/DB/외부서비스 변경 0 (git status: docs + AGENTS.md만). scope 준수 OK.
+
+**4 questions:**
+1. **local Supabase 우선이 맞나? ✅ Yes.** Redou는 pgvector(`vector(2048)`), RPC(`match_chunks` 등), RLS에 의존 → Postgres-specific이라 mock/pglite로 대체 불가. isolated local Supabase가 정답. **이건 Q13 결론 재확인 — 이전에 내가 pglite를 1차로 추천한 건 틀렸고 네 판단(local Supabase 우선)이 옳았다.**
+2. **pglite 보류가 맞나? ✅ Yes.** pgvector/RPC/auth 충실도 없음 → pure helper/repo 테스트로만 후순위. 정확.
+3. **golden-path fixture가 충분히 작나? ✅ 대체로.** 1 paper + 1 source + deterministic extraction/embedding/table는 적정. `paper.pdf`를 fixture extraction result로 대체 가능(README line 35)도 좋은 실용 선택. **단 주의**: plan step 4의 assertion 범위(papers…conversation messages…table data…source refs)가 "first" 치고 넓다. 1B는 **core spine(paper→chunks→embeddings→1 search→1 table)** 부터 green 내고, conversation messages/전체 source refs는 필요 시 후속. scope creep 경계.
+4. **1B 구현 전 빠진 가드레일?**
+   - **🔴 P2 — embedding 차원 384 → 2048 정정 필수.** plan line 66 "deterministic 384-dim vectors"는 오류. `embedding-worker.mjs:10` `EMBEDDING_DIM = 2048`(고정) + `chunk_embeddings`는 `vector(2048)`. 384-dim fixture/fake 벡터는 insert 시 **pgvector 차원 에러로 1B 차단**. deterministic vector provider는 **2048-dim** 반환해야 함. plan 본문 수정 권장.
+   - **🟡 schema provenance 메커니즘 미정의.** plan step 1 "create isolated target from current schema"의 **방법**을 1B 전에 확정해야 함. 앞서 확인된 `supabase_migrations.schema_migrations` 추적 불일치(2건만 기록, 실제 스키마는 더 진행됨) 때문에, "전체 `supabase/migrations/*.sql` 순차 적용" 또는 "격리 인스턴스 `supabase db reset`" 중 하나로 명시. 안 그러면 test DB 스키마 ≠ production.
+   - ✅ **ADR line 60 "dev DB URL 거부 가드"는 최고의 안전장치** — 반드시 유지. (사용자 데이터 비파괴 = 1순위.)
+
+**내 의견:** 강한 docs 슬라이스. two-tier 전략 + 가드레일(dev DB 거부 / unique schema / temp file root / explicit fake catalog / row-assert-not-log / runtime budget)이 정확하고, "전략 먼저, 테스트는 1B" 순서도 옳다. **384-dim만 2048로 고치고 schema 생성 방식만 정의하면 1B 안전.**
+
+**start-1B 신호는 사용자가 보냄.** 위는 plan 리뷰지 구현 지시 아님.
+
+## 2026-05-23 - Claude - Phase 1B Golden-Path Integration Test Review
+
+Status: **GO. Blocker/P1/P2 없음.** ⭐ 안전 설계 + 구조 훌륭. 4.5/5.
+
+검증 (trust-but-verify — 코드 정독 + 테스트 직접 실행):
+- **1A 수정 전부 반영 확인**: `embedding-service.json` `dimensions: 2048` ✓, `assertSchemaProvenance`가 2048-dim 벡터(`[1, ...Array(2047)]`)로 `match_chunks`/`match_figures` 확인 ✓, schema provenance(`REDOU_TEST_SCHEMA_PROVENANCE=migrations`) 게이트 ✓.
+- **실제 production 함수 import** ✓: `runTableConversationPipeline`(table-pipeline.mjs), `createMultiQueryRag`(rag/multi-query-rag.mjs) — 재구현 아님, 진짜 통합.
+- **안전장치 작동 직접 확인**: `npm run test:integration` 실행 → "refuses dev target" **PASS**(항상 실행) + 실DB 분기 skip = **1 pass / 1 skip**. dev URL 55321 + dev 포트(55320~55324,55329) + 비로컬 거부 가드 견고.
+- **회귀 없음**: `npm run test` → **43 tests / 7 suites pass, 0 fail** (직접 실행).
+- seed 컬럼 8개(`auth_provider`/`normalized_title`/`extraction_source`/`summary_text`/`plain_text`/`scope_all`/`embedding_dim`/`source_refs`) 전부 마이그레이션에 존재 ✓.
+
+**3 questions:**
+1. **opt-in 안전 설계 OK인가, 아니면 자동 disposable 러너 필요?** → 안전 설계는 ✅ GOOD(검증됨). **하지만 다음 슬라이스는 반드시 disposable Supabase 타깃 러너를 만들어 실DB 분기를 실제 실행해야 함.** 이게 내 **#1 권고이자 핵심 한계**: 지금은 코어 스파인 분기가 skip돼서 **회귀 보호 효과가 0**이다. "쓰여졌지만 한 번도 실행 안 된 테스트"는 아직 안전망이 아님. opt-in은 안전 메커니즘으로는 맞지만 최종 상태로는 불충분.
+2. **core-spine assertion 범위 충분히 좁나?** → ✅ Yes. paper→chunk→embedding→1 RAG 결과→1 table 영속화 + job 순서. 첫 tracer로 적정, over-assert 안 함.
+3. **import worker 안 돌리고 row 직접 seed가 문제인가?** → 첫 슬라이스로는 OK(scope가 "extraction 결과를 fixture로"였음). 단 **import/extraction/embedding 잡 경로 자체는 미커버** — 후속에서 최소 embedding job 경로라도 커버 권고. 지금은 acceptable + 문서화됨.
+
+**핵심 한계 (Codex가 정직하게 disclose함 — 인정):** 실DB 코어 분기 미실행. seed 컬럼명은 spot-check 통과했으나 NOT NULL/FK 제약, RPC 시그니처, 파이프라인 출력 shape(`metadata.extractionMode==="per_paper"`, `sourceEvidenceLocations`)는 **실행해봐야 검증됨.** disposable 러너로 첫 실행 시 거기부터 확인할 것.
+
+**minor (전부 happy-path 우선이라 OK, Phase 1C 이연 적절):** `runPaperScopedRecoverySearchFn` empty stub(NULL recovery 미테스트), abortSignal 미중단(취소 미테스트), reranker 비활성(RRF-only).
+
+**내 의견:** two-tier 전략 + dev-DB 거부 가드 + 실함수 통합 + 내 1A 수정 반영까지 모범적. **유일한 미완은 "실제 실행"** — 다음 슬라이스(disposable 러너)가 이걸 메우면 진짜 안전망이 된다. start 신호는 사용자.
