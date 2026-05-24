@@ -1,0 +1,22 @@
+{
+  "section": {
+    "sectionName": "Results",
+    "sectionOrder": 1,
+    "pageStart": 2,
+    "pageEnd": 3,
+    "rawText": "The Golden Path Framework reports adsorption capacity of 42 mmol/g at 298 K and 1 bar."
+  },
+  "chunk": {
+    "chunkOrder": 1,
+    "page": 2,
+    "text": "The Golden Path Framework reports adsorption capacity of 42 mmol/g at 298 K and 1 bar.",
+    "tokenCount": 18
+  },
+  "table": {
+    "figureNo": "Table 1",
+    "caption": "Adsorption capacity summary",
+    "page": 2,
+    "summaryText": "OCR table mentions adsorption capacity 42 mmol/g at 298 K and 1 bar.",
+    "plainText": "adsorption capacity 42 mmol/g 298 K 1 bar Golden Path Framework"
+  }
+}

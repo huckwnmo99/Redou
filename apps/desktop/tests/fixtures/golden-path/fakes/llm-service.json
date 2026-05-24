@@ -1,0 +1,37 @@
+{
+  "history": [
+    {
+      "role": "user",
+      "content": "Create a table with material, adsorption capacity, and condition.",
+      "message_type": "text"
+    }
+  ],
+  "orchestratorPlan": {
+    "action": "generate_table",
+    "keyword_hints": ["adsorption", "capacity"],
+    "search_queries": [
+      {
+        "query": "adsorption capacity 42 mmol/g",
+        "intent": "primary"
+      }
+    ],
+    "table_spec": {
+      "title": "Adsorption capacity table",
+      "row_axis": "Papers",
+      "column_definitions": ["Material", "Capacity", "Condition"]
+    }
+  },
+  "perPaperExtraction": {
+    "paper_title": "Golden Path Adsorption Paper",
+    "data_rows": [
+      {
+        "confidence": "high",
+        "values": {
+          "Material": "Golden Path Framework",
+          "Capacity": "42 mmol/g",
+          "Condition": "298 K, 1 bar"
+        }
+      }
+    ]
+  }
+}

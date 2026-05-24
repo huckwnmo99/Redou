@@ -1,0 +1,5 @@
+{
+  "tableTitle": "Adsorption capacity table",
+  "headers": ["Material", "Capacity", "Condition"],
+  "rows": [["Golden Path Framework [1]", "42 mmol/g [1]", "298 K, 1 bar [1]"]]
+}

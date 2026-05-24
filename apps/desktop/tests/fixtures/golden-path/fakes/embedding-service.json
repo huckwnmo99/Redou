@@ -1,0 +1,5 @@
+{
+  "model": "nvidia/llama-nemotron-embed-vl-1b-v2",
+  "dimensions": 2048,
+  "seed": "redou-golden-path"
+}

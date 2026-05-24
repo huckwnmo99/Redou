@@ -1,0 +1,33 @@
+{
+  "ids": {
+    "ownerId": "10000000-0000-4000-8000-000000000001",
+    "paperId": "10000000-0000-4000-8000-000000000101",
+    "sourceFileId": "10000000-0000-4000-8000-000000000201",
+    "sectionId": "10000000-0000-4000-8000-000000000301",
+    "chunkId": "10000000-0000-4000-8000-000000000401",
+    "tableFigureId": "10000000-0000-4000-8000-000000000501",
+    "conversationId": "10000000-0000-4000-8000-000000000601",
+    "parseJobId": "10000000-0000-4000-8000-000000000701",
+    "embeddingJobId": "10000000-0000-4000-8000-000000000702"
+  },
+  "paper": {
+    "ownerName": "Golden Path Tester",
+    "ownerEmail": "golden-path@example.invalid",
+    "title": "Golden Path Adsorption Paper",
+    "normalizedTitle": "golden path adsorption paper",
+    "publicationYear": 2026,
+    "journal": "Redou Test Journal",
+    "doi": "10.0000/redou.golden-path",
+    "abstract": "A deterministic fixture paper reporting adsorption capacity for the Redou golden-path integration test.",
+    "authors": [
+      { "family": "Kim", "given": "Test" },
+      { "family": "Park", "given": "Fixture" }
+    ],
+    "extractionVersion": 2
+  },
+  "source": {
+    "originalFilename": "golden-path-paper.pdf",
+    "storedFilename": "golden-path-paper.pdf",
+    "storedPath": "C:\\tmp\\redou-integration\\golden-path\\golden-path-paper.pdf"
+  }
+}
