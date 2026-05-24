@@ -150,4 +150,33 @@ The default run is safe:
 
 When a disposable target is configured, the test seeds one paper, one primary file, one section, one chunk, one 2048-dim chunk embedding, one table figure, two succeeded processing jobs, and one chat conversation. It then exercises real Supabase RPC retrieval through `createMultiQueryRag(...)` and real table persistence through `runTableConversationPipeline(...)` with deterministic fake services.
 
-The first local verification used the safety mode because no disposable Supabase test target was configured in this shell. That means the dev-target refusal guard and script wiring were verified, while the real DB core-spine path remains pending until a disposable test target is available.
+The first local verification used the safety mode because no disposable Supabase test target was configured in that shell. That verified the dev-target refusal guard and script wiring, while leaving the real DB core-spine path pending until a disposable test target was available.
+
+## Phase 1B Disposable Runner Update
+
+Date: 2026-05-24
+
+The real DB branch is now executable through `apps/desktop`:
+
+```text
+npm run test:integration:supabase
+```
+
+The runner:
+
+- creates a temp Supabase project under the OS temp directory;
+- rewrites Supabase ports to the non-dev `55420-55429` range;
+- copies the repository `supabase/migrations/` directory into that target;
+- writes an empty target seed file and runs `supabase db reset --local --no-seed --yes`;
+- keeps Auth enabled so `supabase status -o env` exposes service-role credentials;
+- disables test-target Google OAuth env references so the disposable target does not depend on local OAuth secrets;
+- runs `npm run test:integration` with disposable URL/key/provenance env vars;
+- stops the disposable target afterward unless `--keep` is passed.
+
+The first real run found a schema issue that the safety-mode tracer could not catch: a legacy 4-argument `match_chunks` overload survived earlier embedding/RAG migrations, making REST RPC calls ambiguous. The fix is recorded in `supabase/migrations/20260524010000_drop_stale_match_chunks_overload.sql`, and desktop RAG now calls the current 6-argument `match_chunks` shape explicitly.
+
+Current verification:
+
+- `npm run test:integration:supabase` passes against the disposable target with 2 integration tests and 0 skipped tests;
+- default `npm run test:integration` remains safe and skips the real DB spine unless disposable env vars are set;
+- default `npm run test` now includes the runner helper coverage and passes with 8 suites / 45 tests.

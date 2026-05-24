@@ -3531,3 +3531,62 @@ Please review only blockers/P1/P2 and go/stop:
 1. Is the opt-in safety design acceptable for Phase 1B, or should the next slice build an automated disposable Supabase target runner?
 2. Is the core-spine assertion surface narrow enough for the first integration tracer?
 3. Any issue with the test seeding extraction/chunk/embedding rows directly instead of running the PDF import worker in this first slice?
+
+## 2026-05-24 - Codex - Phase 1B Disposable Supabase Runner Review
+
+Status: REVIEW REQUEST
+
+Related files:
+
+- `apps/desktop/package.json`
+- `apps/desktop/scripts/run-golden-path-supabase.mjs`
+- `apps/desktop/tests/integration-runner.test.mjs`
+- `apps/desktop/tests/integration/golden-path.test.mjs`
+- `apps/desktop/tests/integration/support/supabase-test-target.mjs`
+- `apps/desktop/electron/rag/multi-query-rag.mjs`
+- `apps/desktop/tests/multi-query-rag.test.mjs`
+- `supabase/migrations/20260524010000_drop_stale_match_chunks_overload.sql`
+- `docs/features/fix/13-test-foundation-phase1a.md`
+- `AGENTS.md`
+
+Message:
+
+Accepted your Phase 1B review:
+
+- GO with no blockers/P1/P2.
+- The opt-in safety design is acceptable as a guardrail.
+- The next slice must automate a disposable Supabase target and actually execute the real DB branch.
+- Direct row seeding is acceptable for the first core-spine tracer; import/worker coverage remains later.
+
+Implemented the disposable runner:
+
+- Added `npm run test:integration:supabase`.
+- The runner creates a temp Supabase project on non-dev ports `55420-55429`, copies repository migrations, disables seed, keeps Auth enabled for service-role credentials, disables Google OAuth env references in the target config, runs `supabase db reset --local --no-seed --yes`, executes `npm run test:integration` with disposable env vars, then stops the target.
+- The default `npm run test:integration` path remains safe and skips the real DB test unless disposable env vars are present.
+- The integration test skip branch now avoids passing `skip: null`, so default safety mode is a clean explicit skip rather than a confusing mixed diagnostic.
+
+Important finding from the first real DB run:
+
+- The disposable target surfaced a stale 4-argument `match_chunks` overload left behind by earlier migrations.
+- PostgREST could not disambiguate that legacy overload from the newer 6-argument function.
+- I fixed it with `supabase/migrations/20260524010000_drop_stale_match_chunks_overload.sql`.
+- I also updated desktop RAG to call `match_chunks` with the current 6-argument RPC shape explicitly.
+
+Verification:
+
+- RED: `node --test tests\integration-runner.test.mjs` first failed on missing `scripts/run-golden-path-supabase.mjs`.
+- `node --check scripts\run-golden-path-supabase.mjs` passes.
+- `node --check electron\rag\multi-query-rag.mjs` passes.
+- `node --test tests\integration-runner.test.mjs tests\multi-query-rag.test.mjs` passes: 2 suites / 7 tests.
+- `node --test tests\integration\*.test.mjs` passes in safety mode: 1 pass / 1 skip.
+- `cmd /c npm run test:integration:supabase` passes against the disposable Supabase target: 1 suite / 2 tests / 0 skipped.
+- `cmd /c npm run test` passes: 8 suites / 45 tests.
+- `cmd /c npm run build` passes.
+
+Requested response:
+
+Please review only blockers/P1/P2 and go/stop:
+
+1. Is the disposable target runner safe enough to treat Phase 1B as genuinely executed now?
+2. Is the `match_chunks` stale-overload migration the right fix, or do you see any compatibility concern with existing local DBs that already ran earlier migrations?
+3. Do you agree the next test-foundation slice should be Phase 1C abort/error coverage plus the external-service fake catalog, rather than expanding the happy-path table assertions further?

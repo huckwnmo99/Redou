@@ -7934,3 +7934,23 @@ Status: **GO. Blocker/P1/P2 없음.** ⭐ 안전 설계 + 구조 훌륭. 4.5/5.
 **minor (전부 happy-path 우선이라 OK, Phase 1C 이연 적절):** `runPaperScopedRecoverySearchFn` empty stub(NULL recovery 미테스트), abortSignal 미중단(취소 미테스트), reranker 비활성(RRF-only).
 
 **내 의견:** two-tier 전략 + dev-DB 거부 가드 + 실함수 통합 + 내 1A 수정 반영까지 모범적. **유일한 미완은 "실제 실행"** — 다음 슬라이스(disposable 러너)가 이걸 메우면 진짜 안전망이 된다. start 신호는 사용자.
+
+## 2026-05-24 - Claude - Phase 1B Disposable Supabase Runner Review
+
+Status: **GO. Blocker/P1/P2 없음.** 🏆 지금까지 최고 슬라이스 — 러너를 만든 데 그치지 않고 **그걸로 실제 잠복 production 버그를 발견·수정**. 5/5.
+
+검증 (trust-but-verify — 코드 정독 + 마이그레이션 대조 + 테스트 직접 실행):
+- **마이그레이션 안전 확인**: `drop function if exists public.match_chunks(vector, double precision, integer, uuid[])` — IF EXISTS 멱등. `match_chunks` RPC 호출자는 `multi-query-rag.mjs:118` **단 1곳뿐**(grep 확인), 이미 6-arg로 갱신 → **4-arg 잔존 호출자 0, drop 안전.**
+- **RAG 변경 = behavior-preserving 확인**: 6-arg에 `boost_section_names: null, section_boost: 0.08` 추가. 최신 정의(`20260506010000`)의 boost 로직이 `WHEN boost_section_names IS NOT NULL THEN section_boost`라 **null이면 boost 미적용 = 랭킹 불변**. 게다가 0.08 = 함수 DEFAULT. 순수 overload 모호성 해소용.
+- **테스트 정합**: 단위테스트(`match_chunks` args `boost_section_names===null`/`section_boost===0.08` assert) + 스키마체크(6-arg shape) 모두 production 변경과 일치.
+- **러너 격리 견고**: 비-dev 포트(55420-55429), temp workdir + `ensureSafeTargetRoot`(non-temp/non-redou/`v3` repo 경로 거부), 별도 `project_id`, 마이그레이션-only 스키마(seed 비활성), `finally` cleanup. + 방어심층: 통합테스트 가드가 dev 포트(55320-55329) 거부.
+- **테스트 직접 실행**: `npm run test` → **45/8 pass, 0 fail** ✓. `npm run test:integration`(safety) → **1 pass/1 skip** ✓. (disposable 풀 경로는 supabase CLI 기동이 필요해 내 셸에선 미실행 — Codex가 1 suite/2 tests/0 skip 확인.)
+
+**3 questions:**
+1. **러너가 1B를 "진짜 실행됨"으로 볼 만큼 안전한가?** → ✅ **YES.** 격리 견고 + 실DB 분기 실제 실행·통과. **내 이전 리뷰 #1 우려("실행 안 됨")가 해소됨.**
+2. **match_chunks stale-overload 마이그레이션이 옳은 수정인가/호환성 우려?** → ✅ **옳고 우려 없음.** 멱등(IF EXISTS) + 4-arg 잔존 호출자 0 + 6-arg 호출 behavior-preserving. 기존 dev DB가 두 overload를 다 갖고 있었다면 이 drop이 모호성을 청소(= disposable에서 드러난 잠복 문제를 dev DB에서도 정리), 6-arg만 있으면 no-op.
+3. **다음 = Phase 1C abort/error + fake catalog (happy-path 확장 X)?** → ✅ **동의.** happy-path 스파인은 증명됨. + 1C에서 **현재 never-abort인 abortSignal 취소 경로**와 **import/worker 경로 1개**(현 커버 공백)도 같이 다루면 좋음.
+
+**강조 (중요):** stale 4-arg overload는 **테스트만의 문제가 아니라 실제 앱 RAG에도 PostgREST 모호성을 일으킬 수 있던 잠복 버그**다. 통합테스트를 실제로 돌린 것이 production RAG 경로를 hardening했다. → 로드맵 명제("테스트 > 추가 리팩토링")의 직접 실증. **이게 Phase 1 토대의 첫 배당금.**
+
+**verdict: GO, 5/5.** start-1C 신호는 사용자.
