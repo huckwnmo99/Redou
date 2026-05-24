@@ -96,6 +96,8 @@ export function createIntegrationTestTarget(env = process.env) {
           match_threshold: 0.99,
           match_count: 1,
           filter_paper_ids: [],
+          boost_section_names: [],
+          section_boost: 0.08,
         }),
         "schema check: match_chunks vector(2048)",
       );

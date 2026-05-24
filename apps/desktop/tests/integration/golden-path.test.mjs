@@ -27,7 +27,7 @@ describe("golden-path integration", () => {
 
   const skipReason = getIntegrationTargetSkipReason(process.env);
 
-  it("persists the core paper-to-table spine through real Supabase RPCs", { skip: skipReason }, async () => {
+  const persistCoreGoldenPath = async () => {
     const target = createIntegrationTestTarget(process.env);
     const fixture = await loadGoldenPathFixture();
     const services = await createGoldenPathServices(fixture);
@@ -108,5 +108,11 @@ describe("golden-path integration", () => {
     assert.ok(jobs?.every((job) => job.source_file_id === fixture.ids.sourceFileId));
 
     await target.cleanupGoldenPathRows(supabase, fixture.ids.ownerId);
-  });
+  };
+
+  if (skipReason) {
+    it("persists the core paper-to-table spine through real Supabase RPCs", { skip: skipReason }, () => {});
+  } else {
+    it("persists the core paper-to-table spine through real Supabase RPCs", persistCoreGoldenPath);
+  }
 });

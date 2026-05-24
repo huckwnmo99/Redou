@@ -10,6 +10,7 @@
     "build": "tsc --noEmit && vite build",
     "test": "node --test tests/*.test.mjs",
     "test:integration": "node --test tests/integration/*.test.mjs",
+    "test:integration:supabase": "node scripts/run-golden-path-supabase.mjs",
     "preview": "vite preview",
     "start:electron": "electron electron/main.mjs"
   },
