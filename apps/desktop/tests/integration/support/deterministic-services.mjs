@@ -71,12 +71,24 @@ export async function createGoldenPathServices(fixture, options = {}) {
     }
     return fixture.llm.perPaperExtraction;
   };
+  const generateTableFromSpec = async (_tableSpec, _ragContext, _paperMetadata, abortSignal) => {
+    if (abortSignal?.aborted) {
+      throw createAbortError("Fake single-call table generation aborted");
+    }
+    return {
+      title: fixture.expected.tableTitle,
+      headers: [...fixture.expected.headers],
+      rows: fixture.expected.rows.map((row) => [...row]),
+      references: [],
+    };
+  };
 
   return {
     embedding,
     generateEmbedding: async () => [...embedding],
     orchestratorPlan: fixture.llm.orchestratorPlan,
     extractColumnsFromPaper,
+    generateTableFromSpec,
     parseAllHtmlTables: () => [],
     extractMatrixFromHtml: async () => ({ headers: [], rows: [] }),
   };

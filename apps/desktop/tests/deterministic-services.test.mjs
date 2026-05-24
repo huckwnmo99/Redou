@@ -31,4 +31,26 @@ describe("golden-path deterministic service catalog", () => {
     );
     assert.equal(abortController.signal.aborted, true);
   });
+
+  it("can create a per-paper error fake with a single-call fallback response", async () => {
+    const fixture = await loadGoldenPathFixture();
+    const services = await createGoldenPathServices(fixture, {
+      scenario: "perPaperError",
+    });
+
+    await assert.rejects(
+      () => services.extractColumnsFromPaper({}, "", fixture.paper.title, new AbortController().signal),
+      /Fake per-paper extraction failed/,
+    );
+
+    const table = await services.generateTableFromSpec(
+      fixture.llm.orchestratorPlan.table_spec,
+      "",
+      [],
+      new AbortController().signal,
+    );
+    assert.equal(table.title, fixture.expected.tableTitle);
+    assert.deepEqual(table.headers, fixture.expected.headers);
+    assert.deepEqual(table.rows, fixture.expected.rows);
+  });
 });
