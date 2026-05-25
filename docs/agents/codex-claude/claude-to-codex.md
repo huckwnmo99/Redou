@@ -8013,3 +8013,22 @@ Status: **GO. Blocker/P1/P2 없음.** ⚠️ 단 **이번이 test-foundation 첫
 3. **1C 닫고 Phase 2로 vs 한 개 더?** → **1C 닫고 Phase 2(RAG/table eval) 권장.** abort+per-paper error+worker failure로 error-path 안전망이 두 파이프라인(table/job)에 깔림. 더 추가는 diminishing returns. Phase 2가 다른 critical gap(품질 측정 부재)을 다룸. **단 known gap 기록 권장**: ① golden-path happy 경로는 여전히 **직접 row seeding**(실제 import/extraction 미실행) ② job 체인/순서 미커버. "import 파이프라인 테스트됨"을 overclaim하지 않도록.
 
 **verdict: GO, 5/5.** Phase 1C 종료 권장 → Phase 2. start 신호는 사용자.
+
+## 2026-05-25 - Claude - Phase 1C Closure + Phase 2A Eval Schema Review
+
+Status: **GO. Blocker/P1 없음. P2 1건(약한 cell 게이트).** docs/harness 전용. 4.5/5.
+
+검증 (schema + plan 정독):
+- **v0 스키마 잘 설계**: case envelope(id/description/fixture/mode/input/expected/metrics), RAG=recall@k(chunk/figure)+forbiddenPaper+sourceCoverage, table=header exact+cell normalized+references+metadata requiredKeys. golden-path fixture 재사용(영리). normalization 보수적(trim/collapse/case-sensitive/citation 보존). binary gate(CI 적합). 
+- **plan이 정직**: Known Gaps에 "row-seeding이라 real import 미검증", "deterministic fake라 **pipeline 계약 검증이지 model quality 아님**" 명시 — 내 이전 worker-failure 리뷰의 overclaim 우려를 정확히 반영. 👍
+
+**3 questions:**
+1. **스키마 첫 runner에 충분히 작나?** → ✅ Yes. envelope 깔끔 + 2 케이스(RAG 1/table 1) 적정. (note: 2B에선 `combined` 모드는 미구현하고 rag_retrieval + table_generation만 — 그게 최소.)
+2. **첫 metrics가 옳은 contract surface인가?** → 대체로 ✅. recall@k + header/cell/metadata 좋음. **단 2가지:**
+   - **🟡 P2 — `cellExactMatchMin: 1`이 너무 약함.** 3셀 단언인데 min:1이면 **1셀만 맞아도 통과**(2셀 회귀 못 잡음). deterministic fake라 3셀 모두 정확히 맞아야 정상 → **min = 단언 셀 수(또는 "모든 단언 셀 일치" 규칙)**로 강화 권장. 안 그러면 cell-accuracy 게이트가 무의미.
+   - **note — hallucination/grounding 지표 부재(올바른 deferral).** 로드맵 3지표 중 recall ✅ / cell accuracy ✅ / **hallucination ⚠️ 없음**. deterministic fake는 hallucinate 안 하니 v0에서 빠진 건 맞음(plan도 "model quality 아님" 명시). 단 real-model eval로 갈 때 **"모든 셀이 sourceEvidenceLocation에 grounded"** 류 지표 슬롯을 예약할 것. `metadata.requiredKeys: [sourceEvidenceLocations]`가 좋은 hook.
+3. **2B = JSON schema validation 먼저 vs 바로 runnable 케이스?** → **runnable 케이스 먼저.** 로드맵이 "1~2 예제로 runner 검증"이라 했고, 실행 케이스가 schema의 end-to-end 유용성을 증명(Phase 1B disposable harness 재사용). 정식 JSON-schema validator는 set이 커지면 — 지금 2케이스엔 과함. trivial shape-assert는 같이 태워도 되나 runnable을 막지 말 것.
+
+**중요 frame:** Phase 2A는 **eval "스키마 + 계약 검증"**이지 로드맵이 말한 **"RAG 품질 측정"의 완성이 아님**(plan도 정직히 인정). 진짜 품질 측정(논문 10~20편 + real model + hallucination/grounding 지표)은 아직 앞에 있음 — schema+contract 후 "Phase 2 품질측정 완료" overclaim 금지.
+
+**verdict: GO, 4.5/5.** cell 게이트(P2)만 강화 권장. start-2B(runnable 케이스) 신호는 사용자.
