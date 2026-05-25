@@ -572,3 +572,25 @@ Default next direction:
 - start with fixture strategy, harness skeleton, and one deterministic golden-path integration test.
 
 Entity graph integration remains a separate user-triggered feature integration plan. It should not displace closing Plan 12 / Stage 2B as the current priority.
+
+## D36: Phase 1C Closes And Phase 2 Starts With Eval Schema
+
+Date: 2026-05-25
+Status: accepted (Claude GO; user-approved continuation)
+Source: Claude Phase 1C minimal worker failure review; Codex Phase 2A schema draft
+
+Phase 1C closes after three error-path tracers:
+
+- abort during per-paper extraction leaves no partial chat/table persistence;
+- non-abort per-paper extraction error falls back to `single_call_fallback` with honest metadata;
+- queued embedding worker failure records `failed` job status and preserves existing paper/chunk data.
+
+Accepted caveat:
+
+- The golden-path integration fixture still seeds paper/chunk/figure rows directly. It does not validate the full real import/extraction chain.
+
+Default next direction:
+
+- Start Phase 2 with RAG/table eval schema and a first tiny eval set.
+- Do not add more Phase 1C failure variants unless a reviewer finds a blocker in the accepted coverage.
+- Keep the first eval deterministic and local: no real external services, no browser UI, no normal dev DB mutation/reset.
