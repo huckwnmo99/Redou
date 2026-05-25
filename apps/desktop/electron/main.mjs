@@ -16,6 +16,7 @@ import {
   serializeEvidenceLocations,
 } from "./chat/source-evidence.mjs";
 import { createMultiQueryRag } from "./rag/multi-query-rag.mjs";
+import { runQueuedProcessingJob } from "./processing/job-runner.mjs";
 import { createClient } from "@supabase/supabase-js";
 import zlib from "node:zlib";
 import { inspectPdfMetadata, extractFigureImagesFromPdf } from "./pdf-heuristics.mjs";
@@ -1388,47 +1389,27 @@ async function processEmbeddingJob(job) {
 async function tryStartExtractionJob() {
   if (extractionInFlight) return;
   extractionInFlight = true;
-  let activeJob = null;
 
   try {
-    const { data: queuedJobs, error: jobError } = await supabase
-      .from("processing_jobs")
-      .select("id, paper_id, user_id, source_path, source_file_id, job_type, status, created_at")
-      .eq("status", "queued")
-      .neq("job_type", "generate_embeddings")
-      .order("created_at", { ascending: true })
-      .limit(1);
+    await runQueuedProcessingJob({
+      loadNextJob: async () => {
+        const { data: queuedJobs, error: jobError } = await supabase
+          .from("processing_jobs")
+          .select("id, paper_id, user_id, source_path, source_file_id, job_type, status, created_at")
+          .eq("status", "queued")
+          .neq("job_type", "generate_embeddings")
+          .order("created_at", { ascending: true })
+          .limit(1);
 
-    if (jobError) throw new Error(jobError.message);
-    const job = queuedJobs?.[0];
-    if (!job) return;
-
-    activeJob = job;
-    if (!job.paper_id) throw new Error("Queued job is missing a paper_id.");
-
-    await updateJobStatus(job.id, {
-      status: "running",
-      started_at: new Date().toISOString(),
-      error_message: null,
+        if (jobError) throw new Error(jobError.message);
+        return queuedJobs?.[0] ?? null;
+      },
+      updateJobStatus,
+      processJob: processImportPdfJob,
+      broadcastJobFailed: (payload) => broadcastToWindows(IPC_EVENTS.JOB_FAILED, payload),
     });
-
-    await processImportPdfJob(job);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (activeJob?.id) {
-      try {
-        await updateJobStatus(activeJob.id, {
-          status: "failed",
-          finished_at: new Date().toISOString(),
-          error_message: message,
-        });
-      } catch { /* best effort */ }
-      broadcastToWindows(IPC_EVENTS.JOB_FAILED, {
-        jobId: activeJob.id,
-        paperId: activeJob.paper_id ?? null,
-        error: message,
-      });
-    }
+    console.warn("[process] Failed to poll extraction jobs:", err?.message ?? err);
   } finally {
     extractionInFlight = false;
   }
@@ -1437,47 +1418,27 @@ async function tryStartExtractionJob() {
 async function tryStartEmbeddingJob() {
   if (embeddingInFlight) return;
   embeddingInFlight = true;
-  let activeJob = null;
 
   try {
-    const { data: queuedJobs, error: jobError } = await supabase
-      .from("processing_jobs")
-      .select("id, paper_id, user_id, source_path, source_file_id, job_type, status, created_at")
-      .eq("status", "queued")
-      .eq("job_type", "generate_embeddings")
-      .order("created_at", { ascending: true })
-      .limit(1);
+    await runQueuedProcessingJob({
+      loadNextJob: async () => {
+        const { data: queuedJobs, error: jobError } = await supabase
+          .from("processing_jobs")
+          .select("id, paper_id, user_id, source_path, source_file_id, job_type, status, created_at")
+          .eq("status", "queued")
+          .eq("job_type", "generate_embeddings")
+          .order("created_at", { ascending: true })
+          .limit(1);
 
-    if (jobError) throw new Error(jobError.message);
-    const job = queuedJobs?.[0];
-    if (!job) return;
-
-    activeJob = job;
-    if (!job.paper_id) throw new Error("Queued job is missing a paper_id.");
-
-    await updateJobStatus(job.id, {
-      status: "running",
-      started_at: new Date().toISOString(),
-      error_message: null,
+        if (jobError) throw new Error(jobError.message);
+        return queuedJobs?.[0] ?? null;
+      },
+      updateJobStatus,
+      processJob: processEmbeddingJob,
+      broadcastJobFailed: (payload) => broadcastToWindows(IPC_EVENTS.JOB_FAILED, payload),
     });
-
-    await processEmbeddingJob(job);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (activeJob?.id) {
-      try {
-        await updateJobStatus(activeJob.id, {
-          status: "failed",
-          finished_at: new Date().toISOString(),
-          error_message: message,
-        });
-      } catch { /* best effort */ }
-      broadcastToWindows(IPC_EVENTS.JOB_FAILED, {
-        jobId: activeJob.id,
-        paperId: activeJob.paper_id ?? null,
-        error: message,
-      });
-    }
+    console.warn("[embedding] Failed to poll embedding jobs:", err?.message ?? err);
   } finally {
     embeddingInFlight = false;
   }
