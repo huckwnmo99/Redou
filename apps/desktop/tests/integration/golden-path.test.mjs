@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createClient } from "@supabase/supabase-js";
 
+import { runQueuedProcessingJob } from "../../electron/processing/job-runner.mjs";
 import { runTableConversationPipeline } from "../../electron/chat/table-pipeline.mjs";
 import { createMultiQueryRag } from "../../electron/rag/multi-query-rag.mjs";
 import {
@@ -275,13 +276,118 @@ describe("golden-path integration", () => {
     }
   };
 
+  const failQueuedEmbeddingJobWithoutDamagingPaper = async () => {
+    const target = createIntegrationTestTarget(process.env);
+    const fixture = await loadGoldenPathFixture();
+    const services = await createGoldenPathServices(fixture);
+    const failedJobId = "10000000-0000-4000-8000-000000000703";
+    const supabase = createClient(target.supabaseUrl, target.serviceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+
+    await target.assertSchemaProvenance(supabase);
+    await target.cleanupGoldenPathRows(supabase, fixture.ids.ownerId);
+    await target.seedGoldenPathRows(supabase, fixture, services);
+
+    try {
+      const { error: insertError } = await supabase.from("processing_jobs").insert({
+        id: failedJobId,
+        paper_id: fixture.ids.paperId,
+        user_id: fixture.ids.ownerId,
+        source_file_id: fixture.ids.sourceFileId,
+        job_type: "generate_embeddings",
+        status: "queued",
+        source_path: fixture.source.storedPath,
+        created_at: "2026-05-23T00:00:04.000Z",
+      });
+      assert.equal(insertError, null);
+
+      const failedEvents = [];
+      const result = await runQueuedProcessingJob({
+        loadNextJob: async () => {
+          const { data, error } = await supabase
+            .from("processing_jobs")
+            .select("id, paper_id, user_id, source_path, source_file_id, job_type, status, created_at")
+            .eq("status", "queued")
+            .eq("job_type", "generate_embeddings")
+            .order("created_at", { ascending: true })
+            .limit(1);
+          if (error) throw new Error(error.message);
+          return data?.[0] ?? null;
+        },
+        updateJobStatus: async (jobId, patch) => {
+          const { error } = await supabase.from("processing_jobs").update(patch).eq("id", jobId);
+          if (error) throw new Error(error.message);
+        },
+        processJob: async () => {
+          throw new Error("Embedding model unavailable");
+        },
+        broadcastJobFailed: (payload) => {
+          failedEvents.push(payload);
+        },
+        now: () => "2026-05-23T00:00:05.000Z",
+      });
+
+      assert.deepEqual(result, {
+        job: {
+          id: failedJobId,
+          paperId: fixture.ids.paperId,
+          jobType: "generate_embeddings",
+        },
+        status: "failed",
+        error: "Embedding model unavailable",
+      });
+      assert.deepEqual(failedEvents, [
+        {
+          jobId: failedJobId,
+          paperId: fixture.ids.paperId,
+          error: "Embedding model unavailable",
+        },
+      ]);
+
+      const { data: jobs, error: jobsError } = await supabase
+        .from("processing_jobs")
+        .select("status, started_at, finished_at, error_message")
+        .eq("id", failedJobId)
+        .limit(1);
+      assert.equal(jobsError, null);
+      assert.equal(jobs?.[0]?.status, "failed");
+      assert.equal(jobs?.[0]?.started_at, "2026-05-23T00:00:05+00:00");
+      assert.equal(jobs?.[0]?.finished_at, "2026-05-23T00:00:05+00:00");
+      assert.equal(jobs?.[0]?.error_message, "Embedding model unavailable");
+
+      const { data: papers, error: paperError } = await supabase
+        .from("papers")
+        .select("id, title")
+        .eq("id", fixture.ids.paperId)
+        .limit(1);
+      assert.equal(paperError, null);
+      assert.deepEqual(papers, [{ id: fixture.ids.paperId, title: fixture.paper.title }]);
+
+      const { data: chunks, error: chunksError } = await supabase
+        .from("paper_chunks")
+        .select("id, text")
+        .eq("paper_id", fixture.ids.paperId);
+      assert.equal(chunksError, null);
+      assert.equal(chunks?.length, 1);
+      assert.equal(chunks?.[0]?.id, fixture.ids.chunkId);
+    } finally {
+      await target.cleanupGoldenPathRows(supabase, fixture.ids.ownerId);
+    }
+  };
+
   if (skipReason) {
     it("persists the core paper-to-table spine through real Supabase RPCs", { skip: skipReason }, () => {});
     it("aborts per-paper extraction without persisting chat output", { skip: skipReason }, () => {});
     it("falls back to single-call table generation after a per-paper extraction error", { skip: skipReason }, () => {});
+    it("marks a failed embedding worker job without damaging paper data", { skip: skipReason }, () => {});
   } else {
     it("persists the core paper-to-table spine through real Supabase RPCs", persistCoreGoldenPath);
     it("aborts per-paper extraction without persisting chat output", abortPerPaperExtractionWithoutPersistence);
     it("falls back to single-call table generation after a per-paper extraction error", fallbackAfterPerPaperExtractionError);
+    it("marks a failed embedding worker job without damaging paper data", failQueuedEmbeddingJobWithoutDamagingPaper);
   }
 });
