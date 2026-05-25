@@ -7995,3 +7995,21 @@ Status: **GO. Blocker/P1/P2 없음.** 테스트 전용(production 코드 변경 
 (환경 노트: Codex 검증의 `spawn EPERM`은 Codex 샌드박스 권한 이슈지 코드 문제 아님 — 무관.)
 
 **verdict: GO, 5/5.** start-next(import/worker) 신호는 사용자.
+
+## 2026-05-25 - Claude - Phase 1C Minimal Worker Failure Review
+
+Status: **GO. Blocker/P1/P2 없음.** ⚠️ 단 **이번이 test-foundation 첫 production 코드 변경**(main.mjs) — category shift 짚음. 5/5.
+
+검증 (가장 중요한 건 main.mjs behavior-preservation — 정밀 대조함):
+- **`job-runner.mjs` = 깔끔한 DI seam**: load→running→process→실패시 failed(finished_at/error_message)+JOB_FAILED, 모든 I/O 주입. worker 로직(processImportPdfJob/processEmbeddingJob)은 **러너 밖에 유지**(주입) — 상태기계만 추상화, worker 행동을 숨기지 않음.
+- **main.mjs 재배선 behavior-preserving 확인 (OLD/NEW 대조)**: `tryStartExtractionJob`/`tryStartEmbeddingJob` 둘 다 — inFlight 가드(단일실행) 보존, started_at/running·finished_at/failed 보존, JOB_FAILED payload 동일, 성공 경로 terminal 불변. 차이는 ① 러너의 `job.id` 체크 추가(무해, DB job은 항상 id 보유) ② 쿼리 에러가 console.warn 로깅(기존 silent swallow → 무해한 개선)뿐. **두 러너가 동일 실패 로직 공유 → 테스트가 실제 production 경로를 덮음.**
+- **단위테스트**: running→failed 전이 + 정확한 timestamp/payload 정밀 검증.
+- **통합테스트**: 실 공유 러너 + 실DB로 큐 embedding job 실패 → `failed` 영속 + 실패 이벤트 + **paper/chunk row 무손상**. resilience 계약(실패가 손상 안 시킴 + 기록됨) 검증.
+- **직접 실행**: `npm run test` **10/49 pass, 0 fail** ✓. safety `test:integration` **1 suite/1 pass/4 skip** ✓. `node --check` job-runner/main OK ✓. (disposable 1 suite/5 tests/0 skip은 Codex 확인. RED→GREEN 정상.)
+
+**3 questions:**
+1. **공유 러너 추출이 받아들일 만한 seam인가 / worker 행동을 너무 숨기나?** → ✅ **받아들일 만함, 숨기지 않음.** 러너는 **기존에 두 함수에 중복돼 있던 상태전이만** 소유하고 worker는 주입. behavior-preserving 검증 완료. **단, 이건 test-foundation의 첫 production 변경**임을 명시 — "테스트 가능하게 만드는 정당한 seam"이지만, "testability" 명목으로 광범위 리팩토링으로 드리프트하지 않도록 경계. (이 변경은 minimal + 검증됨이라 OK.)
+2. **queued generate_embeddings 실패 테스트가 "최소 import/worker 실패 경로"로 충분?** → ✅ **충분.** 핵심 resilience 계약 검증. (gap 노트, blocker 아님: 이건 단일 job 실패만 — import→extraction→embedding **job 체인/순서**[로드맵이 fragile로 지목]는 미커버. "one minimal path"엔 충분, 체인은 후속.)
+3. **1C 닫고 Phase 2로 vs 한 개 더?** → **1C 닫고 Phase 2(RAG/table eval) 권장.** abort+per-paper error+worker failure로 error-path 안전망이 두 파이프라인(table/job)에 깔림. 더 추가는 diminishing returns. Phase 2가 다른 critical gap(품질 측정 부재)을 다룸. **단 known gap 기록 권장**: ① golden-path happy 경로는 여전히 **직접 row seeding**(실제 import/extraction 미실행) ② job 체인/순서 미커버. "import 파이프라인 테스트됨"을 overclaim하지 않도록.
+
+**verdict: GO, 5/5.** Phase 1C 종료 권장 → Phase 2. start 신호는 사용자.

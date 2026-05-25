@@ -3698,3 +3698,64 @@ Please review only blockers/P1/P2 and go/stop:
 1. Is this per-paper non-abort error fallback tracer sufficient to close the cheap `single_call_fallback` branch for Phase 1C?
 2. Are the metadata assertions (`extractionMode`, `partialFailures`, `agenticRecovery.skippedReason`) the right contract surface, or are we over/under-asserting?
 3. Do you agree the next Phase 1C slice should now move to one minimal import/embedding worker failure path rather than adding more table fallback variants?
+
+## 2026-05-25 - Codex - Phase 1C Minimal Worker Failure Review
+
+Status: REVIEW REQUEST
+
+Related files:
+
+- `apps/desktop/electron/processing/job-runner.mjs`
+- `apps/desktop/electron/main.mjs`
+- `apps/desktop/tests/processing-job-runner.test.mjs`
+- `apps/desktop/tests/integration/golden-path.test.mjs`
+- `docs/features/fix/13-test-foundation-phase1a.md`
+- `AGENTS.md`
+
+Message:
+
+Accepted your Phase 1C per-paper error fallback review:
+
+- GO with no blockers/P1/P2.
+- The `single_call_fallback` branch is sufficiently covered.
+- The metadata assertions are the right contract surface.
+- Next direction should be one minimal import/embedding worker failure path.
+
+Implemented the minimal worker failure tracer:
+
+- Added `electron/processing/job-runner.mjs` to own the shared queued-job state transition:
+  - load one queued job;
+  - mark it `running`;
+  - call the provided worker;
+  - on worker failure, mark the job `failed`;
+  - write `finished_at` and `error_message`;
+  - emit a `JOB_FAILED` payload.
+- Updated both `tryStartExtractionJob()` and `tryStartEmbeddingJob()` in `main.mjs` to use the shared runner, so the tested seam and production worker path share the same failure behavior.
+- Added a default Node test for the shared runner's failure transition.
+- Added a disposable Supabase integration test that:
+  - seeds the existing golden-path paper/chunk fixture;
+  - inserts one queued `generate_embeddings` job;
+  - runs the shared runner with a deterministic throwing worker;
+  - asserts the job is persisted as `failed`;
+  - asserts the failure event payload;
+  - asserts the paper and chunk rows remain readable afterward.
+
+Verification:
+
+- RED: `node --test tests\integration\*.test.mjs` failed on missing `electron/processing/job-runner.mjs`.
+- `node --check electron\processing\job-runner.mjs` passes.
+- `node --check electron\main.mjs` passes.
+- `node --check tests\integration\golden-path.test.mjs` passes.
+- `node --check tests\processing-job-runner.test.mjs` passes.
+- `node --test tests\processing-job-runner.test.mjs tests\integration\*.test.mjs` passes with approved escalation; current safety-mode result is 2 suites / 6 tests / 4 expected skipped DB tests.
+- `cmd /c npm run test:integration:supabase` passes against the disposable target: 1 suite / 5 tests / 0 skipped.
+- `cmd /c npm run test` passes: 10 suites / 49 tests.
+- `cmd /c npm run build` passes.
+
+Requested response:
+
+Please review only blockers/P1/P2 and go/stop:
+
+1. Is extracting the shared queued-job failure transition into `processing/job-runner.mjs` an acceptable test seam, or does it hide too much of the import/embedding worker behavior?
+2. Is the queued `generate_embeddings` failure test sufficient as the "one minimal import/embedding worker failure path" for Phase 1C?
+3. If this is GO, should Phase 1C close here and move to Phase 2 RAG/table eval schema, or do you want one more import/extraction-specific failure tracer first?

@@ -235,3 +235,34 @@ Current verification:
 - `npm run test:integration:supabase` passes against the disposable target with 1 suite / 4 tests / 0 skipped;
 - default `npm run test` passes with 9 suites / 48 tests;
 - `npm run build` passes.
+
+## Phase 1C Minimal Worker Failure Update
+
+Date: 2026-05-25
+
+The third Phase 1C slice covers one minimal worker failure path without launching Electron or calling real external services.
+
+New behavior covered:
+
+- a queued `generate_embeddings` job can be picked up through the shared processing job runner;
+- if the worker function throws, the job is marked `failed`;
+- `started_at`, `finished_at`, and `error_message` are written;
+- a `JOB_FAILED` payload is emitted with `jobId`, `paperId`, and the error message;
+- the existing paper and extracted chunk rows remain readable after the failed worker attempt.
+
+Implementation shape:
+
+- `apps/desktop/electron/processing/job-runner.mjs` owns the shared queued-job state transition for worker pickup, failure marking, and failure event emission;
+- `tryStartExtractionJob()` and `tryStartEmbeddingJob()` in `main.mjs` both use the shared runner, so the test seam and runtime worker path use the same failure code;
+- the disposable Supabase integration test seeds the existing golden-path paper, inserts one queued `generate_embeddings` job, runs the shared runner with a deterministic throwing worker, and asserts the persisted failure contract.
+
+Current verification:
+
+- RED: `node --test tests\integration\*.test.mjs` failed on missing `electron/processing/job-runner.mjs`;
+- `node --check electron\processing\job-runner.mjs` passes;
+- `node --check electron\main.mjs` passes;
+- `node --check tests\integration\golden-path.test.mjs` passes;
+- `node --test tests\processing-job-runner.test.mjs tests\integration\*.test.mjs` passes in safety mode with 2 suites / 6 tests / 4 expected skipped DB tests;
+- `npm run test:integration:supabase` passes against the disposable target with 1 suite / 5 tests / 0 skipped;
+- default `npm run test` passes with 10 suites / 49 tests;
+- `npm run build` passes.
