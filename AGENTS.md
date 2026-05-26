@@ -154,6 +154,26 @@ Read this file before starting work. Update it when you finish.
 - Phase 1C minimal worker failure tracer is implemented: `apps/desktop/electron/processing/job-runner.mjs` now owns the shared queued-job running/failed transition used by extraction and embedding workers, and the disposable Supabase integration verifies a failed queued `generate_embeddings` worker records `failed` status, `error_message`, a `JOB_FAILED` payload, and leaves the existing paper/chunk rows readable.
 - D36 closes Phase 1C after Claude accepted the minimal worker failure tracer; Phase 2A is now drafted as a docs/schema slice for deterministic RAG/table evals with v0 case fields, initial retrieval/table metrics, and an explicit caveat that the golden-path fixture is still row-seeded rather than a real import/extraction chain.
 - Phase 2B runnable eval tracer is implemented: `apps/desktop/tests/fixtures/evals/golden-path-v0.json` defines one `rag_retrieval` case and one `table_generation` case, `tests/integration/support/eval-runner.mjs` loads/evaluates/runs the cases through real local Supabase RAG/table paths, the weak `cellExactMatchMin` gate is replaced with `cellExactMatch: "all_asserted"`, and D37 records the runner-first eval decision.
+- Entity Graph integration is implemented: `entity-extractor.mjs` extracts paper/query entities, `graph-search.mjs` fuses QA base RAG with graph chunks while preserving abort signals, the `extract_entities` processing job lane runs after embeddings through the shared job runner, `entity:*` IPC/model/backfill controls are exposed through preload/frontend Settings, and the migration replay creates `entities`, `entity_relations`, entity model preferences, and graph RPCs without mutating the normal dev DB.
+- Claude's conditional Entity Graph P1/P2 review follow-up is applied: entity extraction now sends structured Ollama JSON schemas for paper/query extraction, prompts and normalizers accept canonical relation fields such as `source_canonical` / `target_canonical`, unit coverage locks relation fallback persistence, and disposable Supabase integration seeds entity rows/relations, exercises `graph_traverse_1hop`, and verifies QA graph RAG returns the graph evidence chunk.
+
+### Verified 2026-05-26
+- `apps/desktop`: Entity Graph focused RED was observed with approved escalation: `node --test tests\graph-search.test.mjs tests\desktop-placeholder.test.mjs` failed first on missing `electron\graph-search.mjs` and missing shared `ENTITY_*` channels.
+- `apps/desktop`: Entity Graph follow-up RED was observed with approved escalation: `node --test tests\entity-extractor.test.mjs` failed first because `persistEntities` dropped `source_canonical` / `target_canonical` relations (`relationCount` was 0).
+- `apps/desktop/electron/entity-extractor.mjs`: `node --check` passes after adding the entity extraction module.
+- `apps/desktop/electron/graph-search.mjs`: `node --check` passes after adding graph-enhanced QA RAG.
+- `apps/desktop/electron/main.mjs`: `node --check` passes after adding the entity job lane, entity IPC handlers, and QA graph-RAG wiring.
+- `apps/desktop/electron/preload.mjs`: `node --check` passes after exposing the `entity` desktop bridge namespace.
+- `apps/desktop/tests/entity-extractor.test.mjs`: `node --check` passes after adding canonical relation fallback coverage.
+- `apps/desktop/tests/integration/golden-path.test.mjs`: `node --check` passes after adding the entity graph disposable Supabase traversal assertion.
+- `apps/desktop`: `cmd /c node --test tests\graph-search.test.mjs tests\desktop-placeholder.test.mjs` passes with approved escalation; current focused result is 2 suites, 6 tests.
+- `apps/desktop`: `cmd /c node --test tests\entity-extractor.test.mjs` passes with approved escalation; current focused result is 1 suite, 1 test.
+- `apps/desktop`: `cmd /c node --test tests\integration\golden-path.test.mjs` passes with approved escalation in safety mode; current result is 1 suite, 1 passed test and 6 expected skipped DB tests.
+- `frontend`: `cmd /c npm run build` passes after the typed entity API, query hooks, Settings card, and chat `graphing` status stage.
+- `apps/desktop`: `cmd /c npm run test` passes after Entity Graph integration and Claude P1/P2 follow-up; current desktop default result is 13 suites, 57 tests.
+- `apps/desktop`: `cmd /c npm run build` passes after Entity Graph integration and Claude P1/P2 follow-up.
+- `apps/desktop`: `cmd /c npm run test:integration:supabase` passes after Entity Graph integration and Claude P1/P2 follow-up; current disposable real DB result is 1 suite, 7 tests, and the migration replay includes `20260423010000_add_entity_graph.sql`.
+- `git diff --check` passes after Entity Graph integration and Claude P1/P2 follow-up with LF-to-CRLF warnings only on existing mixed-line-ending files.
 
 ### Verified 2026-05-25
 - `apps/desktop`: Phase 1C minimal worker failure RED was observed with approved escalation: `node --test tests\integration\*.test.mjs` failed on missing `electron/processing/job-runner.mjs`.
@@ -429,6 +449,7 @@ Read this file before starting work. Update it when you finish.
 - `docs/harness/decisions/0007-rag-table-eval-strategy.md`
 - `docs/harness/evals/README.md`
 - `docs/harness/evals/rag-table-eval-schema.md`
+- `docs/features/new/11-entity-graph-merge-into-plan12.md`
 - `docs/features/proposals/2026-05-07-architecture-debuggability-review-v2.md`
 - `docs/presentation_assets/redou-agent/redou-ontology-future-slide.html`
 - `docs/features/new/10-supplementary-files.md`
@@ -455,6 +476,7 @@ Read this file before starting work. Update it when you finish.
 - `frontend/src/app/RightInspector.tsx`
 - `frontend/src/features/auth/AuthView.tsx`
 - `frontend/src/features/chat/ChatPipelineStatus.tsx`
+- `frontend/src/features/settings/SettingsView.tsx`
 - `frontend/src/features/notes/NotesView.tsx`
 - `frontend/src/features/paper/PaperDetailView.tsx`
 - `frontend/src/features/paper/paperDetail/`
@@ -466,6 +488,7 @@ Read this file before starting work. Update it when you finish.
 - `frontend/src/features/import/ImportPdfDialog.tsx`
 - `frontend/src/lib/auth.ts`
 - `frontend/src/lib/desktop.ts`
+- `frontend/src/lib/chatQueries.ts`
 - `frontend/src/lib/locale.ts`
 - `frontend/src/lib/queries.ts`
 - `frontend/src/stores/uiStore.ts`
@@ -484,6 +507,8 @@ Read this file before starting work. Update it when you finish.
 ### Desktop Shell
 - `apps/desktop/package.json`
 - `apps/desktop/electron/main.mjs`
+- `apps/desktop/electron/entity-extractor.mjs`
+- `apps/desktop/electron/graph-search.mjs`
 - `apps/desktop/electron/chat/abort-guards.mjs`
 - `apps/desktop/electron/chat/agentic-null-recovery.mjs`
 - `apps/desktop/electron/chat/extraction-utils.mjs`
@@ -500,6 +525,7 @@ Read this file before starting work. Update it when you finish.
 - `apps/desktop/tests/desktop-placeholder.test.mjs`
 - `apps/desktop/tests/eval-runner.test.mjs`
 - `apps/desktop/tests/extraction-utils.test.mjs`
+- `apps/desktop/tests/graph-search.test.mjs`
 - `apps/desktop/tests/fixtures/evals/golden-path-v0.json`
 - `apps/desktop/tests/integration/golden-path.test.mjs`
 - `apps/desktop/tests/integration/support/deterministic-services.mjs`
@@ -515,17 +541,19 @@ Read this file before starting work. Update it when you finish.
 ### Supabase
 - `supabase/config.toml`
 - `supabase/migrations/20260309050635_initial_schema.sql`
+- `supabase/migrations/20260423010000_add_entity_graph.sql`
 - `supabase/seed.sql`
 
 ---
 
 ## 6. Recommended Next Work
 
-1. After Claude reviews the Phase 2B runnable eval tracer, decide whether the next eval slice should improve reporting/failure diagnostics, add a second tiny fixture, or pause Phase 2 until a broader eval corpus is planned.
-2. Improve the extraction worker from heuristic PDF text parsing into layout-aware and OCR-backed section, chunk, and figure extraction.
-3. Decide whether to retire `apps/desktop/src` or fully replace it with the `frontend` renderer.
-4. Walk through import, extraction, and reader flows inside the launched Electron window, or add automation for those runtime checks.
-5. Add preset CRUD plus existing-note reassignment if highlight management needs to go beyond the current reader-local controls.
+1. Wait for Claude's follow-up Entity Graph blocker/P1/P2 review after the canonical relation fallback, structured extraction schema, and disposable graph E2E verification.
+2. Keep Phase 2 eval harness paused unless a broader real-model corpus is explicitly chosen; Claude accepted the runner-first Phase 2B tracer and recommended pausing rather than adding low-value reporting polish or another tiny fixture.
+3. Improve the extraction worker from heuristic PDF text parsing into layout-aware and OCR-backed section, chunk, and figure extraction.
+4. Decide whether to retire `apps/desktop/src` or fully replace it with the `frontend` renderer.
+5. Walk through import, extraction, and reader flows inside the launched Electron window, or add automation for those runtime checks.
+6. Add preset CRUD plus existing-note reassignment if highlight management needs to go beyond the current reader-local controls.
 
 ---
 ## 7. Active Work
@@ -534,6 +562,8 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Status | Date | Agent | Scope | Files | Out of Scope | Dependency |
 |--------|------|-------|-------|-------|--------------|------------|
+| DONE | 2026-05-26 | Codex | Entity Graph Claude P1/P2 follow-up verification | `apps/desktop/electron/entity-extractor.mjs`, `apps/desktop/tests/entity-extractor.test.mjs`, `apps/desktop/tests/integration/golden-path.test.mjs`, `docs/features/new/11-entity-graph-merge-into-plan12.md`, `docs/agents/codex-claude/codex-to-claude.md`, `AGENTS.md` | Normal dev DB mutation, real Ollama/model-quality evaluation, table-pipeline graph integration, new UI surfaces | Claude conditional GO on Entity Graph integration with required entity extraction E2E and relation robustness follow-up |
+| DONE | 2026-05-26 | Codex | Entity Graph integration into current RAG/job architecture | `apps/desktop/electron/entity-extractor.mjs`, `apps/desktop/electron/graph-search.mjs`, `apps/desktop/electron/main.mjs`, `apps/desktop/electron/preload.mjs`, `apps/desktop/electron/types/ipc-channels.mjs`, `apps/desktop/tests/*`, `supabase/migrations/20260423010000_add_entity_graph.sql`, `frontend/src/types/desktop.ts`, `frontend/src/lib/chatQueries.ts`, `frontend/src/features/settings/SettingsView.tsx`, `frontend/src/features/chat/ChatPipelineStatus.tsx`, `docs/features/new/11-entity-graph-merge-into-plan12.md`, `docs/agents/codex-claude/*`, `AGENTS.md` | Applying migrations to the normal dev DB without explicit request, table-pipeline graph integration, real model-quality evaluation, broad RAG corpus work, unrelated UI refactors | User approval after Claude Phase 2B GO and entity-graph plan 11 refresh guidance |
 | DONE | 2026-05-25 | Codex | Phase 2B runnable RAG/table eval case tracer | `apps/desktop/tests/fixtures/evals/golden-path-v0.json`, `apps/desktop/tests/integration/support/eval-runner.mjs`, `apps/desktop/tests/eval-runner.test.mjs`, `apps/desktop/tests/integration/golden-path.test.mjs`, `docs/harness/evals/README.md`, `docs/harness/evals/rag-table-eval-schema.md`, `docs/features/fix/14-rag-table-eval-phase2.md`, `docs/agents/codex-claude/decisions.md`, `docs/agents/codex-claude/codex-to-claude.md`, `AGENTS.md` | Formal JSON schema validator, real model quality scoring, broad eval corpus, browser UI/Electron app launch, normal dev DB mutation/reset, real import/extraction-chain validation | Claude Phase 2A review GO with P2 cell gate strengthening and recommendation to start Phase 2B with a runnable disposable-Supabase eval case |
 | DONE | 2026-05-25 | Codex | Phase 1C closure and Phase 2A RAG/table eval schema plan | `docs/features/fix/14-rag-table-eval-phase2.md`, `docs/harness/evals/README.md`, `docs/harness/evals/rag-table-eval-schema.md`, `docs/harness/decisions/0007-rag-table-eval-strategy.md`, `docs/agents/codex-claude/decisions.md`, `docs/agents/codex-claude/codex-to-claude.md`, `AGENTS.md` | Runtime evaluator implementation, new production code, real external services, browser UI/Electron app launch, normal dev DB mutation/reset | Claude Phase 1C minimal worker failure review GO and recommendation to close Phase 1C before Phase 2 |
 | DONE | 2026-05-25 | Codex | Phase 1C minimal worker failure integration tracer | `apps/desktop/electron/processing/job-runner.mjs`, `apps/desktop/electron/main.mjs`, `apps/desktop/tests/processing-job-runner.test.mjs`, `apps/desktop/tests/integration/golden-path.test.mjs`, `docs/features/fix/13-test-foundation-phase1a.md`, `docs/agents/codex-claude/codex-to-claude.md`, `AGENTS.md` | Real external service calls, browser UI/Electron app launch, normal dev DB mutation/reset, broad import worker coverage, table fallback variants | Claude Phase 1C per-paper error fallback review GO and recommendation to move to one minimal import/embedding worker failure path |
@@ -631,6 +661,8 @@ Add `IN PROGRESS` here before editing files. Move finished work into the log bel
 
 | Date | Agent | Work | Files |
 |------|-------|------|-------|
+| 2026-05-26 | Codex | Addressed Claude's conditional Entity Graph P1/P2 review: added structured Ollama JSON schemas for paper/query entity extraction, strengthened relation prompting and normalization to accept `source_canonical` / `target_canonical` and related fallback fields, added RED/green unit coverage for canonical relation persistence, added a disposable Supabase graph E2E assertion that seeds entities and relations, calls `graph_traverse_1hop`, and verifies QA graph RAG returns the graph chunk, then sent Claude a follow-up blocker/P1/P2 review request; verified syntax checks, focused tests, safety-mode integration, disposable Supabase integration, desktop tests, desktop build, diff hygiene, and trailing whitespace | `apps/desktop/electron/entity-extractor.mjs`, `apps/desktop/tests/entity-extractor.test.mjs`, `apps/desktop/tests/integration/golden-path.test.mjs`, `docs/features/new/11-entity-graph-merge-into-plan12.md`, `docs/agents/codex-claude/codex-to-claude.md`, `AGENTS.md` |
+| 2026-05-26 | Codex | Implemented Entity Graph integration against the current RAG/job architecture: added paper/query entity extraction, graph-enhanced QA RAG with abort propagation into the base RAG path, the `extract_entities` job lane after embeddings, entity model/backfill IPC and preload exposure, frontend desktop types/query hooks/Settings controls, a `graphing` chat status stage, the entity graph migration, focused graph tests, and a Claude blocker/P1/P2 review request; verified RED, syntax checks, focused tests, frontend build, desktop tests, desktop build, disposable Supabase migration replay/integration, and diff hygiene | `apps/desktop/electron/entity-extractor.mjs`, `apps/desktop/electron/graph-search.mjs`, `apps/desktop/electron/main.mjs`, `apps/desktop/electron/preload.mjs`, `apps/desktop/electron/types/ipc-channels.mjs`, `apps/desktop/tests/graph-search.test.mjs`, `apps/desktop/tests/desktop-placeholder.test.mjs`, `supabase/migrations/20260423010000_add_entity_graph.sql`, `frontend/src/types/desktop.ts`, `frontend/src/lib/chatQueries.ts`, `frontend/src/features/settings/SettingsView.tsx`, `frontend/src/features/chat/ChatPipelineStatus.tsx`, `docs/features/new/11-entity-graph-merge-into-plan12.md`, `docs/agents/codex-claude/codex-to-claude.md`, `AGENTS.md` |
 | 2026-05-25 | Codex | Implemented the Phase 2B runnable RAG/table eval tracer: replaced the weak `cellExactMatchMin` draft gate with `cellExactMatch: "all_asserted"`, added the v0 golden-path eval JSON with one RAG retrieval case and one table generation case, added an eval runner that shape-checks, scores, and executes the cases through real local Supabase RAG/table paths, added default Node coverage for the runner, added a disposable Supabase integration assertion, recorded D37, and sent Claude a blocker/P1/P2 review request; verified RED, syntax checks, focused tests, safety-mode integration, disposable Supabase integration, desktop tests, desktop build, diff hygiene, and trailing whitespace | `apps/desktop/tests/fixtures/evals/golden-path-v0.json`, `apps/desktop/tests/integration/support/eval-runner.mjs`, `apps/desktop/tests/eval-runner.test.mjs`, `apps/desktop/tests/integration/golden-path.test.mjs`, `docs/harness/evals/README.md`, `docs/harness/evals/rag-table-eval-schema.md`, `docs/features/fix/14-rag-table-eval-phase2.md`, `docs/agents/codex-claude/decisions.md`, `docs/agents/codex-claude/codex-to-claude.md`, `AGENTS.md` |
 | 2026-05-25 | Codex | Closed Phase 1C after Claude accepted the minimal worker failure tracer, recorded D36, and drafted Phase 2A RAG/table eval schema docs: defined the v0 eval case envelope, initial RAG retrieval and table generation metrics, first tiny golden-path eval set, known row-seeding caveat, ADR 0007, and Claude blocker/P1/P2 review request before runtime evaluator implementation | `docs/features/fix/14-rag-table-eval-phase2.md`, `docs/harness/evals/README.md`, `docs/harness/evals/rag-table-eval-schema.md`, `docs/harness/decisions/0007-rag-table-eval-strategy.md`, `docs/agents/codex-claude/decisions.md`, `docs/agents/codex-claude/codex-to-claude.md`, `AGENTS.md` |
 | 2026-05-25 | Codex | Implemented the Phase 1C minimal worker failure tracer: extracted shared queued-job running/failed transition handling into `processing/job-runner.mjs`, wired both extraction and embedding worker polling through it, added default Node coverage for failure status/event behavior, added a disposable Supabase integration assertion that a queued `generate_embeddings` worker failure persists `failed` status and leaves paper/chunk data readable, and sent Claude a blocker/P1/P2 review request; verified RED, syntax checks, focused safety-mode tests, disposable Supabase integration, desktop tests, and desktop build | `apps/desktop/electron/processing/job-runner.mjs`, `apps/desktop/electron/main.mjs`, `apps/desktop/tests/processing-job-runner.test.mjs`, `apps/desktop/tests/integration/golden-path.test.mjs`, `docs/features/fix/13-test-foundation-phase1a.md`, `docs/agents/codex-claude/codex-to-claude.md`, `AGENTS.md` |

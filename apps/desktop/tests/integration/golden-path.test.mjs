@@ -5,6 +5,11 @@ import { createClient } from "@supabase/supabase-js";
 import { runQueuedProcessingJob } from "../../electron/processing/job-runner.mjs";
 import { runTableConversationPipeline } from "../../electron/chat/table-pipeline.mjs";
 import { createMultiQueryRag } from "../../electron/rag/multi-query-rag.mjs";
+import { runGraphEnhancedRag } from "../../electron/graph-search.mjs";
+import {
+  buildChunkIndexForPaper,
+  persistEntities,
+} from "../../electron/entity-extractor.mjs";
 import {
   createIntegrationTestTarget,
   getIntegrationTargetSkipReason,
@@ -424,17 +429,139 @@ describe("golden-path integration", () => {
     }
   };
 
+  const persistEntityGraphAndTraverse = async () => {
+    const target = createIntegrationTestTarget(process.env);
+    const fixture = await loadGoldenPathFixture();
+    const services = await createGoldenPathServices(fixture);
+    const supabase = createClient(target.supabaseUrl, target.serviceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+
+    await target.assertSchemaProvenance(supabase);
+    await target.cleanupGoldenPathRows(supabase, fixture.ids.ownerId);
+    await target.seedGoldenPathRows(supabase, fixture, services);
+
+    try {
+      const chunkIndex = await buildChunkIndexForPaper(fixture.ids.paperId, supabase);
+      const result = await persistEntities(
+        fixture.ids.paperId,
+        chunkIndex,
+        {
+          entities: [
+            {
+              raw_name: "Amine functionalized adsorbent",
+              canonical_name: "amine functionalized adsorbent",
+              entity_type: "substance",
+              confidence: "high",
+              confidence_tag: "EXTRACTED",
+              chunk_order: fixture.extraction.chunk.chunkOrder,
+            },
+            {
+              raw_name: "CO2 uptake capacity",
+              canonical_name: "co2 uptake capacity",
+              entity_type: "metric",
+              value: "4.2",
+              unit: "mmol/g",
+              confidence: "high",
+              confidence_tag: "EXTRACTED",
+              chunk_order: fixture.extraction.chunk.chunkOrder,
+            },
+          ],
+          relations: [
+            {
+              source_canonical: "amine functionalized adsorbent",
+              target_canonical: "co2 uptake capacity",
+              relation_type: "affects",
+              direction: "positive",
+              confidence: "high",
+              confidence_tag: "EXTRACTED",
+              chunk_order: fixture.extraction.chunk.chunkOrder,
+            },
+          ],
+        },
+        supabase,
+        services.generateEmbedding,
+      );
+
+      assert.deepEqual(result, { entityCount: 2, relationCount: 1 });
+
+      const { data: entities, error: entityError } = await supabase
+        .from("entities")
+        .select("id, canonical_name, chunk_id")
+        .eq("paper_id", fixture.ids.paperId)
+        .order("canonical_name", { ascending: true });
+      assert.equal(entityError, null);
+      assert.deepEqual(entities?.map((entity) => entity.canonical_name), [
+        "amine functionalized adsorbent",
+        "co2 uptake capacity",
+      ]);
+      assert.ok(entities?.every((entity) => entity.chunk_id === fixture.ids.chunkId));
+
+      const metricEntityId = entities?.find((entity) => entity.canonical_name === "co2 uptake capacity")?.id;
+      assert.ok(metricEntityId);
+
+      const { data: relations, error: relationError } = await supabase
+        .from("entity_relations")
+        .select("relation_type, direction, evidence_chunk_id")
+        .eq("source_paper_id", fixture.ids.paperId);
+      assert.equal(relationError, null);
+      assert.deepEqual(relations, [
+        {
+          relation_type: "affects",
+          direction: "positive",
+          evidence_chunk_id: fixture.ids.chunkId,
+        },
+      ]);
+
+      const { data: graphRows, error: graphError } = await supabase.rpc("graph_traverse_1hop", {
+        seed_entity_ids: [metricEntityId],
+        max_results: 10,
+      });
+      assert.equal(graphError, null);
+      assert.ok(graphRows?.some((row) => row.chunk_id === fixture.ids.chunkId));
+
+      const graphResults = await runGraphEnhancedRag(
+        [{ query: "CO2 uptake capacity", intent: "qa" }],
+        [],
+        [fixture.ids.paperId],
+        "qa",
+        supabase,
+        {
+          generateEmbedding: services.generateEmbedding,
+          runMultiQueryRag: async () => ({ chunks: [], figures: [] }),
+          modelName: "fake-model",
+          extractQueryEntitiesFn: async () => [{
+            name: "CO2 uptake capacity",
+            canonical_name: "co2 uptake capacity",
+            type: "metric",
+            confidence: "high",
+          }],
+        },
+      );
+
+      assert.equal(graphResults.graph.graphChunkCount, 1);
+      assert.deepEqual(graphResults.chunks.map((chunk) => chunk.chunk_id), [fixture.ids.chunkId]);
+    } finally {
+      await target.cleanupGoldenPathRows(supabase, fixture.ids.ownerId);
+    }
+  };
+
   if (skipReason) {
     it("persists the core paper-to-table spine through real Supabase RPCs", { skip: skipReason }, () => {});
     it("aborts per-paper extraction without persisting chat output", { skip: skipReason }, () => {});
     it("runs the golden-path RAG/table eval cases", { skip: skipReason }, () => {});
     it("falls back to single-call table generation after a per-paper extraction error", { skip: skipReason }, () => {});
     it("marks a failed embedding worker job without damaging paper data", { skip: skipReason }, () => {});
+    it("persists entity graph rows and traverses graph evidence", { skip: skipReason }, () => {});
   } else {
     it("persists the core paper-to-table spine through real Supabase RPCs", persistCoreGoldenPath);
     it("aborts per-paper extraction without persisting chat output", abortPerPaperExtractionWithoutPersistence);
     it("runs the golden-path RAG/table eval cases", runGoldenPathEvalCases);
     it("falls back to single-call table generation after a per-paper extraction error", fallbackAfterPerPaperExtractionError);
     it("marks a failed embedding worker job without damaging paper data", failQueuedEmbeddingJobWithoutDamagingPaper);
+    it("persists entity graph rows and traverses graph evidence", persistEntityGraphAndTraverse);
   }
 });

@@ -8071,3 +8071,50 @@ Status: **GO. Blocker/P1/P2 없음.** P2(cell 게이트) 반영 확인. 5/5.
 **리뷰 게이트 (구현 결과 나오면 내가 확인할 것)**: 위 3 refinement + 환경 반영 + preload `getModel(args)` 시그니처 유지 + table graph 미적용 + **테스트 토대 그린(회귀 없음)**.
 
 start 신호는 사용자. 이 항목은 plan 갱신 가이드지 구현 지시 아님.
+
+## 2026-05-26 - Claude - Entity Graph Integration Review
+
+Status: **CONDITIONAL GO.** 안전 측면 GO(빌드/테스트/마이그레이션 통과, 기존 QA/table 무손상, abort 우수). **단 P1 1건(엔티티 추출 미검증) + P2 1건(추출 robustness). 블로킹 크래시는 없음(graceful degrade).** 4/5.
+
+검증 (코드 정독 + PR#1 대조):
+- **Q2 abort = 훌륭함 ✅.** `graph-search.mjs`가 abortSignal을 base RAG(166-167) + query 엔티티 추출(179) + 모든 그래프 단계(`throwIfChatAborted` 8곳)에 전파. **내 refinement #1 충족 + PR#1의 abort 누락을 오히려 수정.**
+- **공개 계약 보존 ✅.** entity-extractor/graph-search exports·시그니처 PR#1과 동일. build(desktop+frontend) + 56 tests + disposable replay(마이그레이션 포함) 통과. → 배선 정상, 크래시 없음.
+- **QA-only ✅** (table 파이프라인은 plain runMultiQueryRag 유지). **preload getModel(args) 유지 가정** (별도 확인 권장).
+
+**그러나 — 두 모듈 다 compact 재작성**(entity-extractor 411 vs 632, graph-search 201 vs 279). graph-search 재작성은 개선(abort). **entity-extractor 재작성에 실질 우려:**
+
+**🔴 P1 — 엔티티 추출이 end-to-end 미검증 (refinement #3 미이행).**
+- Codex 검증의 disposable 6 tests는 전부 golden-path/eval = **RAG/table이지 엔티티 아님.** `extractEntitiesFromPaper`/`persistEntities`/relation 추출/그래프 순회는 **behavioral 커버리지 0.**
+- 즉 "엔티티 그래프가 실제 논문에서 entities+relations를 채우고 graph_traverse가 chunk를 반환하는가"가 **전혀 검증 안 됨.** 배관만 깔리고 기능 동작은 미지수.
+- → 실논문 1편 스모크 필수: import → extract_entities job → `entities`/`entity_relations` 행 생성 확인 → graph QA가 graph chunk 반환 확인. **이게 없으면 "통합 완료"라 부를 수 없음.**
+
+**🟡 P2 — 추출 프롬프트가 PR#1보다 덜 견고 → relation 희소/공백 위험.**
+- `callOllamaJson`은 **structured output(`format` 스키마) 미사용** — 자유형식 "Return JSON only" + parseJsonObject. PR#1은 `format: ENTITY_EXTRACTION_SCHEMA`로 필드 강제.
+- 전체 추출 프롬프트(236-241)가 **relation 필드명을 명시 안 함.** `normalizeExtraction`은 `relation.source`/`source_name`만 읽음 → LLM이 `source_canonical`(엔티티가 canonical_name이라 자연스러운 선택) 반환 시 **모든 relation 조용히 드롭 → 빈 그래프** → wGraph=0 → plain RAG로 silent no-op.
+- → 권고: (a) PR#1처럼 structured `format` 스키마 복원, 또는 (b) 최소한 프롬프트에 relation 필드(`source`/`target`) 명시 + normalizeExtraction에 `source_canonical`/`target_canonical` fallback 추가.
+
+**🟡 부수 — canonicalize 분기.** Codex=Unicode(`\p{L}\p{N}.%+-`, NFKC, 슬래시 제거) vs PR#1=ASCII(슬래시 유지). 과학 엔티티엔 Codex가 나을 수 있으나(α/β/% 보존) "validated PR#1 그대로"는 아님. 내부 일관(추출·쿼리 동일 함수)이라 동작엔 무해 — 의식적 결정으로 기록만.
+
+**3 questions:**
+1. **compact reimpl 수용 가능 / PR#1 더 literal하게?** → 계약·안전은 수용 가능. **단 위 P1(미검증)·P2(robustness) 해소 전엔 "동작하는 기능"으로 신뢰 불가.** literal 복원까진 불필요하나, **structured format 복원 + 실논문 스모크**는 필요.
+2. **abort 계약 충분?** → ✅ **충분 이상.** base RAG + query 엔티티 + 전 단계 전파.
+3. **Settings UI 적절 / 숨길까?** → 구조는 적절하나, **기능이 미검증이라 지금 전면 노출 비권장.** 백필 버튼은 두되, 스모크로 추출 동작 확인 전엔 강조하지 말 것(빈 그래프 백필은 시간 낭비).
+
+**verdict: CONDITIONAL GO — 배관은 안전하게 착지 OK, 그러나 "entity graph 완료" 선언 금지.** 착지 전/직후 필수: ① 실논문 스모크(entities+relations+traverse 실제 채워지는지) ② relation 추출 robustness(structured format 또는 필드 명시). start 신호는 사용자.
+
+## 2026-05-26 - Claude - Entity Graph Conditional Follow-up Review (CONDITIONAL 해소)
+
+Status: **GO (clean). 이전 CONDITIONAL의 P1·P2 모두 해소됨. Blocker 없음.** 5/5 (follow-up 대응).
+
+검증 (코드 정독 + 테스트 직접 실행):
+- **P1 해소 ✅ — 엔티티 그래프 E2E 추가.** `golden-path.test.mjs`의 `persistEntityGraphAndTraverse`가 실 Supabase에서: persist 2 entities + 1 relation → `result {entityCount:2, relationCount:1}` → 실제 `entities`(canonical_name + chunk_id 링크)/`entity_relations`(type/direction/evidence_chunk_id) 행 검증 → 실 `graph_traverse_1hop` RPC → `runGraphEnhancedRag`가 graph evidence chunk 반환. **disposable에서 unskipped 실행**(test:integration:supabase 7 tests/0 skip). 그래프 mechanics가 이제 실증됨.
+- **P2 해소 ✅ — 3중 대응.** ① `callOllamaJson`에 `format` 복원(245/253) + relation 스키마 `source_canonical`/`target_canonical` required(72-75)로 LLM 강제. ② `normalizeExtraction`이 source/source_canonical/sourceCanonical/source_id/... **8개 변형 fallback**(215-226). ③ 프롬프트가 source_canonical 명시(341). ④ **회귀 테스트**(`entity-extractor.test.mjs`)가 `source_canonical` relation으로 **relationCount=1** 단언 — 드롭 시 0이 되어 fail. 내가 지목한 silent-drop 버그를 정확히 잠금.
+- **RED 확인**: Codex가 entity-extractor.test.mjs를 먼저 RED(source_canonical 드롭)로 띄운 뒤 green — 내 P2 우려가 실제 버그였음을 재현·수정.
+- **테스트 직접**: `npm run test` **57/0 fail**(13 suites), safety `test:integration` 1 pass/6 skip. ✓
+
+**3 questions:**
+1. **P1 E2E 충분 / job-lane·import-triggered 변종 필요?** → ✅ **충분.** core path(persist→rows→traverse→graph-RAG)를 실 Supabase로 커버. job-lane(embedding 후 자동 extract_entities 큐잉 E2E)은 **더 큰 scope**(import/worker harness 필요 — 현 알려진 공백)라 future optional이지 이 통합 완료엔 불필요. (honest note: 실 LLM 추출 자체는 비결정적이라 E2E 불가 — testable한 persist/normalize/traverse는 다 커버됨.)
+2. **format + fallback이 PR#1 literal 없이 P2 닫기 충분?** → ✅ **충분 이상.** format(강제)+fallback(수용)+prompt(명시)+test(잠금) 4중. literal 복원 불필요.
+3. **다음 = pause + 제품/런타임 복귀 vs 추가 hardening?** → **pause + broader priorities 권장.** 통합이 안전+검증+회귀잠금 완료. 추가 entity hardening(job-lane E2E, real-model 그래프 품질)은 실사용/데이터 전엔 diminishing. 더 가치 있는 건 **import/worker 커버 공백**(겸사 job-lane E2E 가능) 또는 **제품 기능(로드맵 Phase 4)**. (future must-do, hardening 아님: 실모델이 실논문에서 유용한 그래프를 내는지는 Phase 2 real-corpus 품질측정 영역.)
+
+**verdict: GO, 5/5. CONDITIONAL 해소 → entity-graph 통합 착지 OK.** 사용자 결정("P1+P2 해소 후 커밋")대로 이제 전체 커밋. start-다음 신호는 사용자.

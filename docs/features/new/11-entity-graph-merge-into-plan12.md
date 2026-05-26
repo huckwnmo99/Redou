@@ -263,3 +263,56 @@ docker exec supabase_db_Supabase_Redou psql -U postgres -c "SELECT proname FROM 
 - `docs/harness/detail/electron/rag-pipeline.md`: graph-search 로직 문서화
 - `docs/harness/detail/database/schema.md` + `rpc.md`: `entities`/`entity_relations` 테이블 + 4개 RPC 추가
 - PR #1의 harness 문서를 통째로 덮어쓰지 않고, codex 현재 문서에 엔티티 항목만 병합한다.
+## Implementation Update - 2026-05-26
+
+Status: implemented and awaiting Claude blocker/P1/P2 review.
+
+What landed:
+
+- Added `apps/desktop/electron/entity-extractor.mjs`, `apps/desktop/electron/graph-search.mjs`, and `supabase/migrations/20260423010000_add_entity_graph.sql`.
+- Added `extract_entities` as a separate processing job lane after embeddings, using the existing `processing/job-runner.mjs` transition path.
+- Kept graph RAG scoped to the QA branch only. Table generation continues to receive the normal `runMultiQueryRag` dependency.
+- Preserved abort propagation by passing the active `AbortSignal` from QA into `runGraphEnhancedRag`, then into the base RAG call and query-entity extraction.
+- Added `entity:*` IPC channels, preload exposure, typed frontend API, React Query hooks, Settings model/backfill controls, and a `graphing` chat status stage.
+- The normal dev DB was not mutated. The migration was replayed through the disposable Supabase integration target.
+
+Verification:
+
+- RED: `cmd /c node --test tests\graph-search.test.mjs tests\desktop-placeholder.test.mjs` failed first on missing `graph-search.mjs` and missing `ENTITY_*` channels.
+- `node --check` passes for `apps/desktop/electron/main.mjs`, `preload.mjs`, `graph-search.mjs`, and `entity-extractor.mjs`.
+- Focused desktop tests pass: `cmd /c node --test tests\graph-search.test.mjs tests\desktop-placeholder.test.mjs`.
+- `frontend`: `cmd /c npm run build` passes.
+- `apps/desktop`: `cmd /c npm run test` passes: 12 suites, 56 tests.
+- `apps/desktop`: `cmd /c npm run build` passes.
+- `apps/desktop`: `cmd /c npm run test:integration:supabase` passes against the disposable Supabase target: 1 suite, 6 tests; migration stream includes `20260423010000_add_entity_graph.sql`.
+- `git diff --check` passes with LF-to-CRLF warnings only.
+
+## Claude Review Follow-up - 2026-05-26
+
+Status: implemented and awaiting Claude follow-up blocker/P1/P2 review.
+
+Claude's conditional GO called out two follow-ups:
+
+- P1: entity extraction had not been verified end-to-end through persisted entities, relations, graph traversal, and graph QA evidence.
+- P2: the compact extractor was less robust than PR #1 because it did not send a structured output schema to Ollama and did not accept `source_canonical` / `target_canonical` relation fields.
+
+What changed:
+
+- Added structured JSON schemas for paper entity extraction and query entity extraction, and pass them as Ollama `format` payloads.
+- Made the extraction prompt explicitly require relation endpoints that match entity `canonical_name`.
+- Strengthened relation normalization to accept `source`, `source_canonical`, `sourceCanonical`, `source_id`, `source_name`, `source_entity`, `sourceEntity`, `source_raw_name`, and the equivalent target variants.
+- Added unit coverage for `persistEntities` so canonical relation fields persist a real relation instead of silently dropping to `relationCount: 0`.
+- Added a disposable Supabase integration assertion that seeds the golden-path paper, persists two entities and one relation, reads the real `entities` / `entity_relations` tables, calls `graph_traverse_1hop`, and verifies `runGraphEnhancedRag` returns the graph evidence chunk.
+
+Verification:
+
+- RED: `cmd /c node --test tests\entity-extractor.test.mjs` failed first because a relation using `source_canonical` / `target_canonical` was dropped.
+- `node --check apps\desktop\electron\entity-extractor.mjs` passes.
+- `node --check apps\desktop\tests\entity-extractor.test.mjs` passes.
+- `node --check apps\desktop\tests\integration\golden-path.test.mjs` passes.
+- `cmd /c node --test tests\entity-extractor.test.mjs` passes: 1 suite, 1 test.
+- `cmd /c node --test tests\integration\golden-path.test.mjs` passes in safety mode: 1 suite, 1 passed test and 6 expected skipped DB tests.
+- `cmd /c npm run test:integration:supabase` passes against the disposable Supabase target: 1 suite, 7 tests; the new entity graph E2E test runs unskipped.
+- `cmd /c npm run test` passes in `apps/desktop`: 13 suites, 57 tests.
+- `cmd /c npm run build` passes in `apps/desktop`.
+- `git diff --check` passes with LF-to-CRLF warnings only.

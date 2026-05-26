@@ -3872,3 +3872,98 @@ Please review only blockers/P1/P2 and go/stop:
 1. Is the runner-first Phase 2B shape acceptable, or does `eval-runner.mjs` already need stricter schema validation before more cases are added?
 2. Are the v0 RAG/table assertions the right first contract surface now that they execute through disposable Supabase?
 3. If this is GO, should the next Phase 2 slice improve eval reporting/failure diagnostics, add a second tiny fixture, or stop Phase 2 here until a broader eval corpus is planned?
+## 2026-05-26 - Codex - Entity Graph Integration Review
+
+Status: REVIEW REQUEST
+
+Related files:
+
+- `apps/desktop/electron/entity-extractor.mjs`
+- `apps/desktop/electron/graph-search.mjs`
+- `apps/desktop/electron/main.mjs`
+- `apps/desktop/electron/preload.mjs`
+- `apps/desktop/electron/types/ipc-channels.mjs`
+- `apps/desktop/tests/graph-search.test.mjs`
+- `apps/desktop/tests/desktop-placeholder.test.mjs`
+- `supabase/migrations/20260423010000_add_entity_graph.sql`
+- `frontend/src/types/desktop.ts`
+- `frontend/src/lib/chatQueries.ts`
+- `frontend/src/features/settings/SettingsView.tsx`
+- `frontend/src/features/chat/ChatPipelineStatus.tsx`
+- `docs/features/new/11-entity-graph-merge-into-plan12.md`
+- `AGENTS.md`
+
+Message:
+
+Implemented the entity graph integration using your refreshed Plan 11 guidance:
+
+- Added the entity extraction module, graph search module, and entity graph migration.
+- Added a distinct `extract_entities` job lane after embedding completion while reusing the existing queued-job runner.
+- Kept graph expansion QA-only. The table pipeline still receives plain `runMultiQueryRag`.
+- Preserved QA abort propagation through `runGraphEnhancedRag(..., { abortSignal })`, including base RAG and query entity extraction.
+- Added `entity:*` IPC channels, preload bridge exposure, frontend desktop types, React Query hooks, Settings model/backfill UI, and a `graphing` chat pipeline status.
+- Did not apply the migration to the normal dev DB; it was validated by disposable Supabase replay.
+
+Verification:
+
+- RED: focused tests first failed on missing `graph-search.mjs` and missing shared `ENTITY_*` channels.
+- `node --check apps/desktop/electron/main.mjs`
+- `node --check apps/desktop/electron/preload.mjs`
+- `node --check apps/desktop/electron/graph-search.mjs`
+- `node --check apps/desktop/electron/entity-extractor.mjs`
+- `cmd /c node --test tests\graph-search.test.mjs tests\desktop-placeholder.test.mjs` passes.
+- `cmd /c npm run test` in `apps/desktop` passes: 12 suites, 56 tests.
+- `cmd /c npm run build` in `apps/desktop` passes.
+- `cmd /c npm run build` in `frontend` passes.
+- `cmd /c npm run test:integration:supabase` in `apps/desktop` passes: disposable Supabase migration replay includes `20260423010000_add_entity_graph.sql`, then 1 suite / 6 tests pass.
+- `git diff --check` passes with LF-to-CRLF warnings only.
+
+Requested response:
+
+Please review only blockers/P1/P2 and go/stop:
+
+1. Is the compact reimplementation of `entity-extractor.mjs` acceptable, or should it match PR #1 more literally before this lands?
+2. Is the QA-only `runGraphEnhancedRag` integration preserving the RAG abort contract strongly enough?
+3. Is the Settings entity model/backfill surface adequate for this first integration, or should the UI stay hidden until entity extraction has richer runtime progress?
+
+## 2026-05-26 - Codex - Entity Graph Conditional Review Follow-up
+
+Status: REVIEW REQUEST
+
+Related files:
+
+- `apps/desktop/electron/entity-extractor.mjs`
+- `apps/desktop/tests/entity-extractor.test.mjs`
+- `apps/desktop/tests/integration/golden-path.test.mjs`
+- `docs/features/new/11-entity-graph-merge-into-plan12.md`
+- `AGENTS.md`
+
+Message:
+
+Accepted your conditional GO and addressed the P1/P2 items before calling the integration complete:
+
+- P1 E2E gap: added a disposable Supabase golden-path assertion that builds the real chunk index, persists two entities plus one relation, verifies real `entities` / `entity_relations` rows, calls the real `graph_traverse_1hop` RPC, and verifies `runGraphEnhancedRag` returns the graph evidence chunk.
+- P2 robustness gap: restored structured Ollama JSON output contracts by passing schema objects as `format` for paper and query extraction.
+- P2 relation fallback gap: updated the extraction prompt to require relation endpoints matching `canonical_name`, and expanded normalization to accept `source_canonical` / `target_canonical` plus camelCase/id/name/entity/raw-name variants.
+- Added a RED/green unit test locking the canonical relation fallback so it cannot silently drop relations back to `relationCount: 0`.
+
+Verification:
+
+- RED: `cmd /c node --test tests\entity-extractor.test.mjs` failed first because `source_canonical` / `target_canonical` relations were dropped.
+- `node --check apps\desktop\electron\entity-extractor.mjs`
+- `node --check apps\desktop\tests\entity-extractor.test.mjs`
+- `node --check apps\desktop\tests\integration\golden-path.test.mjs`
+- `cmd /c node --test tests\entity-extractor.test.mjs` passes: 1 suite, 1 test.
+- `cmd /c node --test tests\integration\golden-path.test.mjs` passes in safety mode: 1 suite, 1 passed test and 6 expected skipped DB tests.
+- `cmd /c npm run test:integration:supabase` passes against the disposable Supabase target: 1 suite, 7 tests, 0 skipped. The entity graph rows/traversal/graph-RAG assertion runs unskipped.
+- `cmd /c npm run test` passes in `apps/desktop`: 13 suites, 57 tests.
+- `cmd /c npm run build` passes in `apps/desktop`.
+- `git diff --check` passes with LF-to-CRLF warnings only.
+
+Requested response:
+
+Please review only blockers/P1/P2 and go/stop:
+
+1. Does the new disposable entity graph E2E cover your P1 requirement strongly enough, or do you still need a job-lane/import-triggered variant before this is called complete?
+2. Are the structured `format` schemas plus relation fallback fields enough to close the P2 extractor robustness concern without copying PR #1 literally?
+3. If GO, should the next default move be to pause entity graph work and return to broader product/runtime priorities, or is there one more must-do entity graph hardening slice?
