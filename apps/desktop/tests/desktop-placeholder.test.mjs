@@ -9,6 +9,8 @@ describe("desktop IPC test harness", () => {
   it("loads shared chat channel definitions without Electron", () => {
     assert.equal(IPC_CHANNELS.CHAT_SEND_MESSAGE, "chat:send-message");
     assert.equal(IPC_CHANNELS.CHAT_ABORT, "chat:abort");
+    assert.equal(IPC_CHANNELS.ENTITY_BACKFILL, "entity:backfill");
+    assert.equal(IPC_CHANNELS.ENTITY_GET_MODEL, "entity:get-model");
     assert.equal(IPC_EVENTS.CHAT_STATUS, "chat:status");
   });
 

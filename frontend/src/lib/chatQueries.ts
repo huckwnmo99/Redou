@@ -17,6 +17,8 @@ import type {
   RedouDesktopApi,
   OllamaModel,
   LlmModelInfo,
+  EntityModelInfo,
+  EntityBackfillStatus,
 } from "@/types/desktop";
 
 // ============================================================
@@ -32,6 +34,11 @@ export const chatKeys = {
 export const llmKeys = {
   models: ["llm-models"] as const,
   activeModel: ["llm-active-model"] as const,
+};
+
+export const entityKeys = {
+  activeModel: ["entity-active-model"] as const,
+  backfillStatus: ["entity-backfill-status"] as const,
 };
 
 // ============================================================
@@ -347,6 +354,70 @@ export function useSetLlmModel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: llmKeys.activeModel });
+    },
+  });
+}
+
+export function useActiveEntityModel() {
+  return useQuery({
+    queryKey: entityKeys.activeModel,
+    queryFn: async (): Promise<EntityModelInfo | null> => {
+      const api = getDesktopApi();
+      if (!api?.entity) return null;
+      const authContext = await getAuthContext();
+      const result = await api.entity.getModel(authContext);
+      if (!result.success) throw new Error(result.error ?? "Failed to get entity model");
+      return result.data ?? null;
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function useSetEntityModel() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (model: string) => {
+      const api = requireDesktopApi();
+      const authContext = await getAuthContext();
+      const result = await api.entity.setModel({ model, ...authContext });
+      if (!result.success) throw new Error(result.error ?? "Failed to set entity model");
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: entityKeys.activeModel });
+    },
+  });
+}
+
+export function useEntityBackfillStatus() {
+  return useQuery({
+    queryKey: entityKeys.backfillStatus,
+    queryFn: async (): Promise<EntityBackfillStatus | null> => {
+      const api = getDesktopApi();
+      if (!api?.entity) return null;
+      const authContext = await getAuthContext();
+      const result = await api.entity.getBackfillStatus(authContext);
+      if (!result.success) throw new Error(result.error ?? "Failed to get entity backfill status");
+      return result.data ?? null;
+    },
+    staleTime: 15_000,
+  });
+}
+
+export function useStartEntityBackfill() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const api = requireDesktopApi();
+      const authContext = await getAuthContext();
+      const result = await api.entity.backfill(authContext);
+      if (!result.success) throw new Error(result.error ?? "Failed to start entity backfill");
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: entityKeys.backfillStatus });
     },
   });
 }

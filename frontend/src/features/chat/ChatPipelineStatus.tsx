@@ -1,4 +1,4 @@
-import { Search, BrainCircuit, Table2, ShieldCheck, Check, Code, FileSearch, MessageCircleQuestion, Sparkles } from "lucide-react";
+import { Search, BrainCircuit, Table2, ShieldCheck, Check, Code, FileSearch, MessageCircleQuestion, Sparkles, Network } from "lucide-react";
 import type { ChatPipelineStage } from "@/types/desktop";
 
 /** Pipeline stages shown in the full stepper (after orchestrator decides to generate a table) */
@@ -13,6 +13,7 @@ const TABLE_STAGES: { key: ChatPipelineStage; icon: typeof Search; label: string
 
 /** Pipeline stages for Q&A mode (simplified) */
 const QA_STAGES: { key: ChatPipelineStage; icon: typeof Search; label: string }[] = [
+  { key: "graphing", icon: Network, label: "Expanding entity graph context..." },
   { key: "searching", icon: Search, label: "관련 논문 검색 중..." },
   { key: "answering", icon: MessageCircleQuestion, label: "답변 생성 중..." },
 ];
@@ -21,8 +22,14 @@ function tableStageIndex(stage: ChatPipelineStage): number {
   return TABLE_STAGES.findIndex((s) => s.key === stage);
 }
 
+const QA_STAGE_ORDER: Partial<Record<ChatPipelineStage, number>> = {
+  searching: 0,
+  graphing: 1,
+  answering: 2,
+};
+
 function qaStageIndex(stage: ChatPipelineStage): number {
-  return QA_STAGES.findIndex((s) => s.key === stage);
+  return QA_STAGE_ORDER[stage] ?? -1;
 }
 
 interface Props {
@@ -137,7 +144,9 @@ export function ChatPipelineStatus({ stage, message }: Props) {
 
   // Determine if we're in Q&A mode based on stage
   const isQaMode = qaStageIndex(stage) >= 0 && tableStageIndex(stage) < 0;
-  const stages = isQaMode ? QA_STAGES : TABLE_STAGES;
+  const stages = isQaMode
+    ? [...QA_STAGES].sort((a, b) => qaStageIndex(a.key) - qaStageIndex(b.key))
+    : TABLE_STAGES;
   const stageIndexFn = isQaMode ? qaStageIndex : tableStageIndex;
 
   // "searching" onwards = full stepper for table generation pipeline (or Q&A stepper)

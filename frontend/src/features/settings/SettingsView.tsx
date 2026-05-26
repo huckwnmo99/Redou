@@ -1,4 +1,5 @@
 ﻿import { CheckCircle2, FolderOpen, Globe2, HardDriveDownload, LaptopMinimal, LogOut, RefreshCw, ShieldCheck, BrainCircuit } from "lucide-react";
+import { Network } from "lucide-react";
 import { useState } from "react";
 import { useAuthSession, useSignOut } from "@/lib/auth";
 import {
@@ -12,7 +13,15 @@ import {
   useRevealInExplorer,
 } from "@/lib/desktop";
 import { useUIStore } from "@/stores/uiStore";
-import { useLlmModels, useActiveLlmModel, useSetLlmModel } from "@/lib/chatQueries";
+import {
+  useLlmModels,
+  useActiveLlmModel,
+  useSetLlmModel,
+  useActiveEntityModel,
+  useSetEntityModel,
+  useEntityBackfillStatus,
+  useStartEntityBackfill,
+} from "@/lib/chatQueries";
 
 function getErrorMessage(caught: unknown, fallback: string): string {
   return caught instanceof Error ? caught.message : fallback;
@@ -33,6 +42,10 @@ export function SettingsView() {
   const { data: llmModels = [], isLoading: modelsLoading, isError: modelsError, refetch: refetchModels } = useLlmModels();
   const { data: activeModel } = useActiveLlmModel();
   const setLlmModel = useSetLlmModel();
+  const { data: activeEntityModel } = useActiveEntityModel();
+  const setEntityModel = useSetEntityModel();
+  const { data: entityStatus, refetch: refetchEntityStatus } = useEntityBackfillStatus();
+  const startEntityBackfill = useStartEntityBackfill();
   const t = (english: string, korean: string) => localeText(locale, english, korean);
 
   const desktopReady = desktop?.available ?? false;
@@ -100,6 +113,21 @@ export function SettingsView() {
       setFeedback(getErrorMessage(caught, t("Failed to queue re-extraction.", "재추출 대기열 추가에 실패했습니다.")));
     } finally {
       setRequeuePending(false);
+    }
+  }
+
+  async function handleEntityBackfill() {
+    try {
+      const result = await startEntityBackfill.mutateAsync();
+      const queued = result?.queued ?? 0;
+      setFeedback(
+        queued > 0
+          ? t(`Entity extraction queued for ${queued} papers.`, `${queued}개 논문의 엔티티 추출을 시작합니다.`)
+          : t("Entity graph is already up to date or queued.", "엔티티 그래프가 이미 최신 상태이거나 대기열에 있습니다."),
+      );
+      await refetchEntityStatus();
+    } catch (caught) {
+      setFeedback(getErrorMessage(caught, t("Failed to queue entity extraction.", "엔티티 추출 대기열 추가에 실패했습니다.")));
     }
   }
 
@@ -299,6 +327,97 @@ export function SettingsView() {
               </span>
             </div>
           ) : null}
+        </div>
+
+        <div style={panelCardStyle}>
+          <div style={panelHeaderStyle}>
+            <Network size={14} />
+            {t("Entity Graph", "엔티티 그래프")}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--color-text-secondary)", lineHeight: 1.7, marginBottom: 12 }}>
+            {t(
+              "Select the model used for paper entity extraction and queue a graph backfill for existing papers.",
+              "논문 엔티티 추출에 사용할 모델을 선택하고 기존 논문의 그래프 백필을 대기열에 추가합니다.",
+            )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <select
+              value={activeEntityModel?.model ?? ""}
+              onChange={(event) => {
+                const val = event.target.value;
+                if (val) {
+                  setEntityModel.mutate(val);
+                  setFeedback(t(`Entity model changed to ${val}`, `엔티티 모델을 ${val}(으)로 변경했습니다.`));
+                }
+              }}
+              disabled={modelsLoading || llmModels.length === 0}
+              style={{
+                flex: 1,
+                height: 38,
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--color-border-subtle)",
+                background: "var(--color-bg-surface)",
+                padding: "0 12px",
+                fontSize: 13,
+                color: "var(--color-text-primary)",
+                outline: "none",
+              }}
+            >
+              {modelsLoading ? (
+                <option value="">{t("Loading models...", "모델 로딩 중...")}</option>
+              ) : llmModels.length === 0 ? (
+                <option value="">{t("No models available", "사용 가능한 모델 없음")}</option>
+              ) : (
+                llmModels.map((m) => (
+                  <option key={m.name} value={m.name}>
+                    {m.name}{" "}
+                    ({(m.size / 1e9).toFixed(1)} GB)
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              onClick={handleEntityBackfill}
+              disabled={!desktopReady || startEntityBackfill.isPending}
+              title={t("Queue entity graph backfill", "엔티티 그래프 백필 대기열 추가")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 38,
+                height: 38,
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--color-border-subtle)",
+                background: "var(--color-bg-elevated)",
+                color: "var(--color-text-secondary)",
+                cursor: !desktopReady || startEntityBackfill.isPending ? "not-allowed" : "pointer",
+                flexShrink: 0,
+              }}
+            >
+              <RefreshCw size={14} />
+            </button>
+          </div>
+          <div style={{ display: "grid", gap: 6, fontSize: 12, color: "var(--color-text-muted)" }}>
+            <InfoRow
+              label={t("Progress", "진행률")}
+              value={
+                entityStatus
+                  ? `${entityStatus.processedPapers}/${entityStatus.totalPapers}`
+                  : t("Unavailable", "사용 불가")
+              }
+            />
+            <InfoRow
+              label={t("Queue", "대기열")}
+              value={
+                entityStatus
+                  ? t(
+                      `${entityStatus.queuedJobs} queued / ${entityStatus.runningJobs} running / ${entityStatus.failedJobs} failed`,
+                      `${entityStatus.queuedJobs} 대기 / ${entityStatus.runningJobs} 실행 / ${entityStatus.failedJobs} 실패`,
+                    )
+                  : t("Unavailable", "사용 불가")
+              }
+            />
+          </div>
         </div>
       </div>
 

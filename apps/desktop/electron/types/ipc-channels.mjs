@@ -41,6 +41,11 @@ export const IPC_CHANNELS = {
   LLM_LIST_MODELS: 'llm:list-models',
   LLM_GET_MODEL: 'llm:get-model',
   LLM_SET_MODEL: 'llm:set-model',
+
+  ENTITY_BACKFILL: 'entity:backfill',
+  ENTITY_BACKFILL_STATUS: 'entity:backfill-status',
+  ENTITY_GET_MODEL: 'entity:get-model',
+  ENTITY_SET_MODEL: 'entity:set-model',
 };
 
 /** main -> renderer (mainWindow.webContents.send) */

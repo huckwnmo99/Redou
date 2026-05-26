@@ -139,9 +139,25 @@ export interface LlmModelInfo {
   source: "user" | "env" | "default";
 }
 
+export interface EntityModelInfo {
+  model: string;
+  source: "user" | "llm" | "default";
+  fallbackModel?: string;
+}
+
+export interface EntityBackfillStatus {
+  version: number;
+  totalPapers: number;
+  processedPapers: number;
+  queuedJobs: number;
+  runningJobs: number;
+  failedJobs: number;
+}
+
 export type ChatPipelineStage =
   | "orchestrating"
   | "searching"
+  | "graphing"
   | "parsing"
   | "extracting"
   | "researching"
@@ -205,6 +221,12 @@ export interface RedouDesktopApi {
   llm: {
     listModels: () => Promise<DbResult<OllamaModel[]>>;
     getModel: (args?: { userId?: string; accessToken?: string }) => Promise<DbResult<LlmModelInfo>>;
+    setModel: (args: { model: string; userId?: string; accessToken?: string }) => Promise<DbResult<{ model: string }>>;
+  };
+  entity: {
+    backfill: (args?: { userId?: string; accessToken?: string }) => Promise<DbResult<{ queued: number; status: EntityBackfillStatus }>>;
+    getBackfillStatus: (args?: { userId?: string; accessToken?: string }) => Promise<DbResult<EntityBackfillStatus>>;
+    getModel: (args?: { userId?: string; accessToken?: string }) => Promise<DbResult<EntityModelInfo>>;
     setModel: (args: { model: string; userId?: string; accessToken?: string }) => Promise<DbResult<{ model: string }>>;
   };
   openExternal: (url: string) => Promise<void>;
