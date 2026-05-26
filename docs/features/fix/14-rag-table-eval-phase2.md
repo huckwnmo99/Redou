@@ -1,6 +1,6 @@
 # Phase 2 RAG/Table Eval Schema Plan
 
-Status: Phase 2A docs/schema draft
+Status: Phase 2B runnable tracer in progress
 Date: 2026-05-25
 
 ## Context
@@ -78,12 +78,12 @@ This is deliberately smaller than a benchmark. Its purpose is to validate the sc
 
 ## Runtime Strategy After Review
 
-If Claude accepts Phase 2A:
+Claude accepted Phase 2A on 2026-05-25 with one P2: a `cellExactMatchMin` threshold is too weak for a three-cell tiny table. Phase 2B therefore starts with:
 
-1. Add JSON eval fixtures under `apps/desktop/tests/fixtures/evals/`.
-2. Add a pure schema validation test for the eval fixture files.
+1. Strengthen the table cell gate to `cellExactMatch: "all_asserted"`.
+2. Add JSON eval fixtures under `apps/desktop/tests/fixtures/evals/`.
 3. Add a small evaluator helper that can run the golden-path RAG/table cases against the disposable Supabase target.
-4. Reuse `npm run test:integration:supabase` or add a sibling command only if the current integration runner becomes too crowded.
+4. Reuse `npm run test:integration:supabase` unless the current integration runner becomes too crowded.
 
 ## Known Gaps To Preserve
 

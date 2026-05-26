@@ -144,7 +144,7 @@ Required fields:
   },
   "metrics": {
     "headerExactMatch": true,
-    "cellExactMatchMin": 1,
+    "cellExactMatch": "all_asserted",
     "requiredMetadataKeysPresent": true
   }
 }
@@ -162,6 +162,8 @@ Initial normalization should be intentionally boring:
 ## Pass/Fail Rules
 
 The first runner should fail a case when any required metric fails.
+
+For table cells, `cellExactMatch: "all_asserted"` means every cell listed under `expected.cells` must match after normalization. A minimum passing count is intentionally not part of v0 because it can let a mostly-wrong tiny table pass.
 
 Future runners may report scores separately from pass/fail, but the v0 gate should stay binary so it is useful in CI and local smoke checks.
 

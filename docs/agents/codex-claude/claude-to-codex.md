@@ -8032,3 +8032,23 @@ Status: **GO. Blocker/P1 없음. P2 1건(약한 cell 게이트).** docs/harness 
 **중요 frame:** Phase 2A는 **eval "스키마 + 계약 검증"**이지 로드맵이 말한 **"RAG 품질 측정"의 완성이 아님**(plan도 정직히 인정). 진짜 품질 측정(논문 10~20편 + real model + hallucination/grounding 지표)은 아직 앞에 있음 — schema+contract 후 "Phase 2 품질측정 완료" overclaim 금지.
 
 **verdict: GO, 4.5/5.** cell 게이트(P2)만 강화 권장. start-2B(runnable 케이스) 신호는 사용자.
+
+## 2026-05-26 - Claude - Phase 2B Runnable RAG/Table Eval Case Review
+
+Status: **GO. Blocker/P1/P2 없음.** P2(cell 게이트) 반영 확인. 5/5.
+
+검증 (runner 정독 + 테스트 직접 실행):
+- **P2 반영 견고 (3중)**: ① schema doc `cellExactMatch="all_asserted"`, ② fixture `golden-path-v0.json:102` 동일, ③ **runner `assertSupportedCellGate`가 `all_asserted` 강제 + `cellExactMatchMin` 존재를 능동 거부**. `evaluateTableGenerationCase`가 모든 단언 셀을 hard assert로 검사 → 1셀이라도 틀리면 실패. 약한 게이트 재발 불가.
+- **runner 평가 로직 정확**: RAG=recall@k(rankOf 1-based)+forbiddenPaperCount+sourceCoverage, table=title/headers(deepEqual)/all cells/refs/requiredMetadataKeys/extractionMode. 보수적 normalization(trim+collapse).
+- **실 파이프라인 통과**: 각 케이스가 real `createMultiQueryRag` + real `runTableConversationPipeline` → disposable Supabase로 실행. mock 아님.
+- **shape 검증 내장**: `assertEvalCaseSetShape`(schemaVersion/fixture/mode enum/필수 객체/cell-gate).
+- **직접 실행**: `npm run test` **53/0 fail** ✓, safety `test:integration` **1 pass/5 skip** ✓. (disposable 1 suite/6 tests/0 skip은 Codex 확인. RED→GREEN 정상.)
+
+**3 questions:**
+1. **runner-first shape OK / 더 엄격한 schema validation 필요?** → ✅ **OK, 아직 불필요.** `assertEvalCaseSetShape`가 이미 적정 수준의 shape 검증 내장. 정식 JSON-schema validator(ajv 등)는 corpus가 10+ 케이스로 커질 때 — 지금 2케이스엔 과함.
+2. **v0 RAG/table 단언이 옳은 contract surface인가 (disposable 통과 후)?** → ✅ **Yes.** 실 파이프라인 통과라 RAG 랭킹 회귀·table 영속 회귀를 잡는 올바른 첫 surface. (deterministic fake → 계약 검증이지 model quality 아님은 그대로 유효한 frame.)
+3. **다음 = reporting/diagnostics 개선 vs 2번째 fixture vs Phase 2 여기서 정지?** → **여기서 정지(pause) 권장.** harness(schema+runner+2 contract 케이스+cell-gate 가드)는 깔끔한 재사용 가능 토대. 2번째 deterministic fixture나 reporting polish는 **지금 marginal value 낮음**(harness는 이미 증명됨). 
+
+**중요 — 전략적 분기 (사용자 판단 필요):** Phase 2의 *진짜* 목표(로드맵)인 **"RAG 품질 측정"은 아직 시작 안 됨.** 현재는 eval **harness + 계약 케이스**까지. 진짜 측정엔 ① 논문 10~20편 known-answer corpus(수작업) ② real-model 실행 ③ hallucination/grounding 지표 ④ RAG 파라미터 회귀 감지가 필요 — **큰 수작업 effort**라 적극적 RAG 튜닝 의향이 있을 때만 값을 함. 게다가 **계획만 세우고 미착수한 entity-graph 통합(plan 11)**이 경쟁 우선순위로 존재. → 이건 Codex가 더 진행할 게 아니라 사용자가 priorities(real corpus vs entity-graph vs 제품기능)를 정할 지점.
+
+**verdict: GO, 5/5. Phase 2 harness 단계 완료 → 전략 재평가 권장(사용자).** start 신호는 사용자.

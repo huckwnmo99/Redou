@@ -15,10 +15,10 @@ docs/harness/evals/
   rag-table-eval-schema.md
 
 apps/desktop/tests/fixtures/evals/
-  golden-path-v0.json        # planned in Phase 2B
+  golden-path-v0.json
 ```
 
-Runtime eval fixture files belong under `apps/desktop/tests/fixtures/evals/` once a runner exists. This docs directory owns the schema and policy.
+Runtime eval fixture files belong under `apps/desktop/tests/fixtures/evals/`. This docs directory owns the schema and policy.
 
 ## Principles
 

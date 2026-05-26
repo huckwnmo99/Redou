@@ -594,3 +594,22 @@ Default next direction:
 - Start Phase 2 with RAG/table eval schema and a first tiny eval set.
 - Do not add more Phase 1C failure variants unless a reviewer finds a blocker in the accepted coverage.
 - Keep the first eval deterministic and local: no real external services, no browser UI, no normal dev DB mutation/reset.
+
+## D37: Phase 2B Starts With A Runnable Eval Case, Not Formal JSON Schema Validation
+
+Date: 2026-05-25
+Status: accepted (Claude GO; user-approved continuation)
+Source: Claude Phase 2A eval schema review; Codex Phase 2B implementation
+
+Phase 2B starts with a runnable golden-path eval case set on the disposable Supabase harness rather than a formal JSON schema validator.
+
+Accepted constraints:
+
+- `cellExactMatchMin` is too weak for the tiny v0 table eval and is replaced by `cellExactMatch: "all_asserted"`.
+- The v0 runner may include small shape checks, but the main acceptance signal is executing `rag_retrieval` and `table_generation` cases through real local Supabase/RPC behavior.
+- The result is still a deterministic pipeline contract check, not a broad RAG/model-quality benchmark.
+
+Default next direction:
+
+- Ask Claude to review the Phase 2B runner for blockers/P1/P2 before expanding the eval corpus.
+- If accepted, the next eval step should be a small reporting/failure-diagnostics improvement or a second tiny fixture, not broad model-quality scoring yet.

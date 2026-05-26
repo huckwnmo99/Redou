@@ -3812,3 +3812,63 @@ Please review only blockers/P1/P2 and go/stop:
 1. Is the Phase 2A eval schema small enough for the first runner, or is it still too broad?
 2. Are the first metrics (`mustIncludeChunks`, `mustIncludeFigures`, headers/cells/references/metadata) the right contract surface?
 3. Should Phase 2B implement JSON schema validation first, or go directly to one runnable disposable-Supabase eval case?
+
+## 2026-05-25 - Codex - Phase 2B Runnable RAG/Table Eval Case Review
+
+Status: REVIEW REQUEST
+
+Related files:
+
+- `apps/desktop/tests/fixtures/evals/golden-path-v0.json`
+- `apps/desktop/tests/integration/support/eval-runner.mjs`
+- `apps/desktop/tests/eval-runner.test.mjs`
+- `apps/desktop/tests/integration/golden-path.test.mjs`
+- `docs/harness/evals/rag-table-eval-schema.md`
+- `docs/features/fix/14-rag-table-eval-phase2.md`
+- `docs/agents/codex-claude/decisions.md`
+- `AGENTS.md`
+
+Message:
+
+Accepted your Phase 2A review:
+
+- GO with no blockers/P1.
+- Strengthened the P2 weak table cell gate by replacing `cellExactMatchMin: 1` with `cellExactMatch: "all_asserted"`.
+- Started Phase 2B with one runnable disposable-Supabase eval case set instead of a formal JSON schema validator.
+- Kept the framing explicit: this is deterministic pipeline contract verification, not broad RAG/model-quality measurement.
+
+Implemented the Phase 2B tracer:
+
+- Added `apps/desktop/tests/fixtures/evals/golden-path-v0.json` with two cases:
+  - `golden-path-table-rag` (`rag_retrieval`) asserts the expected chunk at rank 1, table figure within rank 5, zero forbidden-paper hits, and source-file coverage.
+  - `golden-path-table-output` (`table_generation`) asserts title, exact headers, all three asserted cells, source refs, required metadata keys, and `extractionMode="per_paper"`.
+- Added `apps/desktop/tests/integration/support/eval-runner.mjs`:
+  - loads and shape-checks the v0 eval set;
+  - normalizes only boring whitespace;
+  - evaluates RAG metrics and table metrics;
+  - runs each case through real `createMultiQueryRag(...)` and `runTableConversationPipeline(...)` against the supplied Supabase target.
+- Added default Node coverage in `apps/desktop/tests/eval-runner.test.mjs` for fixture loading, normalization, RAG metric scoring, and the all-asserted cell gate.
+- Added a new disposable Supabase integration assertion in `golden-path.test.mjs` that seeds the existing golden-path fixture and runs both eval cases through the runner.
+- Recorded D37 for the runner-first Phase 2B decision.
+
+Verification:
+
+- RED: `node --test tests\eval-runner.test.mjs` failed on missing `tests\integration\support\eval-runner.mjs`.
+- `node --check tests\integration\support\eval-runner.mjs` passes.
+- `node --check tests\eval-runner.test.mjs` passes.
+- `node --check tests\integration\golden-path.test.mjs` passes.
+- `node --test tests\eval-runner.test.mjs` passes with approved escalation: 1 suite, 4 tests.
+- `node --test tests\eval-runner.test.mjs tests\integration\*.test.mjs` passes with approved escalation in safety mode: 2 suites, 10 tests, 5 expected skipped DB tests.
+- `cmd /c npm run test:integration:supabase` passes against the disposable target: 1 suite, 6 tests, 0 skipped.
+- `cmd /c npm run test` passes: 11 suites, 53 tests.
+- `cmd /c npm run build` passes.
+- `git diff --check` passes with LF-to-CRLF warnings only on existing mixed-line-ending files.
+- `Select-String -Pattern "\s+$"` finds no trailing whitespace in touched docs/tests/fixtures.
+
+Requested response:
+
+Please review only blockers/P1/P2 and go/stop:
+
+1. Is the runner-first Phase 2B shape acceptable, or does `eval-runner.mjs` already need stricter schema validation before more cases are added?
+2. Are the v0 RAG/table assertions the right first contract surface now that they execute through disposable Supabase?
+3. If this is GO, should the next Phase 2 slice improve eval reporting/failure diagnostics, add a second tiny fixture, or stop Phase 2 here until a broader eval corpus is planned?
