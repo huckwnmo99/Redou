@@ -8052,3 +8052,22 @@ Status: **GO. Blocker/P1/P2 없음.** P2(cell 게이트) 반영 확인. 5/5.
 **중요 — 전략적 분기 (사용자 판단 필요):** Phase 2의 *진짜* 목표(로드맵)인 **"RAG 품질 측정"은 아직 시작 안 됨.** 현재는 eval **harness + 계약 케이스**까지. 진짜 측정엔 ① 논문 10~20편 known-answer corpus(수작업) ② real-model 실행 ③ hallucination/grounding 지표 ④ RAG 파라미터 회귀 감지가 필요 — **큰 수작업 effort**라 적극적 RAG 튜닝 의향이 있을 때만 값을 함. 게다가 **계획만 세우고 미착수한 entity-graph 통합(plan 11)**이 경쟁 우선순위로 존재. → 이건 Codex가 더 진행할 게 아니라 사용자가 priorities(real corpus vs entity-graph vs 제품기능)를 정할 지점.
 
 **verdict: GO, 5/5. Phase 2 harness 단계 완료 → 전략 재평가 권장(사용자).** start 신호는 사용자.
+
+## 2026-05-26 - Claude - Entity-Graph 통합(plan 11) 재개 — 갱신 가이드 (pre-implementation)
+
+사용자 결정: **다음 = entity-graph 통합(plan 11) 구현.** 테스트 토대(Phase 1/2)가 깔렸으니 "테스트 먼저 → 위험한 통합" 논리대로 진행. 대상 계획: `docs/features/new/11-entity-graph-merge-into-plan12.md`.
+
+**plan 11의 기존 3 refinement는 여전히 유효** (이전 plan 리뷰 참조):
+1. abortSignal 선제 수정 (graph RAG가 base RAG로 전달).
+2. main.mjs 배선은 라인번호 아닌 **심볼 anchor**로.
+3. 동작 스모크 1회.
+
+**plan 11 작성(2026-05-22) 이후 바뀐 환경 — 구현 시 반드시 반영:**
+- **main.mjs가 변경됨**: ① RAG 분할(`createMultiQueryRag` DI) ② **job-runner 추출**(`processing/job-runner.mjs` — `tryStartExtractionJob`/`tryStartEmbeddingJob`가 `runQueuedProcessingJob` 사용). → plan 11의 main.mjs 라인번호/배선 4(job 함수군) 컨텍스트가 **드리프트**. 반드시 심볼로 재확인. 특히 **entity 자동 큐잉**은 이제 job-runner 구조와 공존해야 함.
+- **QA RAG 교체 배선(배선5)**: 현재 QA는 DI된 `runMultiQueryRag`를 씀. `runGraphEnhancedRag`로 교체 시 **table 파이프라인의 `runMultiQueryRag` 사용은 건드리지 말 것**(graph는 QA 전용).
+- **테스트 토대를 검증에 활용 (신규, plan 11엔 없던 것)**: 통합 후 **반드시** `npm run test` + `npm run test:integration:supabase` 실행. golden-path/eval 케이스가 RAG·table 회귀를 잡아줌 — graph 배선이 기존 QA/table을 깨지 않았는지 확인하는 안전망.
+- **disposable 타깃이 모든 마이그레이션을 replay**함 → entity-graph 마이그레이션(`20260423010000`)을 가져오면 disposable 스키마에도 `entities`/`entity_relations`가 생성됨. **멱등성 + 기존 golden-path/eval 테스트가 새 테이블 존재 하에 여전히 통과**하는지 확인. (schema provenance 체크가 깨지지 않아야 함.)
+
+**리뷰 게이트 (구현 결과 나오면 내가 확인할 것)**: 위 3 refinement + 환경 반영 + preload `getModel(args)` 시그니처 유지 + table graph 미적용 + **테스트 토대 그린(회귀 없음)**.
+
+start 신호는 사용자. 이 항목은 plan 갱신 가이드지 구현 지시 아님.
