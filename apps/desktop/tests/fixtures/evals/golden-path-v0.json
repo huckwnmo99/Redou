@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "rag-table-eval-v0",
+  "fixture": "golden-path",
+  "cases": [
+    {
+      "id": "golden-path-table-rag",
+      "description": "Table-mode RAG retrieves the expected adsorption evidence.",
+      "fixture": "golden-path",
+      "mode": "rag_retrieval",
+      "input": {
+        "ragMode": "table",
+        "queries": [
+          {
+            "query": "adsorption capacity 42 mmol/g",
+            "intent": "primary"
+          }
+        ],
+        "keywordHints": ["adsorption", "capacity"],
+        "filterPaperIds": ["10000000-0000-4000-8000-000000000101"]
+      },
+      "expected": {
+        "mustIncludeChunks": [
+          {
+            "chunkId": "10000000-0000-4000-8000-000000000401",
+            "rankAtOrBefore": 1
+          }
+        ],
+        "mustIncludeFigures": [
+          {
+            "figureId": "10000000-0000-4000-8000-000000000501",
+            "rankAtOrBefore": 5
+          }
+        ],
+        "forbiddenPaperIds": [],
+        "sourceCoverage": [
+          {
+            "paperId": "10000000-0000-4000-8000-000000000101",
+            "sourceFileId": "10000000-0000-4000-8000-000000000201"
+          }
+        ]
+      },
+      "metrics": {
+        "chunkRecallAtK": {
+          "k": 5,
+          "min": 1
+        },
+        "figureRecallAtK": {
+          "k": 10,
+          "min": 1
+        },
+        "forbiddenPaperCount": {
+          "max": 0
+        }
+      }
+    },
+    {
+      "id": "golden-path-table-output",
+      "description": "Table generation persists expected headers, cells, references, and source metadata.",
+      "fixture": "golden-path",
+      "mode": "table_generation",
+      "input": {
+        "conversationId": "10000000-0000-4000-8000-000000000601",
+        "ownerId": "10000000-0000-4000-8000-000000000001",
+        "ownerPaperIds": ["10000000-0000-4000-8000-000000000101"],
+        "scopeAll": true,
+        "message": "Create a table with material, adsorption capacity, and condition.",
+        "fakeServiceScenario": "happyPath"
+      },
+      "expected": {
+        "tableTitle": "Adsorption capacity table",
+        "headers": ["Material", "Capacity", "Condition"],
+        "cells": [
+          {
+            "row": 0,
+            "column": "Material",
+            "equalsNormalized": "Golden Path Framework [1]"
+          },
+          {
+            "row": 0,
+            "column": "Capacity",
+            "equalsNormalized": "42 mmol/g [1]"
+          },
+          {
+            "row": 0,
+            "column": "Condition",
+            "equalsNormalized": "298 K, 1 bar [1]"
+          }
+        ],
+        "references": [
+          {
+            "paperId": "10000000-0000-4000-8000-000000000101",
+            "refNo": "1"
+          }
+        ],
+        "metadata": {
+          "requiredKeys": ["extractionMode", "sourceEvidenceLocations"],
+          "extractionMode": "per_paper"
+        }
+      },
+      "metrics": {
+        "headerExactMatch": true,
+        "cellExactMatch": "all_asserted",
+        "requiredMetadataKeysPresent": true
+      }
+    }
+  ]
+}

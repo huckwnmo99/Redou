@@ -14,6 +14,10 @@ import {
   loadGoldenPathFixture,
   quietLogger,
 } from "./support/deterministic-services.mjs";
+import {
+  loadEvalCaseSet,
+  runEvalCaseSet,
+} from "./support/eval-runner.mjs";
 
 describe("golden-path integration", () => {
   it("refuses the normal Redou development Supabase target", () => {
@@ -183,6 +187,47 @@ describe("golden-path integration", () => {
         .limit(1);
       assert.equal(conversationError, null);
       assert.equal(conversations?.[0]?.phase, "clarifying");
+    } finally {
+      await target.cleanupGoldenPathRows(supabase, fixture.ids.ownerId);
+    }
+  };
+
+  const runGoldenPathEvalCases = async () => {
+    const target = createIntegrationTestTarget(process.env);
+    const fixture = await loadGoldenPathFixture();
+    const services = await createGoldenPathServices(fixture);
+    const caseSet = await loadEvalCaseSet("golden-path-v0.json");
+    const supabase = createClient(target.supabaseUrl, target.serviceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+
+    await target.assertSchemaProvenance(supabase);
+    await target.cleanupGoldenPathRows(supabase, fixture.ids.ownerId);
+    await target.seedGoldenPathRows(supabase, fixture, services);
+
+    try {
+      const report = await runEvalCaseSet({
+        caseSet,
+        supabase,
+        fixture,
+        services,
+      });
+
+      assert.equal(report.passed, true);
+      assert.deepEqual(report.cases.map((evalCase) => evalCase.id), [
+        "golden-path-table-rag",
+        "golden-path-table-output",
+      ]);
+      assert.equal(
+        report.cases
+          .find((evalCase) => evalCase.id === "golden-path-table-output")
+          ?.metrics.find((metric) => metric.name === "cellExactMatch")
+          ?.observed,
+        3,
+      );
     } finally {
       await target.cleanupGoldenPathRows(supabase, fixture.ids.ownerId);
     }
@@ -382,11 +427,13 @@ describe("golden-path integration", () => {
   if (skipReason) {
     it("persists the core paper-to-table spine through real Supabase RPCs", { skip: skipReason }, () => {});
     it("aborts per-paper extraction without persisting chat output", { skip: skipReason }, () => {});
+    it("runs the golden-path RAG/table eval cases", { skip: skipReason }, () => {});
     it("falls back to single-call table generation after a per-paper extraction error", { skip: skipReason }, () => {});
     it("marks a failed embedding worker job without damaging paper data", { skip: skipReason }, () => {});
   } else {
     it("persists the core paper-to-table spine through real Supabase RPCs", persistCoreGoldenPath);
     it("aborts per-paper extraction without persisting chat output", abortPerPaperExtractionWithoutPersistence);
+    it("runs the golden-path RAG/table eval cases", runGoldenPathEvalCases);
     it("falls back to single-call table generation after a per-paper extraction error", fallbackAfterPerPaperExtractionError);
     it("marks a failed embedding worker job without damaging paper data", failQueuedEmbeddingJobWithoutDamagingPaper);
   }
