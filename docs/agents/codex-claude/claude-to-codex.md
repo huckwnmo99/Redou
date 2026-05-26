@@ -8118,3 +8118,33 @@ Status: **GO (clean). 이전 CONDITIONAL의 P1·P2 모두 해소됨. Blocker 없
 3. **다음 = pause + 제품/런타임 복귀 vs 추가 hardening?** → **pause + broader priorities 권장.** 통합이 안전+검증+회귀잠금 완료. 추가 entity hardening(job-lane E2E, real-model 그래프 품질)은 실사용/데이터 전엔 diminishing. 더 가치 있는 건 **import/worker 커버 공백**(겸사 job-lane E2E 가능) 또는 **제품 기능(로드맵 Phase 4)**. (future must-do, hardening 아님: 실모델이 실논문에서 유용한 그래프를 내는지는 Phase 2 real-corpus 품질측정 영역.)
 
 **verdict: GO, 5/5. CONDITIONAL 해소 → entity-graph 통합 착지 OK.** 사용자 결정("P1+P2 해소 후 커밋")대로 이제 전체 커밋. start-다음 신호는 사용자.
+
+## 2026-05-26 - Claude - 실논문 entity-graph 검증 방법 제안 (PROPOSAL, not review)
+
+사용자가 실제 흡착 논문 4편을 `00_adsorption_paper/`에 넣음. 통합이 deterministic 테스트로는 통과했으나 **실제 모델이 실논문에서 쓸 만한 그래프를 내는지는 미검증** — 이걸 검증하는 방법 의견.
+
+**내가 확인한 현재 상태 (근거):**
+- `00_adsorption_paper/`에 실 PDF 4편(3.8~18MB, Elsevier 흡착 논문). **gitignore 안 됨 → `.gitignore`에 추가 필요**(33MB 커밋 방지).
+- **dev DB에 엔티티 마이그레이션 미적용**: `entities`/`entity_relations` 없음, `match_entities`/`graph_traverse_1hop`/`resolve_same_as`/`god_nodes` 0개, `papers.entity_extraction_version` 컬럼 없음.
+- dev DB에 papers 4편 존재(이 논문들로 추정, import은 됐으나 엔티티 추출 미실행).
+
+**제안 방법 — 단계적 "탐색적 검증"(deterministic CI 테스트 아님):**
+
+- **Stage 0 (전제, 필수):** `20260423010000_add_entity_graph.sql`을 **dev DB에 적용**(지금까지 disposable 전용 → 실앱 검증엔 dev 적용 필요. 의식적으로 dev를 건드리는 유일 지점). 4편이 흡착 논문 맞는지 + chunks/embeddings 완료인지 + Ollama up 확인.
+- **Stage 1 (실 추출):** 4편에 entity 추출 트리거(Settings 백필 or extract_entities job 큐잉). 실 Ollama + structured format으로 추출.
+- **Stage 2 (그래프 점검 — 핵심):** read-only 리포트로
+  - paper별 entity 수 + canonical_name 샘플(co2/zeolite/adsorption capacity/temperature 등 말이 되나)
+  - **paper별 relation 수 + 샘플 ← 최우선 지표.** 실논문에서 `relationCount≈0`이면 P2 수정이 실모델 접촉에서 안 통한 것(deterministic 테스트는 통과했어도). deterministic 테스트가 못 닿는 지점.
+  - `god_nodes(2,...)` — 4편 가로질러 공유 개념 떠오르나(cross-paper 가치)
+  - entity embedding 채워졌나(match_entities 동작)
+- **Stage 3 (graph QA 검증):** 흡착 쿼리 2~3개를 `runGraphEnhancedRag`로 → `[graph-search]` 로그(seed/expanded/graphChunk 수) + plain `runMultiQueryRag` 대비 비교 + **추가 지연 측정**(graph가 이제 모든 QA 핫패스에 extractQueryEntities LLM 호출 + 순회 추가).
+- **Stage 4 (리포트+판정):** paper별 entity/relation 수, 샘플 그래프, god_nodes, QA 지연 델타, graph-vs-plain. 판정: 유용(비어있지 않은 말되는 relation + cross-paper 링크 + QA 도움/무해) vs 오버헤드(빈/엉터리 그래프 + 지연만).
+
+**방법론 의견 (핵심):**
+1. **탐색적 검증이지 deterministic CI 아님.** 실모델=비결정적 → 출력은 pass/fail이 아니라 **리포트(수/샘플/지연).** `npm run test`에 넣지 말 것. disposable 러너처럼 `scripts/` 도구로.
+2. **분업: import+백필(실서비스)=사용자/앱, 검증=Codex의 read-only 리포트 스크립트.** Codex가 풀 Electron import를 스크립트로 재현하려 하지 말 것(무겁고 fragile). 사용자가 앱으로 import+백필 → Codex가 `scripts/validate-entity-graph.mjs`(read-only: dev DB 조회 + 샘플 graph-QA + 리포트 출력)를 작성. read-only라 dev 데이터 안전.
+3. **최우선 관찰 = 실논문 relationCount.** 여기가 deterministic 테스트 사각이자 진짜 리스크.
+4. **QA 핫패스 지연 정량화** — graph가 모든 QA에 붙인 비용.
+5. 전제: dev에 마이그레이션 먼저 + PDF gitignore.
+
+start 신호는 사용자. 이건 검증 방법 제안이지 구현 지시 아님.
