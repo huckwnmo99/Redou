@@ -39,6 +39,7 @@ export const llmKeys = {
 export const entityKeys = {
   activeModel: ["entity-active-model"] as const,
   backfillStatus: ["entity-backfill-status"] as const,
+  graphEnabled: ["entity-graph-enabled"] as const,
 };
 
 // ============================================================
@@ -418,6 +419,38 @@ export function useStartEntityBackfill() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: entityKeys.backfillStatus });
+    },
+  });
+}
+
+export function useEntityGraphEnabled() {
+  return useQuery({
+    queryKey: entityKeys.graphEnabled,
+    queryFn: async (): Promise<boolean> => {
+      const api = getDesktopApi();
+      if (!api?.entity) return false;
+      const authContext = await getAuthContext();
+      const result = await api.entity.getGraphEnabled(authContext);
+      if (!result.success) throw new Error(result.error ?? "Failed to get entity graph state");
+      return result.data?.enabled === true;
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function useSetEntityGraphEnabled() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const api = requireDesktopApi();
+      const authContext = await getAuthContext();
+      const result = await api.entity.setGraphEnabled({ enabled, ...authContext });
+      if (!result.success) throw new Error(result.error ?? "Failed to set entity graph state");
+      return result.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: entityKeys.graphEnabled });
     },
   });
 }

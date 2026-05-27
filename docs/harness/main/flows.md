@@ -1,5 +1,5 @@
 # 주요 데이터 흐름
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+> 하네스 버전: v1.4 | 최종 갱신: 2026-05-27
 
 ## 1. PDF 임포트 → 처리 파이프라인
 
@@ -26,13 +26,22 @@
   │       │
   │       └─ embedding 큐 등록 (job_type: generate_embeddings)
   │
-  ├─ processEmbeddingJob(job) [main.mjs:1592]
+  ├─ processEmbeddingJob(job) [main.mjs:1177]
   │   ├─ 청크 텍스트에 contextual prefix 추가 (buildContextualText)
   │   ├─ vLLM 임베딩 생성 (generateEmbeddings, 2048-dim)
   │   ├─ chunk_embeddings 배치 upsert
   │   ├─ 논문 단위 임베딩 (title + abstract)
-  │   └─ Figure/Table/Equation 임베딩 (이미지: VL 모델, 텍스트: text 모델)
-  │       └─ 참조 청크 컨텍스트 보강 (buildReferencePattern)
+  │   ├─ Figure/Table/Equation 임베딩 (이미지: VL 모델, 텍스트: text 모델)
+  │   │   └─ 참조 청크 컨텍스트 보강 (buildReferencePattern)
+  │   └─ 완료 직전 enqueueEntityExtractionIfNeeded [main.mjs:1441 / 조기종료 경로 1226]
+  │       └─ (opt-in: `user_workspace_preferences.entity_graph_enabled`=true일 때만 큐잉)
+  │           진입부 게이트가 OFF면 즉시 return — 자동 큐잉 차단 (fix 16, 기본 OFF)
+  │       └─ ON일 때만 extract_entities job 큐 등록 (try/catch 비차단 — 실패해도 embedding은 succeeded)
+  │
+  ├─ processEntityExtractionJob(job) [main.mjs:1460]   ← 부가(graceful-degradation) 단계
+  │   ├─ entity_extraction_version < CURRENT_ENTITY_EXTRACTION_VERSION일 때만 실행
+  │   ├─ 청크에서 엔티티/관계 추출 → entity 그래프 테이블 저장
+  │   └─ 실패해도 core 상태("Complete")에 영향 없음 (entity는 라이브러리 카드 판정에서 제외)
   │
   └─ IPC Events → 프론트엔드
       ├─ JOB_PROGRESS (진행률, 메시지)
@@ -40,7 +49,9 @@
       └─ JOB_FAILED (에러)
 ```
 
-**관련 파일**: `main.mjs` (오케스트레이션), `pdf-heuristics.mjs` (inspectPdfMetadata + extractFigureImagesFromPdf), `mineru-client.mjs` (PDF 파싱), `grobid-client.mjs` (메타데이터), `ocr-extraction.mjs` (빈 테이블 GLM-OCR), `embedding-worker.mjs` (임베딩)
+> **라이브러리 "Complete" 판정 범위**: 카드의 처리 상태(`Paper.processingStatus`)는 core 파이프라인 `import_pdf` + `generate_embeddings`만 합성해 계산한다(`paperSignals.ts`). `extract_entities`는 부가 단계라 제외되며, 그 실패는 카드 상태를 뒤집지 않고 ProcessingView(처리 파이프라인 탭)에서만 보인다. 상세는 `detail/frontend/stores-queries.md` 참고.
+
+**관련 파일**: `main.mjs` (오케스트레이션), `pdf-heuristics.mjs` (inspectPdfMetadata + extractFigureImagesFromPdf), `mineru-client.mjs` (PDF 파싱), `grobid-client.mjs` (메타데이터), `ocr-extraction.mjs` (빈 테이블 GLM-OCR), `embedding-worker.mjs` (임베딩), `entity-extractor.mjs` (엔티티 추출)
 
 ## 2. 시맨틱 검색
 
@@ -132,8 +143,11 @@
   ├─ IPC: CHAT_SEND_MESSAGE (mode="qa") → handleQaPipeline [main.mjs:3227]
   │   ├─ 사용자 메시지를 직접 검색 쿼리로 사용
   │   ├─ extractKeyTerms(message) → 키워드 힌트 추출
-  │   ├─ runMultiQueryRag(queries, hints, filterIds, "qa")
-  │   │   └─ RRF 가중: vector 70%, BM25 30% (Q&A 모드)
+  │   ├─ getEntityGraphEnabled(ownerId)로 opt-in 분기 (fix 16, 기본 OFF)
+  │   │   ├─ OFF(기본): runMultiQueryRag(queries, hints, filterIds, "qa") 직접 호출 — plain RAG
+  │   │   │   └─ extractQueryEntities/graph fusion 없음, `graphing` 상태 스킵
+  │   │   └─ ON: runGraphEnhancedRag(...) — 내부 baseResults(plain) + entity graph chunk fusion
+  │   │       └─ RRF 가중: vector 70%, BM25 30% (Q&A 모드, 두 경로 공통)
   │   ├─ assembleRagContext (텍스트 위주, 파싱 매트릭스 없음)
   │   ├─ generateQaResponse (llm-qa.mjs) → 스트리밍
   │   └─ formatSourceAttribution → [1], [2] 참조번호 매핑

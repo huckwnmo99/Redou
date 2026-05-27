@@ -21,6 +21,8 @@ import {
   useSetEntityModel,
   useEntityBackfillStatus,
   useStartEntityBackfill,
+  useEntityGraphEnabled,
+  useSetEntityGraphEnabled,
 } from "@/lib/chatQueries";
 
 function getErrorMessage(caught: unknown, fallback: string): string {
@@ -46,6 +48,8 @@ export function SettingsView() {
   const setEntityModel = useSetEntityModel();
   const { data: entityStatus, refetch: refetchEntityStatus } = useEntityBackfillStatus();
   const startEntityBackfill = useStartEntityBackfill();
+  const { data: entityGraphEnabled = false } = useEntityGraphEnabled();
+  const setEntityGraphEnabled = useSetEntityGraphEnabled();
   const t = (english: string, korean: string) => localeText(locale, english, korean);
 
   const desktopReady = desktop?.available ?? false;
@@ -340,6 +344,45 @@ export function SettingsView() {
               "논문 엔티티 추출에 사용할 모델을 선택하고 기존 논문의 그래프 백필을 대기열에 추가합니다.",
             )}
           </div>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+              marginBottom: 12,
+              padding: "10px 12px",
+              borderRadius: "var(--radius-sm)",
+              border: "1px solid var(--color-border-subtle)",
+              background: "var(--color-bg-surface)",
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={entityGraphEnabled}
+              onChange={(event) => {
+                const next = event.target.checked;
+                setEntityGraphEnabled.mutate(next);
+                setFeedback(
+                  next
+                    ? t("Entity graph enabled", "엔티티 그래프를 켰습니다.")
+                    : t("Entity graph disabled", "엔티티 그래프를 껐습니다."),
+                );
+              }}
+              style={{ marginTop: 2, flexShrink: 0, cursor: "pointer" }}
+            />
+            <div style={{ display: "grid", gap: 3 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text-primary)" }}>
+                {t("Enable entity graph (opt-in)", "엔티티 그래프 사용 (선택)")}
+              </span>
+              <span style={{ fontSize: 12, color: "var(--color-text-muted)", lineHeight: 1.6 }}>
+                {t(
+                  "Off by default. Adds ~100s per import and an extra LLM call per question. The toggle controls automatic extraction and graph-based Q&A only — manual backfill below works regardless.",
+                  "기본 꺼짐. 켜면 import당 약 100초, 질문당 LLM 호출이 추가됩니다. 토글은 자동 추출과 그래프 기반 Q&A만 제어하며, 아래 수동 백필은 토글과 무관하게 동작합니다.",
+                )}
+              </span>
+            </div>
+          </label>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <select
               value={activeEntityModel?.model ?? ""}

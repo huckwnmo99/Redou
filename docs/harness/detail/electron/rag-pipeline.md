@@ -1,5 +1,5 @@
 # RAG 파이프라인
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-22
+> 하네스 버전: v1.1 | 최종 갱신: 2026-05-27
 
 ## 개요
 채팅(테이블 생성/Q&A) 시 관련 논문 데이터를 검색하는 Hybrid Search + RRF Fusion + Reranker 파이프라인. 검색 결과를 LLM 컨텍스트로 조립한다.
@@ -67,6 +67,27 @@ searchQueries[] (Orchestrator 출력)
       └─ [Q&A 모드] assembleRagContext(chunks, figures, refMap, [])
           └─ 텍스트 위주 (파싱 매트릭스 없음)
 ```
+
+## Q&A 엔티티 그래프 opt-in (fix 16)
+
+`handleQaPipeline`(main.mjs)은 RAG 검색 직전에 `getEntityGraphEnabled(ownerId)`로 분기한다. 기본값 OFF.
+
+| 토글 | RAG 경로 | 비고 |
+|------|----------|------|
+| OFF (기본) | `runMultiQueryRag(queries, hints, filterIds, "qa", {abortSignal})` 직접 호출 | plain RAG. `extractQueryEntities` LLM 호출/`graphing` 상태 없음 |
+| ON | `runGraphEnhancedRag(...)` | 내부에서 `runMultiQueryRag`로 baseResults 생성 후 entity graph chunk fusion. `graphing` 상태 emit |
+
+- 두 경로의 반환은 모두 `{chunks, figures}`로 호환된다(graph 경로는 `graph` 메타 필드 추가, QA 하류 미사용).
+- 자동 entity 추출 큐잉도 동일 플래그로 게이트된다 — `enqueueEntityExtractionIfNeeded` 진입부에서 `getEntityGraphEnabled(userId)`가 false면 즉시 return(import/embedding 완료 호출처 2곳 모두 커버). 수동 백필(`enqueueEntityBackfill`)은 이 게이트를 거치지 않아 토글과 무관하게 동작.
+
+### 관련 헬퍼/IPC
+
+| 항목 | 위치 | 역할 |
+|------|------|------|
+| `getEntityGraphEnabled(userId)` | main.mjs | `user_workspace_preferences.entity_graph_enabled` 읽기. userId 없거나 미설정/null → false |
+| `ENTITY_GET_GRAPH_ENABLED` IPC | main.mjs / ipc-channels.mjs / preload.mjs | `{enabled}` 반환 |
+| `ENTITY_SET_GRAPH_ENABLED` IPC | main.mjs / ipc-channels.mjs / preload.mjs | `{enabled}` upsert |
+| 마이그레이션 | `supabase/migrations/20260527073618_add_entity_graph_enabled.sql` | `entity_graph_enabled boolean not null default false` 컬럼 추가 |
 
 ## RRF 가중치
 

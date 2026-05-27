@@ -1,5 +1,5 @@
 # 기능 상태 매트릭스
-> 하네스 버전: v1.1 | 최종 갱신: 2026-04-22
+> 하네스 버전: v1.4 | 최종 갱신: 2026-05-27
 
 ## 전체 기능 매트릭스
 
@@ -33,7 +33,9 @@
 | 폴더 관리 | ✅ 구현됨 | frontend/paper.md | 트리 구조, 드래그&드롭 |
 | Figure/Table/Equation 갤러리 | ✅ 구현됨 | frontend/paper.md | FiguresView.tsx |
 | 노트 워크스페이스 | ✅ 구현됨 | frontend/notes.md | 7가지 note_type |
-| 프로세싱 모니터링 | ✅ 구현됨 | frontend/paper.md | ProcessingView.tsx |
+| 프로세싱 모니터링 | ✅ 구현됨 | frontend/paper.md | ProcessingView.tsx (import_pdf / generate_embeddings / extract_entities 라벨 구분 표시) |
+| 라이브러리 카드 처리 상태 | ✅ 구현됨 | frontend/stores-queries.md | `paperSignals.ts`가 core(import_pdf+generate_embeddings) job 합성으로 계산. 둘 다 succeeded일 때만 "Complete". entity는 제외 |
+| 엔티티 추출 (graph) | ✅ 구현됨 (opt-in, 기본 OFF) | — | `entity-extractor.mjs`. **opt-in**: 자동 큐잉/QA graph 경로를 `user_workspace_preferences.entity_graph_enabled`(기본 OFF)로 게이트(fix 16). OFF: import 시 `extract_entities` 자동 큐잉 안 함 + QA는 plain `runMultiQueryRag`. ON: embedding 후 비차단 큐잉 + QA는 `runGraphEnhancedRag`. **수동 백필 버튼은 토글과 무관하게 항상 동작**. 부가 기능(실패 시 core 영향 없음). `codex/rag-infra-extraction` |
 | Google OAuth 인증 | ✅ 구현됨 | electron/main-process.md | oauth-callback-server.mjs |
 | 백업/복원 | ✅ 구현됨 | electron/main-process.md | BACKUP_CREATE/RESTORE |
 | 다국어 (한/영) | ✅ 구현됨 | frontend/stores-queries.md | locale.ts |
@@ -58,7 +60,8 @@
 | Step 5 | Sentence Window Retrieval | 💡 아이디어 |
 | Step 5 | HyDE | 💡 아이디어 |
 | Step 6 | 인용 네트워크 / GraphRAG / 멀티홉 | 💡 아이디어 |
-| 브랜치통합 | 엔티티 그래프(PR #1)를 Plan 12 본선에 통합 (entity-extractor + Graph-Enhanced RAG) | 📋 계획됨 (docs/features/new/11) |
+| 브랜치통합 | 엔티티 그래프(PR #1)를 Plan 12 본선에 통합 (entity-extractor + Graph-Enhanced RAG) | ✅ 구현됨 (`codex/rag-infra-extraction` 브랜치 통합·동작. embedding 후 `extract_entities` 큐잉, dev DB에 실행 이력. graceful-degradation 부가 기능 — core "Complete" 판정에서 제외) |
+| 정책변경 | Entity Graph opt-in 전환 (자동 큐잉/QA graph를 `entity_graph_enabled` 플래그로 게이트, 기본 OFF) | ✅ 구현됨 (fix 16. `enqueueEntityExtractionIfNeeded` 진입부 게이트 + `handleQaPipeline` graph/plain 분기 + GET/SET IPC + Settings 토글. 마이그레이션 `20260527073618_add_entity_graph_enabled.sql`. 근거: extract_entities 편당 ~104초=처리의 ~60%, QA graph 가치 미검증) |
 | Step 7 | Agentic RAG 통합 | 💡 아이디어 |
 | 리팩토링 | PDF 파이프라인 V2 단일화 (V1 휴리스틱 폴백 제거) | ✅ 완료 (CURRENT_EXTRACTION_VERSION=25, MinerU 필수 throw, V1 코드 전체 삭제) |
 

@@ -46,6 +46,8 @@ export const IPC_CHANNELS = {
   ENTITY_BACKFILL_STATUS: 'entity:backfill-status',
   ENTITY_GET_MODEL: 'entity:get-model',
   ENTITY_SET_MODEL: 'entity:set-model',
+  ENTITY_GET_GRAPH_ENABLED: 'entity:get-graph-enabled',
+  ENTITY_SET_GRAPH_ENABLED: 'entity:set-graph-enabled',
 };
 
 /** main -> renderer (mainWindow.webContents.send) */

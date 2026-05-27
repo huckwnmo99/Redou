@@ -154,6 +154,10 @@ export interface EntityBackfillStatus {
   failedJobs: number;
 }
 
+export interface EntityGraphEnabledInfo {
+  enabled: boolean;
+}
+
 export type ChatPipelineStage =
   | "orchestrating"
   | "searching"
@@ -228,6 +232,8 @@ export interface RedouDesktopApi {
     getBackfillStatus: (args?: { userId?: string; accessToken?: string }) => Promise<DbResult<EntityBackfillStatus>>;
     getModel: (args?: { userId?: string; accessToken?: string }) => Promise<DbResult<EntityModelInfo>>;
     setModel: (args: { model: string; userId?: string; accessToken?: string }) => Promise<DbResult<{ model: string }>>;
+    getGraphEnabled: (args?: { userId?: string; accessToken?: string }) => Promise<DbResult<EntityGraphEnabledInfo>>;
+    setGraphEnabled: (args: { enabled: boolean; userId?: string; accessToken?: string }) => Promise<DbResult<EntityGraphEnabledInfo>>;
   };
   openExternal: (url: string) => Promise<void>;
   getFilePathForDrop: (file: File) => string;

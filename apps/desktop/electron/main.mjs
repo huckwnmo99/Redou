@@ -485,6 +485,17 @@ async function getEntityExtractionModel(userId = null) {
   return pref?.entity_extraction_model || pref?.llm_model || getActiveModel();
 }
 
+async function getEntityGraphEnabled(userId = null) {
+  if (!userId) return false; // 비로그인/시스템 컨텍스트 → 기본 OFF
+  const { data: pref, error } = await supabase
+    .from("user_workspace_preferences")
+    .select("entity_graph_enabled")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return pref?.entity_graph_enabled === true; // null/미설정 → false
+}
+
 async function ensurePaperSummary(paperId, userId) {
   const { data: existing, error: existingError } = await supabase
     .from("paper_summaries")
@@ -1136,6 +1147,12 @@ function buildReferencePattern(figureNo) {
 
 async function enqueueEntityExtractionIfNeeded(paperId, userId, sourcePath = null, sourceFileId = null) {
   try {
+    // Entity graph is opt-in (default OFF). Skip automatic queuing unless enabled
+    // for this user. Manual backfill (enqueueEntityBackfill) bypasses this gate.
+    if (!(await getEntityGraphEnabled(userId))) {
+      return false;
+    }
+
     const { data: paper, error: paperError } = await supabase
       .from("papers")
       .select("id, entity_extraction_version")
@@ -2428,21 +2445,32 @@ async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAl
   // Use the user's message directly as the search query (simplified vs table pipeline)
   const searchQueries = [{ query: message, intent: "qa" }];
   const keyTerms = extractKeyTerms(message);
-  emitStatus({ stage: "graphing", message: "Expanding entity graph context..." });
-  const entityModelName = await getEntityExtractionModel(ownerId);
-  const ragResults = await runGraphEnhancedRag(
-    searchQueries,
-    keyTerms,
-    filterPaperIds,
-    "qa",
-    supabase,
-    {
-      generateEmbedding,
-      runMultiQueryRag,
-      modelName: entityModelName,
+
+  // Entity graph is opt-in (default OFF). When enabled, expand context via the
+  // entity graph; otherwise fall back to plain multi-query RAG (pre-graph behavior).
+  const graphEnabled = await getEntityGraphEnabled(ownerId);
+  let ragResults;
+  if (graphEnabled) {
+    emitStatus({ stage: "graphing", message: "Expanding entity graph context..." });
+    const entityModelName = await getEntityExtractionModel(ownerId);
+    ragResults = await runGraphEnhancedRag(
+      searchQueries,
+      keyTerms,
+      filterPaperIds,
+      "qa",
+      supabase,
+      {
+        generateEmbedding,
+        runMultiQueryRag,
+        modelName: entityModelName,
+        abortSignal: abortController.signal,
+      },
+    );
+  } else {
+    ragResults = await runMultiQueryRag(searchQueries, keyTerms, filterPaperIds, "qa", {
       abortSignal: abortController.signal,
-    },
-  );
+    });
+  }
   throwIfChatAborted(abortController.signal);
 
   // If no results, inform user
@@ -2892,6 +2920,29 @@ ipcMain.handle(IPC_CHANNELS.ENTITY_SET_MODEL, async (_event, { model, userId, ac
     if (error) throw new Error(error.message);
 
     return { success: true, data: { model: await getEntityExtractionModel(ownerId) } };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.ENTITY_GET_GRAPH_ENABLED, async (_event, authContext = {}) => {
+  try {
+    const ownerId = await resolveAuthenticatedUserId(authContext);
+    return { success: true, data: { enabled: await getEntityGraphEnabled(ownerId) } };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.ENTITY_SET_GRAPH_ENABLED, async (_event, { enabled, userId, accessToken }) => {
+  try {
+    const ownerId = await resolveAuthenticatedUserId({ userId, accessToken });
+    const { error } = await supabase
+      .from("user_workspace_preferences")
+      .upsert({ user_id: ownerId, entity_graph_enabled: enabled === true, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+    if (error) throw new Error(error.message);
+
+    return { success: true, data: { enabled: enabled === true } };
   } catch (err) {
     return { success: false, error: err.message };
   }

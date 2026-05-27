@@ -1,5 +1,5 @@
 # 스토어 & 쿼리 계층
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+> 하네스 버전: v1.4 | 최종 갱신: 2026-05-27
 
 ## 개요
 Zustand로 UI ���태를, TanStack Query로 서버 상태를 관리한다. Supabase DAL(supabasePaperRepository)이 DB 접근을 추상화하고, desktop.ts가 Electron IPC를 래핑한다.
@@ -70,10 +70,27 @@ Zustand로 UI ���태를, TanStack Query로 서버 상태를 관리한다. 
 | `useSendMessage()` | 메시지 전송 뮤테이션 |
 | `useChatEvents()` | IPC 이벤트 수신 + chatStore 갱신 |
 
+### 엔티티/모델 훅 (chatQueries.ts)
+
+| 훅 | 쿼리 키 | 역할 |
+|------|---------|------|
+| `useActiveEntityModel()` / `useSetEntityModel()` | `entityKeys.activeModel` | 엔티티 추출 모델 조회/변경 |
+| `useEntityBackfillStatus()` / `useStartEntityBackfill()` | `entityKeys.backfillStatus` | 수동 백필 상태/시작 (토글과 무관하게 동작) |
+| `useEntityGraphEnabled()` / `useSetEntityGraphEnabled()` | `entityKeys.graphEnabled` | 엔티티 그래프 opt-in 토글 조회/변경(기본 OFF). `entity.getGraphEnabled/setGraphEnabled` IPC 래핑. `useEntityGraphEnabled`는 `boolean` 반환 (fix 16) |
+
 ## Supabase DAL (supabasePaperRepository.ts, ~1488줄)
 - 모든 테이블에 대한 CRUD 함수 정의
 - 프론트엔드 직접 호출 또는 Electron IPC(DB_QUERY/DB_MUTATE) 경유
 - 시맨틱 검색 RPC 호출 (match_chunks, match_papers, match_figures, match_highlight_embeddings)
+
+## 라이브러리 카드 처리 상태 계산 (paperSignals.ts)
+- `papers` 테이블에는 `processing_status` 컬럼이 없다. 라이브러리 카드의 "Complete/처리 중/실패" 표시는 `frontend/src/lib/paperRepository/paperSignals.ts`의 `fetchPaperSignals()`가 `processing_jobs`에서 **실시간 계산**한 값(`Paper.processingStatus`)이다.
+- **core 파이프라인 = `import_pdf` + `generate_embeddings`** 두 job을 모두 로드해 paper별로 합성한다 (`CORE_JOB_TYPES`).
+  - 우선순위: `failed` > `running` > `queued` > `succeeded`. 하나라도 failed면 failed, 하나라도 running이면 running.
+  - **두 core job이 모두 succeeded일 때만 `succeeded`("Complete")**. embedding job이 아직 큐잉 전이면(import 직후) `queued`로 취급해 "Complete"로 위장되지 않게 한다.
+  - primary source(`paper_files.is_primary`) 필터를 유지해 보조 파일 job은 제외한다.
+- **`extract_entities`(엔티티 추출)는 core 판정에서 제외**한다 (graceful-degradation 부가 기능 — 실패해도 논문 읽기/검색/노트/채팅은 정상이므로 core "Complete"를 뒤집지 않는다). entity 진행/실패는 ProcessingView(처리 파이프라인 탭)에서만 노출된다.
+- 소비처: `PaperCard`, `PaperListItem`, `PaperDetailView`, `RightInspector`, `ProcessingBadge`(`succeeded`→"Complete").
 
 ## desktop.ts (Electron IPC 브릿지)
 - `useDesktopStatus()`: Electron 가용 여부, 플랫폼, 버전

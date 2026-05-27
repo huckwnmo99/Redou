@@ -35,6 +35,8 @@ const IPC_CHANNELS = {
   ENTITY_BACKFILL_STATUS: "entity:backfill-status",
   ENTITY_GET_MODEL: "entity:get-model",
   ENTITY_SET_MODEL: "entity:set-model",
+  ENTITY_GET_GRAPH_ENABLED: "entity:get-graph-enabled",
+  ENTITY_SET_GRAPH_ENABLED: "entity:set-graph-enabled",
 };
 
 const IPC_EVENTS = {
@@ -117,6 +119,8 @@ contextBridge.exposeInMainWorld("redouDesktop", {
     getBackfillStatus: (args) => ipcRenderer.invoke(IPC_CHANNELS.ENTITY_BACKFILL_STATUS, args),
     getModel: (args) => ipcRenderer.invoke(IPC_CHANNELS.ENTITY_GET_MODEL, args),
     setModel: (args) => ipcRenderer.invoke(IPC_CHANNELS.ENTITY_SET_MODEL, args),
+    getGraphEnabled: (args) => ipcRenderer.invoke(IPC_CHANNELS.ENTITY_GET_GRAPH_ENABLED, args),
+    setGraphEnabled: (args) => ipcRenderer.invoke(IPC_CHANNELS.ENTITY_SET_GRAPH_ENABLED, args),
   },
 
   openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_EXTERNAL, url),
