@@ -26,6 +26,16 @@ const statusConfig: Record<ProcessingJobStatus, { label: string; labelKo: string
   failed: { label: "Failed", labelKo: "실패", color: "#dc2626", bg: "rgba(220,38,38,0.10)", icon: AlertCircle },
 };
 
+const jobTypeLabels: Record<string, { en: string; ko: string }> = {
+  import_pdf: { en: "Import & Extract", ko: "임포트 & 추출" },
+  generate_embeddings: { en: "Embeddings", ko: "임베딩" },
+  extract_entities: { en: "Entities", ko: "엔티티" },
+};
+
+function jobTypeLabel(jobType: string): { en: string; ko: string } {
+  return jobTypeLabels[jobType] ?? { en: jobType, ko: jobType };
+}
+
 function useProcessingJobs() {
   return useQuery({
     queryKey: ["processing-jobs-all"],
@@ -209,7 +219,10 @@ function JobCard({ job, order, locale }: { job: ProcessingJob; order?: number; l
           background: "var(--color-bg-surface)",
           borderRadius: "var(--radius-xs)",
         }}>
-          {job.job_type === "import_pdf" ? t("Import & Extract", "임포트 & 추출") : t("Embeddings", "임베딩")}
+          {(() => {
+            const label = jobTypeLabel(job.job_type);
+            return t(label.en, label.ko);
+          })()}
         </span>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 10.5, color: "var(--color-text-muted)", fontVariantNumeric: "tabular-nums" }}>
