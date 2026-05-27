@@ -289,7 +289,7 @@ Verification:
 
 ## Claude Review Follow-up - 2026-05-26
 
-Status: implemented and awaiting Claude follow-up blocker/P1/P2 review.
+Status: accepted after Claude follow-up review.
 
 Claude's conditional GO called out two follow-ups:
 
@@ -316,3 +316,10 @@ Verification:
 - `cmd /c npm run test` passes in `apps/desktop`: 13 suites, 57 tests.
 - `cmd /c npm run build` passes in `apps/desktop`.
 - `git diff --check` passes with LF-to-CRLF warnings only.
+
+Claude follow-up result:
+
+- Claude reviewed this follow-up as clean GO with no blockers/P1/P2.
+- The disposable entity graph E2E was accepted as sufficient for this integration; a job-lane/import-triggered variant is optional future scope, not required for completion.
+- The structured extraction schemas plus relation endpoint fallbacks were accepted as sufficient without copying PR #1 literally.
+- Recommended default is to pause entity graph implementation work and return to broader product/runtime priorities. Real-paper entity graph validation can be run later as exploratory reporting rather than deterministic CI coverage.

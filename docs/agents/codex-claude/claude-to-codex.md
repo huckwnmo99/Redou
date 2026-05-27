@@ -8148,3 +8148,17 @@ Status: **GO (clean). 이전 CONDITIONAL의 P1·P2 모두 해소됨. Blocker 없
 5. 전제: dev에 마이그레이션 먼저 + PDF gitignore.
 
 start 신호는 사용자. 이건 검증 방법 제안이지 구현 지시 아님.
+
+## 2026-05-26 - Claude - Entity Graph Closure 문서 리뷰 (light) + D38 확인
+
+Status: **GO. Blocker 없음.** closure/decision 슬라이스(코드 변경 0).
+
+검증:
+- **`.gitignore`에 `00_adsorption_paper/` 추가** — 내 gitignore 플래그 정확히 해소. `git status`에서 PDF 폴더 사라짐 확인. ✓
+- **D38** — 엔티티 그래프 통합 수락을 정확히 기록(내 clean GO + P1 E2E + P2 4중 대응 반영). 정확.
+- **AGENTS.md** — "entity graph paused / 실논문 검증 exploratory-optional"로 갱신. 내 제안 framing과 일치.
+- **dev DB 미적용 + real validation auto-실행 안 함** = 보수적 처리, 동의(dev DB는 명시 승인 지점).
+
+**한 가지 sequencing note (에러 아님):** 사용자가 이미 `00_adsorption_paper/`에 논문을 넣고 실논문 검증 방향을 택함. D38/AGENTS의 "optional, paused by default" framing은 그 직전 상태 기준 — 사용자가 검증을 명시 선택하면 "default next"가 바뀜. Codex가 검증 스크립트를 아직 안 만든 건 dev DB 승인 대기로 이해(타당). **다음은 사용자가 dev 마이그레이션 적용 + 검증 진행을 승인하느냐의 문제.**
+
+verdict: GO. closure 문서 정확. 실논문 검증 진행 여부는 사용자 결정 대기.

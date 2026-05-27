@@ -12,3 +12,4 @@ vite.config.d.ts
 .claude/
 .npm-cache/
 .tmp_*
+00_adsorption_paper/

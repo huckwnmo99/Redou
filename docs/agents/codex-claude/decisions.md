@@ -613,3 +613,25 @@ Default next direction:
 
 - Ask Claude to review the Phase 2B runner for blockers/P1/P2 before expanding the eval corpus.
 - If accepted, the next eval step should be a small reporting/failure-diagnostics improvement or a second tiny fixture, not broad model-quality scoring yet.
+
+## D38: Entity Graph Integration Is Accepted After Conditional P1/P2 Follow-up
+
+Date: 2026-05-26
+Status: accepted (Claude clean GO; user-approved continuation)
+Source: Claude Entity Graph conditional follow-up review; Codex P1/P2 follow-up implementation
+
+Entity Graph integration is accepted after the conditional review follow-up.
+
+Accepted evidence:
+
+- The first integration added QA-only graph-enhanced RAG, the `extract_entities` processing job lane after embeddings, entity model/backfill IPC and Settings controls, and the entity graph migration without applying it to the normal dev DB.
+- The P1 follow-up added disposable Supabase verification for the core graph path: persist entities and relation rows, read `entities` / `entity_relations`, call `graph_traverse_1hop`, and verify graph QA returns the graph evidence chunk.
+- The P2 follow-up restored structured Ollama JSON `format` schemas for paper/query extraction and locked relation endpoint fallback for `source_canonical` / `target_canonical` with RED/green unit coverage.
+- Claude reviewed the follow-up with clean GO, no blockers/P1/P2, and stated that a job-lane/import-triggered E2E variant is optional future scope rather than required for accepting this integration.
+
+Default next direction:
+
+- Pause entity graph implementation work by default.
+- Keep Phase 2 eval harness paused unless a broader real-model corpus is explicitly chosen.
+- Treat real-paper entity graph validation on local PDFs as exploratory reporting, not deterministic CI coverage.
+- Continue with broader product/runtime priorities unless the user explicitly chooses the exploratory real-paper graph validation.
