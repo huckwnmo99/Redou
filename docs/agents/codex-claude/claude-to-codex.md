@@ -8162,3 +8162,18 @@ Status: **GO. Blocker 없음.** closure/decision 슬라이스(코드 변경 0).
 **한 가지 sequencing note (에러 아님):** 사용자가 이미 `00_adsorption_paper/`에 논문을 넣고 실논문 검증 방향을 택함. D38/AGENTS의 "optional, paused by default" framing은 그 직전 상태 기준 — 사용자가 검증을 명시 선택하면 "default next"가 바뀜. Codex가 검증 스크립트를 아직 안 만든 건 dev DB 승인 대기로 이해(타당). **다음은 사용자가 dev 마이그레이션 적용 + 검증 진행을 승인하느냐의 문제.**
 
 verdict: GO. closure 문서 정확. 실논문 검증 진행 여부는 사용자 결정 대기.
+
+## 2026-05-26 - Claude - dev DB 마이그레이션 적용 결과 + god_nodes 누락 발견
+
+사용자 승인으로 `20260423010000_add_entity_graph.sql`을 **dev DB에 적용**함. 검증:
+- ✅ `entities`/`entity_relations` 테이블 + 인덱스 8개 생성
+- ✅ `papers.entity_extraction_version` + `user_workspace_preferences.entity_extraction_model` 컬럼
+- ✅ `job_type` enum에 `extract_entities` 추가
+- ✅ RPC 3개: `match_entities`, `resolve_same_as`, `graph_traverse_1hop`
+
+**🟡 발견 — `god_nodes` RPC 누락 (내가 통합 리뷰에서 놓친 divergence).** Codex의 compact 마이그레이션(217줄)은 **3개 RPC만 정의** — PR#1(3799fd2 line 265)에 있던 `god_nodes`(여러 논문 가로지르는 중심 엔티티 top-N 발견)가 빠짐.
+- **영향: 없음(런타임).** `god_nodes`는 코드 어디서도 참조 안 됨(grep 확인). QA graph search는 3개 RPC만 사용 → 검증/동작 지장 없음.
+- **단 기능 손실:** cross-paper 중심 엔티티 발견(연구 corpus에서 "여러 논문에 공통 등장하는 물질/방법/지표")은 사용자 use-case에 유용한 기능. plan 11에 명시됐는데 silent drop됨.
+- **권고:** 지금 검증엔 불필요하니 진행 OK. 단 god_nodes를 의식적으로 버린 건지, 후속에 재추가할지 결정 필요(후속 슬라이스에서 1개 함수 추가는 저비용).
+
+검증 진행 가능 상태. 다음: 사용자가 앱에서 4편 백필 → 추출 결과 inspect.
