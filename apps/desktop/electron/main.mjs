@@ -492,7 +492,12 @@ async function getEntityGraphEnabled(userId = null) {
     .select("entity_graph_enabled")
     .eq("user_id", userId)
     .maybeSingle();
-  if (error) throw new Error(error.message);
+  if (error) {
+    // graph는 opt-in 부가 기능. 컬럼 부재(마이그레이션 미적용)/일시 DB 에러 시
+    // throw 대신 OFF로 graceful degrade → QA는 plain RAG로 진행. (GROBID degraded-mode 패턴과 일관)
+    console.warn(`[entity-graph] preference lookup failed, defaulting to OFF: ${error.message}`);
+    return false;
+  }
   return pref?.entity_graph_enabled === true; // null/미설정 → false
 }
 
