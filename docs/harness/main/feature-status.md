@@ -62,6 +62,7 @@
 | Step 6 | 인용 네트워크 / GraphRAG / 멀티홉 | 💡 아이디어 |
 | 브랜치통합 | 엔티티 그래프(PR #1)를 Plan 12 본선에 통합 (entity-extractor + Graph-Enhanced RAG) | ✅ 구현됨 (`codex/rag-infra-extraction` 브랜치 통합·동작. embedding 후 `extract_entities` 큐잉, dev DB에 실행 이력. graceful-degradation 부가 기능 — core "Complete" 판정에서 제외) |
 | 정책변경 | Entity Graph opt-in 전환 (자동 큐잉/QA graph를 `entity_graph_enabled` 플래그로 게이트, 기본 OFF) | ✅ 구현됨 (fix 16. `enqueueEntityExtractionIfNeeded` 진입부 게이트 + `handleQaPipeline` graph/plain 분기 + GET/SET IPC + Settings 토글. 마이그레이션 `20260527073618_add_entity_graph_enabled.sql`. 근거: extract_entities 편당 ~104초=처리의 ~60%, QA graph 가치 미검증) |
+| 버그수정 | `getEntityGraphEnabled` DB 조회 에러 시 graceful degrade (graph OFF) | 📋 계획됨 (fix 17. #16 리뷰 중 발견한 P2. `main.mjs:495` throw → console.warn+false. `entity_graph_enabled` 컬럼 미적용 환경에서 QA 전체가 깨지는 문제 hardening. GROBID degraded-mode 패턴과 일관) |
 | Step 7 | Agentic RAG 통합 | 💡 아이디어 |
 | 리팩토링 | PDF 파이프라인 V2 단일화 (V1 휴리스틱 폴백 제거) | ✅ 완료 (CURRENT_EXTRACTION_VERSION=25, MinerU 필수 throw, V1 코드 전체 삭제) |
 
