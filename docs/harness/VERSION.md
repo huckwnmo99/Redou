@@ -1,5 +1,16 @@
 # Harness Version
 
+## v1.5 — 2026-05-30
+- FiguresView 디자인 킷 이식 (리디자인 1호 시범 화면). 방향 A(1-pane 전역 갤러리) + 썸네일 A-1(paperId별 PDF doc 캐시) 채택
+- `FiguresView.tsx` 전면 재구성: 2-pane(논문선택→그림) 폴더 동선 제거 → 필터칩(All/Figure/Table/Equation + 카운트) + 캡션·제목 검색 + 카드 그리드 + 라이트박스(키보드 ←/→/Esc)
+- 실제 썸네일 로직 보존: `PageThumbnail`/`FigureImage`/`TableCropThumbnailCard`/`FigureCropThumbnailCard`/`usePaperPdfDoc`. 킷 가짜 placeholder 미채택
+- 신규 `PaperDocCacheProvider`/`PaperDocLoader`/`usePaperDoc`(context): 전역 그리드에서 paperId별 PDF doc를 1개씩 공유 로드(imagePath 있는 그림은 doc 불필요)
+- 신규 `FigureThumb`(실제 렌더 분기), `FigureCard`(킷 스타일+출처 라벨), `FigureGallery`, `FigureLightbox`(큰 미리보기=실제 렌더, "논문 열기"=`jumpToPage`)
+- 보존: `useAllFigures`/`useAllPapers`/`usePrimaryPaperFile` 훅, `@/lib/desktop` IPC(`toDesktopFileUrl`/`useResolvedDesktopFilePath`/`useDesktopRuntime`), `useUIStore` PDF 점프 동선, `PaperFigure`/`Paper` 타입, `LatexText`(KaTeX 캡션), i18n `localeText`. 킷 한국어 하드코딩 전부 `t(en, ko)`로 래핑. `useFolders` import만 제거(Direction A에서 미사용)
+- `tokens.css`: `--shadow-xs`, `--font-mono` 추가 + `.fig-card`/`.fig-zoom` hover 규칙(인라인 style로 :hover 불가)
+- 데이터 계층/IPC/스토어/DB/Electron 무변경. `CURRENT_EXTRACTION_VERSION` 범프 불필요. 커밋/비주얼 검증은 리뷰 단계에서
+- feature-status.md: FiguresView 리디자인 행 ✅ 구현됨 처리. paper.md: FiguresView 섹션 갱신(1-pane 갤러리). flows.md: Figure 갤러리 탐색 흐름 추가
+
 ## v1.4 — 2026-05-27
 - Entity Graph opt-in 전환 (fix 16). `user_workspace_preferences.entity_graph_enabled` boolean(기본 false) 플래그로 자동 큐잉/QA graph 경로를 게이트
 - 마이그레이션 `20260527073618_add_entity_graph_enabled.sql` 추가

@@ -1,16 +1,57 @@
-import { ChevronRight, ExternalLink, FileText, Images, Sigma, Table2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  FileText,
+  ImageOff,
+  Images,
+  Maximize2,
+  Search,
+  Sigma,
+  Table2,
+  X,
+} from "lucide-react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
 import workerUrl from "@/pdf-worker?worker&url";
 import type { PDFDocumentProxy } from "pdfjs-dist/types/src/display/api";
 import { localeText } from "@/lib/locale";
 import { toDesktopFileUrl, useDesktopRuntime, useResolvedDesktopFilePath } from "@/lib/desktop";
-import { useAllFigures, useAllPapers, useFolders, usePrimaryPaperFile } from "@/lib/queries";
+import { useAllFigures, useAllPapers, usePrimaryPaperFile } from "@/lib/queries";
 import { useUIStore } from "@/stores/uiStore";
-import type { Paper, PaperFigure } from "@/types/paper";
+import type { FigureItemType, Paper, PaperFigure } from "@/types/paper";
 import { LatexText, containsLatex } from "@/components/LatexText";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
+
+/* ------------------------------------------------------------------ */
+/*  Type metadata (kit FIG_META) — labels are localized at call sites  */
+/* ------------------------------------------------------------------ */
+
+const TYPE_COLOR: Record<FigureItemType, string> = {
+  figure: "#2563eb",
+  table: "#0f766e",
+  equation: "#a855f7",
+};
+
+function typeLabel(t: (en: string, ko: string) => string, itemType: FigureItemType): string {
+  if (itemType === "table") return t("Table", "Table");
+  if (itemType === "equation") return t("Equation", "Equation");
+  return t("Figure", "Figure");
+}
+
+/** Extracts a display number from a figureNo string (e.g. "Figure 3" → "3"). */
+function figureNumber(figureNo: string): string {
+  return figureNo.match(/(\d+)/)?.[1] ?? figureNo;
+}
 
 /* ------------------------------------------------------------------ */
 /*  PDF page thumbnail — receives shared doc                           */
@@ -59,7 +100,7 @@ function PageThumbnail({ doc, page, width }: { doc: PDFDocumentProxy; page: numb
 }
 
 /* ------------------------------------------------------------------ */
-/*  Hook: load a single PDF doc for the selected paper                 */
+/*  Hook: load a single PDF doc for one paper                          */
 /* ------------------------------------------------------------------ */
 
 function usePaperPdfDoc(paperId: string | null) {
@@ -94,6 +135,71 @@ function usePaperPdfDoc(paperId: string | null) {
   }, []);
 
   return doc;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Per-paper PDF doc cache (Direction A-1)                            */
+/*  A 1-pane global gallery mixes figures from many papers. Each crop  */
+/*  thumbnail needs its own paper's PDF doc. We load one doc per paper */
+/*  (shared across all of that paper's cards) and expose it via Map.   */
+/* ------------------------------------------------------------------ */
+
+const PaperDocContext = createContext<Map<string, PDFDocumentProxy | null>>(new Map());
+
+function usePaperDoc(paperId: string): PDFDocumentProxy | null {
+  const map = useContext(PaperDocContext);
+  return map.get(paperId) ?? null;
+}
+
+/** Loads exactly one paper's PDF doc and reports it upward. One per paperId. */
+function PaperDocLoader({
+  paperId,
+  onDoc,
+}: {
+  paperId: string;
+  onDoc: (paperId: string, doc: PDFDocumentProxy | null) => void;
+}) {
+  const doc = usePaperPdfDoc(paperId);
+  useEffect(() => {
+    onDoc(paperId, doc);
+    return () => onDoc(paperId, null);
+  }, [paperId, doc, onDoc]);
+  return null;
+}
+
+/**
+ * Provides a shared paperId → PDF doc cache to descendant cards.
+ * `paperIds` should list only papers that actually need a rendered crop
+ * (i.e. at least one figure without an imagePath). Its identity is derived
+ * from the figure set so the loader list stays stable across renders.
+ */
+function PaperDocCacheProvider({
+  paperIds,
+  children,
+}: {
+  paperIds: string[];
+  children: React.ReactNode;
+}) {
+  const [docs, setDocs] = useState<Map<string, PDFDocumentProxy | null>>(new Map());
+
+  const handleDoc = useCallback((paperId: string, doc: PDFDocumentProxy | null) => {
+    setDocs((prev) => {
+      if (prev.get(paperId) === doc) return prev;
+      const next = new Map(prev);
+      if (doc) next.set(paperId, doc);
+      else next.delete(paperId);
+      return next;
+    });
+  }, []);
+
+  return (
+    <PaperDocContext.Provider value={docs}>
+      {paperIds.map((id) => (
+        <PaperDocLoader key={id} paperId={id} onDoc={handleDoc} />
+      ))}
+      {children}
+    </PaperDocContext.Provider>
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -336,147 +442,163 @@ function FigureCropThumbnailCard({ doc, page, figureNo, width }: { doc: PDFDocum
 }
 
 /* ------------------------------------------------------------------ */
-/*  Figure card                                                        */
+/*  Real thumbnail visual — picks the right renderer per figure        */
+/*  Replaces the kit's fake FigureThumb placeholder.                   */
 /* ------------------------------------------------------------------ */
 
-function FigureCard({
-  figure,
-  doc,
-  onJumpToPage,
-}: {
-  figure: PaperFigure;
-  doc: PDFDocumentProxy | null;
-  onJumpToPage: () => void;
-}) {
+function FigureThumb({ figure, width, big = false }: { figure: PaperFigure; width: number; big?: boolean }) {
+  const doc = usePaperDoc(figure.paperId);
+
+  if (figure.imagePath) {
+    return <FigureImage imagePath={figure.imagePath} />;
+  }
+  if (doc && figure.page && figure.itemType === "table") {
+    return <TableCropThumbnailCard doc={doc} page={figure.page} figureNo={figure.figureNo} width={width} />;
+  }
+  if (doc && figure.page && figure.itemType === "figure") {
+    return <FigureCropThumbnailCard doc={doc} page={figure.page} figureNo={figure.figureNo} width={width} />;
+  }
+  if (doc && figure.page) {
+    return <PageThumbnail doc={doc} page={figure.page} width={width} />;
+  }
   return (
-    <div
-      style={{
-        borderRadius: 8, background: "var(--color-bg-surface)",
-        border: "1px solid var(--color-border-subtle)",
-        overflow: "hidden", cursor: figure.page ? "pointer" : "default",
-      }}
-      onClick={() => figure.page && onJumpToPage()}
-    >
-      <div style={{
-        background: "var(--color-bg-base)",
-        borderBottom: "1px solid var(--color-border-subtle)",
-        minHeight: 80, display: "flex", alignItems: "center", justifyContent: "center",
-        overflow: "hidden",
-      }}>
-        {figure.imagePath ? (
-          <FigureImage imagePath={figure.imagePath} />
-        ) : doc && figure.page && figure.itemType === "table" ? (
-          <TableCropThumbnailCard doc={doc} page={figure.page} figureNo={figure.figureNo} width={240} />
-        ) : doc && figure.page && figure.itemType === "figure" ? (
-          <FigureCropThumbnailCard doc={doc} page={figure.page} figureNo={figure.figureNo} width={240} />
-        ) : doc && figure.page ? (
-          <PageThumbnail doc={doc} page={figure.page} width={240} />
-        ) : (
-          <div style={{ padding: 20 }}>
-            {figure.itemType === "table" ? (
-              <Table2 size={24} style={{ color: "var(--color-text-muted)", opacity: 0.4 }} />
-            ) : figure.itemType === "equation" ? (
-              <Sigma size={24} style={{ color: "var(--color-text-muted)", opacity: 0.4 }} />
-            ) : (
-              <Images size={24} style={{ color: "var(--color-text-muted)", opacity: 0.4 }} />
-            )}
-          </div>
-        )}
-      </div>
-      <div style={{ padding: "10px 12px" }}>
-        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>
-          {figure.figureNo}{figure.page ? ` — p.${figure.page}` : ""}
-        </div>
-        {figure.caption && (
-          <div style={{
-            fontSize: 11.5, lineHeight: 1.6, color: "var(--color-text-secondary)",
-            overflow: "hidden",
-            ...(containsLatex(figure.caption) ? {} : { display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }),
-          }}>
-            {containsLatex(figure.caption) ? (
-              <LatexText style={{ fontSize: 11.5 }}>{figure.caption}</LatexText>
-            ) : (
-              figure.caption
-            )}
-          </div>
-        )}
-      </div>
+    <div style={{ padding: big ? 40 : 24, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {figure.itemType === "table" ? (
+        <Table2 size={big ? 40 : 24} style={{ color: "var(--color-text-muted)", opacity: 0.4 }} />
+      ) : figure.itemType === "equation" ? (
+        <Sigma size={big ? 40 : 24} style={{ color: "var(--color-text-muted)", opacity: 0.4 }} />
+      ) : (
+        <Images size={big ? 40 : 24} style={{ color: "var(--color-text-muted)", opacity: 0.4 }} />
+      )}
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  Paper list item                                                    */
+/*  Figure card (kit style + real thumbnail)                           */
 /* ------------------------------------------------------------------ */
 
-function PaperRow({ paper, figureCount, selected, onClick }: {
-  paper: Paper; figureCount: number; selected: boolean; onClick: () => void;
+function FigureCard({
+  figure,
+  paper,
+  onOpen,
+  t,
+}: {
+  figure: PaperFigure;
+  paper: Paper | undefined;
+  onOpen: () => void;
+  t: (en: string, ko: string) => string;
 }) {
+  const color = TYPE_COLOR[figure.itemType];
+
   return (
     <button
-      onClick={onClick}
+      onClick={onOpen}
+      className="fig-card"
       style={{
-        display: "flex", alignItems: "center", gap: 10, width: "100%",
-        padding: "10px 12px", border: "none", textAlign: "left", cursor: "pointer",
-        borderRadius: 8,
-        background: selected ? "var(--color-accent-subtle)" : "transparent",
-        transition: "background 0.1s",
+        textAlign: "left", padding: 0, cursor: "pointer",
+        background: "var(--color-bg-elevated)",
+        border: "1px solid var(--color-border-subtle)",
+        borderRadius: "var(--radius-md)",
+        overflow: "hidden",
+        display: "flex", flexDirection: "column",
+        transition: "border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast)",
       }}
     >
-      <FileText size={14} style={{ color: selected ? "var(--color-accent)" : "var(--color-text-muted)", flexShrink: 0 }} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{
-          fontSize: 12.5, fontWeight: selected ? 600 : 500,
-          color: selected ? "var(--color-accent)" : "var(--color-text-primary)",
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      <div style={{
+        position: "relative",
+        borderBottom: "1px solid var(--color-border-subtle)",
+        background: "var(--color-bg-base)",
+        minHeight: 80,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        overflow: "hidden",
+      }}>
+        <FigureThumb figure={figure} width={240} />
+        <span style={{
+          position: "absolute", top: 8, left: 8,
+          display: "inline-flex", alignItems: "center", gap: 5,
+          padding: "3px 8px", borderRadius: 999,
+          background: `color-mix(in oklab, ${color} 14%, #ffffff)`,
+          color, fontSize: 10.5, fontWeight: 700,
+          boxShadow: "var(--shadow-xs)", whiteSpace: "nowrap",
         }}>
-          {paper.title}
-        </div>
-        <div style={{ fontSize: 10.5, color: "var(--color-text-muted)", marginTop: 2 }}>
-          {paper.year} · {figureCount} fig
-        </div>
+          {typeLabel(t, figure.itemType)} {figureNumber(figure.figureNo)}
+        </span>
+        <span className="fig-zoom" style={{
+          position: "absolute", top: 8, right: 8,
+          width: 26, height: 26, borderRadius: "var(--radius-sm)",
+          background: "rgba(255,255,255,0.92)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "var(--shadow-xs)", opacity: 0,
+          transition: "opacity var(--transition-fast)",
+        }}>
+          <Maximize2 size={13} style={{ color: "var(--color-text-secondary)" }} />
+        </span>
       </div>
-      <ChevronRight size={12} style={{ color: "var(--color-text-muted)", flexShrink: 0, opacity: selected ? 1 : 0.4 }} />
+      <div style={{ padding: "10px 12px", display: "grid", gap: 6, flex: 1 }}>
+        {figure.caption ? (
+          <div style={{
+            fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.5, overflow: "hidden",
+            ...(containsLatex(figure.caption) ? {} : { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }),
+          }}>
+            {containsLatex(figure.caption) ? (
+              <LatexText style={{ fontSize: 12 }}>{figure.caption}</LatexText>
+            ) : (
+              figure.caption
+            )}
+          </div>
+        ) : null}
+        {paper ? (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6, marginTop: "auto",
+            fontSize: 10.5, color: "var(--color-text-muted)", minWidth: 0,
+          }}>
+            <FileText size={10} style={{ color: "var(--color-text-muted)", flexShrink: 0 }} />
+            <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {paper.title}
+            </span>
+            {figure.page ? (
+              <span style={{ flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>p.{figure.page}</span>
+            ) : null}
+          </div>
+        ) : figure.page ? (
+          <div style={{ fontSize: 10.5, color: "var(--color-text-muted)", marginTop: "auto", fontVariantNumeric: "tabular-nums" }}>
+            p.{figure.page}
+          </div>
+        ) : null}
+      </div>
     </button>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  Folder group                                                       */
+/*  Reusable grid of asset cards                                       */
 /* ------------------------------------------------------------------ */
 
-function FolderGroup({ folder, papers, figureCounts, selectedPaperId, onSelectPaper }: {
-  folder: { id: string; name: string } | null;
-  papers: Paper[];
-  figureCounts: Map<string, number>;
-  selectedPaperId: string | null;
-  onSelectPaper: (id: string) => void;
+function FigureGallery({
+  figures,
+  paperMap,
+  onOpen,
+  t,
+}: {
+  figures: PaperFigure[];
+  paperMap: Map<string, Paper>;
+  onOpen: (index: number) => void;
+  t: (en: string, ko: string) => string;
 }) {
-  const [open, setOpen] = useState(true);
-  const label = folder?.name ?? "Uncategorized";
-
   return (
-    <div>
-      <button
-        onClick={() => setOpen(!open)}
-        style={{
-          display: "flex", alignItems: "center", gap: 6, width: "100%",
-          border: "none", background: "transparent", padding: "6px 10px",
-          cursor: "pointer", fontSize: 10.5, fontWeight: 700,
-          color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em",
-        }}
-      >
-        <span style={{ fontSize: 8, transition: "transform 0.15s", transform: open ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
-        {label}
-        <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 500, opacity: 0.7 }}>{papers.length}</span>
-      </button>
-      {open && papers.map((p) => (
-        <PaperRow
-          key={p.id}
-          paper={p}
-          figureCount={figureCounts.get(p.id) ?? 0}
-          selected={selectedPaperId === p.id}
-          onClick={() => onSelectPaper(p.id)}
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))",
+      gap: 14,
+    }}>
+      {figures.map((fig, index) => (
+        <FigureCard
+          key={fig.id}
+          figure={fig}
+          paper={paperMap.get(fig.paperId)}
+          onOpen={() => onOpen(index)}
+          t={t}
         />
       ))}
     </div>
@@ -484,127 +606,209 @@ function FolderGroup({ folder, papers, figureCounts, selectedPaperId, onSelectPa
 }
 
 /* ------------------------------------------------------------------ */
-/*  Selected paper figures panel                                       */
+/*  Lightbox — large view with keyboard nav (real thumbnail)           */
 /* ------------------------------------------------------------------ */
 
-function SelectedPaperPanel({ paper, figures, onJumpToPage }: {
-  paper: Paper;
+function FigureLightbox({
+  figures,
+  index,
+  setIndex,
+  paperMap,
+  onClose,
+  onOpenPaper,
+  t,
+}: {
   figures: PaperFigure[];
-  onJumpToPage: (paperId: string, page?: number) => void;
+  index: number;
+  setIndex: (updater: (i: number) => number) => void;
+  paperMap: Map<string, Paper>;
+  onClose: () => void;
+  onOpenPaper: (figure: PaperFigure) => void;
+  t: (en: string, ko: string) => string;
 }) {
-  const doc = usePaperPdfDoc(paper.id);
+  const figure = figures[index];
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowRight") setIndex((i) => Math.min(figures.length - 1, i + 1));
+      if (e.key === "ArrowLeft") setIndex((i) => Math.max(0, i - 1));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [figures.length, onClose, setIndex]);
+
+  if (!figure) return null;
+  const color = TYPE_COLOR[figure.itemType];
+  const paper = paperMap.get(figure.paperId);
+
+  const navBtn = (dir: "prev" | "next", disabled: boolean, onClick: () => void) => (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        width: 40, height: 40, flexShrink: 0,
+        borderRadius: "50%", border: "none",
+        background: disabled ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.14)",
+        color: disabled ? "rgba(255,255,255,0.3)" : "#fff",
+        cursor: disabled ? "default" : "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+    >
+      {dir === "next"
+        ? <ChevronRight size={20} style={{ color: disabled ? "rgba(255,255,255,0.3)" : "#fff" }} />
+        : <ChevronLeft size={20} style={{ color: disabled ? "rgba(255,255,255,0.3)" : "#fff" }} />}
+    </button>
+  );
 
   return (
-    <>
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 11, color: "var(--color-text-muted)", marginBottom: 4 }}>
-          {paper.venue} · {paper.year}
-        </div>
-        <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6, lineHeight: 1.4 }}>
-          {paper.title}
-        </h3>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-            {figures.length} figures
-          </span>
-          <button
-            onClick={() => onJumpToPage(paper.id)}
-            style={{
-              display: "inline-flex", alignItems: "center", gap: 5,
-              height: 28, padding: "0 10px", borderRadius: 6,
-              border: "1px solid var(--color-border-subtle)",
-              background: "var(--color-bg-surface)", color: "var(--color-text-secondary)",
-              cursor: "pointer", fontSize: 11.5,
-            }}
-          >
-            <ExternalLink size={11} /> Open paper
-          </button>
-        </div>
+    <div
+      onMouseDown={onClose}
+      style={{
+        position: "absolute", inset: 0, zIndex: 70,
+        display: "flex", flexDirection: "column",
+        background: "rgba(10, 16, 28, 0.72)", backdropFilter: "blur(4px)",
+      }}
+    >
+      {/* top bar */}
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", color: "#fff", flexShrink: 0 }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <span style={{
+          display: "inline-flex", alignItems: "center", gap: 5,
+          padding: "4px 10px", borderRadius: 999,
+          background: color, color: "#fff", fontSize: 12, fontWeight: 700,
+          whiteSpace: "nowrap", flexShrink: 0,
+        }}>{typeLabel(t, figure.itemType)} {figureNumber(figure.figureNo)}</span>
+        <span style={{ fontSize: 12.5, color: "rgba(255,255,255,0.7)", fontVariantNumeric: "tabular-nums" }}>
+          {index + 1} / {figures.length}
+        </span>
+        <div style={{ flex: 1 }} />
+        <button
+          onClick={onClose}
+          title={t("Close (Esc)", "닫기 (Esc)")}
+          style={{
+            width: 34, height: 34, borderRadius: "var(--radius-sm)", border: "none",
+            background: "rgba(255,255,255,0.12)", color: "#fff", cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        ><X size={17} style={{ color: "#fff" }} /></button>
       </div>
 
-      {figures.length > 0 ? (
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-          gap: 14,
-        }}>
-          {figures.map((fig) => (
-            <FigureCard
-              key={fig.id}
-              figure={fig}
-              doc={doc}
-              onJumpToPage={() => onJumpToPage(paper.id, fig.page)}
-            />
-          ))}
+      {/* stage */}
+      <div
+        style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", gap: 14, padding: "0 18px 8px" }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        {navBtn("prev", index === 0, () => setIndex((i) => Math.max(0, i - 1)))}
+        <div style={{ flex: 1, height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{
+            maxWidth: 820, width: "100%", maxHeight: "100%",
+            background: "var(--color-bg-elevated)",
+            borderRadius: "var(--radius-lg)", overflow: "auto",
+            boxShadow: "var(--shadow-lg)",
+            display: "flex", flexDirection: "column",
+          }}>
+            <FigureThumb figure={figure} width={820} big />
+          </div>
         </div>
-      ) : (
-        <div style={{ padding: 32, textAlign: "center", color: "var(--color-text-muted)", fontSize: 13 }}>
-          No figures extracted for this paper.
+        {navBtn("next", index === figures.length - 1, () => setIndex((i) => Math.min(figures.length - 1, i + 1)))}
+      </div>
+
+      {/* caption bar */}
+      <div
+        style={{ flexShrink: 0, padding: "12px 64px 20px", color: "#fff", display: "flex", alignItems: "flex-start", gap: 16, justifyContent: "center" }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div style={{ maxWidth: 760, width: "100%" }}>
+          {figure.caption ? (
+            <div style={{ fontSize: 13.5, lineHeight: 1.6, color: "rgba(255,255,255,0.92)" }}>
+              {containsLatex(figure.caption) ? (
+                <LatexText style={{ fontSize: 13.5 }}>{figure.caption}</LatexText>
+              ) : (
+                figure.caption
+              )}
+            </div>
+          ) : null}
+          {paper ? (
+            <button
+              onClick={() => onOpenPaper(figure)}
+              style={{
+                marginTop: 8, display: "inline-flex", alignItems: "center", gap: 6,
+                background: "transparent", border: "none", cursor: "pointer", padding: 0,
+                color: "var(--color-accent)", fontSize: 12, fontWeight: 600,
+              }}
+            >
+              <ExternalLink size={12} style={{ color: "var(--color-accent)" }} />
+              {paper.title}{figure.page ? ` · p.${figure.page}` : ""}
+            </button>
+          ) : null}
         </div>
-      )}
-    </>
+      </div>
+    </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  Main view                                                          */
+/*  Main view — library-wide gallery                                   */
 /* ------------------------------------------------------------------ */
+
+const TYPE_ORDER: Record<FigureItemType, number> = { figure: 0, table: 1, equation: 2 };
 
 export function FiguresView() {
   const { data: papers = [] } = useAllPapers();
   const { data: figures = [] } = useAllFigures();
-  const { data: folders = [] } = useFolders();
   const { locale, setActiveNav, setReaderTargetAnchor, setSelectedPaperId, openPaperDetail } = useUIStore();
   const t = (english: string, korean: string) => localeText(locale, english, korean);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const figureCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const fig of figures) counts.set(fig.paperId, (counts.get(fig.paperId) ?? 0) + 1);
-    return counts;
-  }, [figures]);
+  const [filter, setFilter] = useState<"all" | FigureItemType>("all");
+  const [query, setQuery] = useState("");
+  const [openIdx, setOpenIdx] = useState<number | null>(null);
 
-  const papersWithFigures = useMemo(
-    () => papers.filter((p) => (figureCounts.get(p.id) ?? 0) > 0),
-    [papers, figureCounts],
-  );
+  const paperMap = useMemo(() => new Map(papers.map((p) => [p.id, p])), [papers]);
 
-  const folderMap = useMemo(() => new Map(folders.map((f) => [f.id, f])), [folders]);
-
-  const grouped = useMemo(() => {
-    const groups = new Map<string | null, Paper[]>();
-    for (const p of papersWithFigures) {
-      const key = p.folderId ?? null;
-      const list = groups.get(key);
-      if (list) list.push(p);
-      else groups.set(key, [p]);
-    }
-    return Array.from(groups.entries()).sort(([a], [b]) => {
-      if (a === null) return 1;
-      if (b === null) return -1;
-      return (folderMap.get(a)?.name ?? "").localeCompare(folderMap.get(b)?.name ?? "");
-    });
-  }, [papersWithFigures, folderMap]);
-
-  useEffect(() => {
-    if (!selectedId && papersWithFigures.length > 0) setSelectedId(papersWithFigures[0].id);
-  }, [papersWithFigures, selectedId]);
-
-  const selectedPaper = papers.find((p) => p.id === selectedId);
-  const selectedFigures = useMemo(
-    () => figures.filter((f) => f.paperId === selectedId).sort((a, b) => {
-      // Group by item type: figure → table → equation
-      const typeOrder = { figure: 0, table: 1, equation: 2 } as Record<string, number>;
-      const ta = typeOrder[a.itemType ?? "figure"] ?? 0;
-      const tb = typeOrder[b.itemType ?? "figure"] ?? 0;
+  // Stable list of all figures, grouped by type then numeric figure number.
+  const sortedFigures = useMemo(
+    () => [...figures].sort((a, b) => {
+      const ta = TYPE_ORDER[a.itemType] ?? 0;
+      const tb = TYPE_ORDER[b.itemType] ?? 0;
       if (ta !== tb) return ta - tb;
-      // Within same type, sort by extracted number (numeric, not lexicographic)
       const na = parseInt(a.figureNo.match(/(\d+)/)?.[1] ?? "0", 10);
       const nb = parseInt(b.figureNo.match(/(\d+)/)?.[1] ?? "0", 10);
-      return na - nb;
+      if (na !== nb) return na - nb;
+      return (paperMap.get(a.paperId)?.title ?? "").localeCompare(paperMap.get(b.paperId)?.title ?? "");
     }),
-    [figures, selectedId],
+    [figures, paperMap],
   );
+
+  const counts = useMemo(() => {
+    const c = { all: figures.length, figure: 0, table: 0, equation: 0 };
+    for (const f of figures) c[f.itemType] = (c[f.itemType] ?? 0) + 1;
+    return c;
+  }, [figures]);
+
+  const filtered = useMemo(() => {
+    let list = sortedFigures;
+    if (filter !== "all") list = list.filter((f) => f.itemType === filter);
+    const q = query.trim().toLowerCase();
+    if (q) {
+      list = list.filter((f) =>
+        (f.caption?.toLowerCase().includes(q) ?? false) ||
+        (paperMap.get(f.paperId)?.title.toLowerCase().includes(q) ?? false),
+      );
+    }
+    return list;
+  }, [sortedFigures, filter, query, paperMap]);
+
+  // Papers that need a rendered crop (have at least one visible figure without an imagePath).
+  const docPaperIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const f of filtered) {
+      if (!f.imagePath && f.page) ids.add(f.paperId);
+    }
+    return Array.from(ids);
+  }, [filtered]);
 
   const jumpToPage = useCallback((paperId: string, page?: number) => {
     setActiveNav("library");
@@ -620,64 +824,118 @@ export function FiguresView() {
     }
   }, [setActiveNav, setSelectedPaperId, setReaderTargetAnchor, openPaperDetail]);
 
+  const openPaperFromLightbox = useCallback((figure: PaperFigure) => {
+    setOpenIdx(null);
+    jumpToPage(figure.paperId, figure.page);
+  }, [jumpToPage]);
+
+  const chips: { id: "all" | FigureItemType; label: string }[] = [
+    { id: "all", label: t("All", "전체") },
+    { id: "figure", label: t("Figures", "Figure") },
+    { id: "table", label: t("Tables", "Table") },
+    { id: "equation", label: t("Equations", "Equation") },
+  ];
+
   return (
-    <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
-      {/* Left: Paper list */}
-      <div style={{
-        width: 280, minWidth: 280,
-        borderRight: "1px solid var(--color-border-subtle)",
-        background: "var(--color-bg-panel)",
-        display: "flex", flexDirection: "column", overflow: "hidden",
-      }}>
-        <div style={{
-          padding: "14px 14px 10px",
-          borderBottom: "1px solid var(--color-border-subtle)", flexShrink: 0,
-        }}>
-          <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>
-            {t("Figures & Tables", "Figure & Table")}
-          </h2>
-          <div style={{ fontSize: 11, color: "var(--color-text-muted)" }}>
-            {papersWithFigures.length} {t("papers", "논문")} · {figures.filter(f => f.itemType === "figure").length} fig · {figures.filter(f => f.itemType === "table").length} tbl · {figures.filter(f => f.itemType === "equation").length} eq
+    <PaperDocCacheProvider paperIds={docPaperIds}>
+      <div className="scroll-y" style={{ height: "100%", overflowY: "auto", background: "var(--color-bg-surface)" }}>
+        <div style={{ maxWidth: 1180, margin: "0 auto", padding: "22px 28px 40px" }}>
+          {/* header */}
+          <div style={{ marginBottom: 16 }}>
+            <h1 style={{ fontSize: 19, fontWeight: 600, letterSpacing: "-0.01em" }}>
+              {t("Figures", "Figure")}
+            </h1>
+            <p style={{ fontSize: 12.5, color: "var(--color-text-muted)", marginTop: 3 }}>
+              {t(
+                `${figures.length} figures, tables & equations extracted from your library`,
+                `라이브러리에서 추출된 그림 · 표 · 수식 ${figures.length}개`,
+              )}
+            </p>
           </div>
-        </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: "6px 6px" }}>
-          {grouped.length > 0 ? grouped.map(([folderId, folderPapers]) => (
-            <FolderGroup
-              key={folderId ?? "__none"}
-              folder={folderId ? (folderMap.get(folderId) ?? { id: folderId, name: folderId }) : null}
-              papers={folderPapers}
-              figureCounts={figureCounts}
-              selectedPaperId={selectedId}
-              onSelectPaper={setSelectedId}
+
+          {/* controls */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {chips.map((chip) => {
+                const active = filter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    onClick={() => setFilter(chip.id)}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      padding: "6px 12px", borderRadius: 999,
+                      border: `1px solid ${active ? "var(--color-accent)" : "var(--color-border-subtle)"}`,
+                      background: active ? "var(--color-accent)" : "var(--color-bg-elevated)",
+                      color: active ? "#fff" : "var(--color-text-secondary)",
+                      fontSize: 12, fontWeight: active ? 600 : 500, cursor: "pointer",
+                      whiteSpace: "nowrap", transition: "all var(--transition-fast)",
+                    }}
+                  >
+                    {chip.label}
+                    <span style={{
+                      fontSize: 10.5, fontWeight: 600, fontVariantNumeric: "tabular-nums",
+                      color: active ? "rgba(255,255,255,0.85)" : "var(--color-text-muted)",
+                    }}>{counts[chip.id] ?? 0}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ flex: 1 }} />
+
+            <div style={{
+              display: "flex", alignItems: "center", gap: 8, height: 36,
+              padding: "0 12px", minWidth: 220,
+              background: "var(--color-bg-elevated)",
+              border: "1px solid var(--color-border-subtle)",
+              borderRadius: "var(--radius-sm)",
+            }}>
+              <Search size={14} style={{ color: "var(--color-text-muted)", flexShrink: 0 }} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t("Search caption · paper…", "캡션 · 논문 검색…")}
+                style={{
+                  flex: 1, minWidth: 0, background: "transparent", border: "none", outline: "none",
+                  color: "var(--color-text-primary)", fontSize: 12.5,
+                }}
+              />
+            </div>
+          </div>
+
+          {/* gallery */}
+          {filtered.length > 0 ? (
+            <FigureGallery
+              figures={filtered}
+              paperMap={paperMap}
+              onOpen={(index) => setOpenIdx(index)}
+              t={t}
             />
-          )) : (
-            <div style={{ padding: 16, fontSize: 12, color: "var(--color-text-muted)", textAlign: "center" }}>
-              {t("No papers with figures yet.", "Figure가 있는 논문이 없습니다.")}
+          ) : (
+            <div style={{ display: "grid", placeItems: "center", padding: "60px 0", gap: 10, color: "var(--color-text-muted)" }}>
+              <ImageOff size={26} style={{ color: "var(--color-text-muted)" }} />
+              <div style={{ fontSize: 13 }}>
+                {figures.length === 0
+                  ? t("No extracted figures yet.", "아직 추출된 Figure가 없습니다.")
+                  : t("No matching results.", "일치하는 결과가 없습니다.")}
+              </div>
             </div>
           )}
         </div>
-      </div>
 
-      {/* Right: Figures grid */}
-      <div style={{ flex: 1, overflow: "auto", padding: "18px 20px" }}>
-        {selectedPaper ? (
-          <SelectedPaperPanel
-            key={selectedPaper.id}
-            paper={selectedPaper}
-            figures={selectedFigures}
-            onJumpToPage={jumpToPage}
+        {openIdx !== null ? (
+          <FigureLightbox
+            figures={filtered}
+            index={Math.min(openIdx, filtered.length - 1)}
+            setIndex={(updater) => setOpenIdx((i) => updater(i ?? 0))}
+            paperMap={paperMap}
+            onClose={() => setOpenIdx(null)}
+            onOpenPaper={openPaperFromLightbox}
+            t={t}
           />
-        ) : (
-          <div style={{
-            display: "flex", alignItems: "center", justifyContent: "center",
-            height: "100%", color: "var(--color-text-muted)", fontSize: 13,
-          }}>
-            {papersWithFigures.length > 0
-              ? t("Select a paper to view its figures.", "논문을 선택하면 Figure를 볼 수 있습니다.")
-              : t("No extracted figures yet.", "아직 추출된 Figure가 없습니다.")}
-          </div>
-        )}
+        ) : null}
       </div>
-    </div>
+    </PaperDocCacheProvider>
   );
 }

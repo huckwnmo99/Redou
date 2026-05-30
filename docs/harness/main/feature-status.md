@@ -1,5 +1,5 @@
 # 기능 상태 매트릭스
-> 하네스 버전: v1.4 | 최종 갱신: 2026-05-27
+> 하네스 버전: v1.5 | 최종 갱신: 2026-05-30
 
 ## 전체 기능 매트릭스
 
@@ -31,7 +31,7 @@
 | PDF 리더 (연속 스크롤) | ✅ 구현됨 | frontend/paper.md | pdfjs, IntersectionObserver |
 | 하이라이트 | ✅ 구현됨 | frontend/paper.md | 색상 프리셋, 임베딩 |
 | 폴더 관리 | ✅ 구현됨 | frontend/paper.md | 트리 구조, 드래그&드롭 |
-| Figure/Table/Equation 갤러리 | ✅ 구현됨 | frontend/paper.md | FiguresView.tsx |
+| Figure/Table/Equation 갤러리 | ✅ 구현됨 | frontend/paper.md | FiguresView.tsx — 디자인 킷 이식 완료(1-pane 전역 갤러리: 필터칩+검색+라이트박스, paperId별 PDF doc 캐시) |
 | 노트 워크스페이스 | ✅ 구현됨 | frontend/notes.md | 7가지 note_type |
 | 프로세싱 모니터링 | ✅ 구현됨 | frontend/paper.md | ProcessingView.tsx (import_pdf / generate_embeddings / extract_entities 라벨 구분 표시) |
 | 라이브러리 카드 처리 상태 | ✅ 구현됨 | frontend/stores-queries.md | `paperSignals.ts`가 core(import_pdf+generate_embeddings) job 합성으로 계산. 둘 다 succeeded일 때만 "Complete". entity는 제외 |
@@ -65,6 +65,7 @@
 | 버그수정 | `getEntityGraphEnabled` DB 조회 에러 시 graceful degrade (graph OFF) | 📋 계획됨 (fix 17. #16 리뷰 중 발견한 P2. `main.mjs:495` throw → console.warn+false. `entity_graph_enabled` 컬럼 미적용 환경에서 QA 전체가 깨지는 문제 hardening. GROBID degraded-mode 패턴과 일관) |
 | Step 7 | Agentic RAG 통합 | 💡 아이디어 |
 | 리팩토링 | PDF 파이프라인 V2 단일화 (V1 휴리스틱 폴백 제거) | ✅ 완료 (CURRENT_EXTRACTION_VERSION=25, MinerU 필수 throw, V1 코드 전체 삭제) |
+| 리디자인 | FiguresView 디자인 킷 이식 (리디자인 1호 시범 화면) | ✅ 구현됨 (`docs/features/new/12-figuresview-redesign-kit-port.md`. **방향 A(1-pane 전역 갤러리)** + 썸네일 **A-1(paperId별 PDF doc 캐시)** 채택. 필터칩(All/Figure/Table/Equation+카운트)+캡션·제목 검색+카드 그리드+라이트박스(키보드 ←/→/Esc) 시각 이식. 데이터 훅·IPC·실제 썸네일 로직·`LatexText`·i18n 100% 보존, 킷 가짜 placeholder/CDN Icon 미채택. `tokens.css`에 `--shadow-xs`/`--font-mono` + `.fig-card` hover 규칙 추가. 2-pane 폴더 동선 제거. 빌드(tsc -b+vite) 통과. 커밋/비주얼 검증은 리뷰 단계) |
 
 ## 최근 변경 (커밋 기준)
 

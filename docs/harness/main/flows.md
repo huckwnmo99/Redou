@@ -1,5 +1,5 @@
 # 주요 데이터 흐름
-> 하네스 버전: v1.4 | 최종 갱신: 2026-05-27
+> 하네스 버전: v1.5 | 최종 갱신: 2026-05-30
 
 ## 1. PDF 임포트 → 처리 파이프라인
 
@@ -170,3 +170,34 @@
 ```
 
 **관련 파일**: `frontend/src/features/notes/NotesView.tsx`, `frontend/src/lib/queries.ts`, `frontend/src/lib/supabasePaperRepository.ts`
+
+## 6. Figure 갤러리 탐색 (1-pane 전역)
+
+```
+사용자: Figures 탭 진입 (FiguresView.tsx)
+  │
+  ├─ useAllFigures() → 라이브러리 전체 PaperFigure[]
+  ├─ useAllPapers() → paperMap(출처 라벨)
+  │
+  ├─ 필터칩(All/Figure/Table/Equation) + 검색(캡션·논문 제목) → filtered[]
+  │   └─ 정렬: itemType(figure→table→equation) → figureNo 숫자 → 논문 제목
+  │
+  ├─ 썸네일 렌더 (paperId별 PDF doc 캐시)
+  │   ├─ PaperDocCacheProvider: crop 필요한(imagePath 없고 page 있는) 논문만 doc lazy 로드
+  │   │   └─ PaperDocLoader(논문당 1개) → usePaperPdfDoc → context Map 공유
+  │   └─ FigureThumb 분기:
+  │       ├─ imagePath 있음 → FigureImage (추출 이미지, doc 불필요)
+  │       ├─ table  → TableCropThumbnailCard (캡션 정규식 크롭)
+  │       ├─ figure → FigureCropThumbnailCard
+  │       └─ 그 외 → PageThumbnail / 타입 아이콘 폴백
+  │
+  ├─ 카드 클릭 → FigureLightbox (z-index 70, 키보드 ←/→/Esc)
+  │   └─ "논문 열기" → jumpToPage(paperId, page)
+  │       └─ useUIStore: setActiveNav("library") + setSelectedPaperId
+  │           + setReaderTargetAnchor(page) + openPaperDetail("pdf")
+  │           → PDF 리더 해당 페이지 점프
+  │
+  └─ (IPC: @/lib/desktop의 toDesktopFileUrl/useResolvedDesktopFilePath로 로컬 파일 경로 해석)
+```
+
+**관련 파일**: `frontend/src/features/figures/FiguresView.tsx`, `frontend/src/lib/queries.ts`(useAllFigures/useAllPapers/usePrimaryPaperFile), `frontend/src/lib/desktop.ts`(파일 경로 해석), `frontend/src/stores/uiStore.ts`(PDF 점프), `frontend/src/styles/tokens.css`(.fig-card hover)

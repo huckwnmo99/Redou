@@ -30,6 +30,8 @@
     --inspector-width: 320px;
     --inspector-height: 280px;
     --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+    --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.06);
     --shadow-sm: 0 8px 20px rgba(15, 23, 42, 0.05);
     --shadow-md: 0 18px 38px rgba(15, 23, 42, 0.08);
     --shadow-lg: 0 28px 54px rgba(15, 23, 42, 0.1);
@@ -137,4 +139,14 @@
 .chat-user-bubble ::selection {
   background: rgba(255, 255, 255, 0.35);
   color: #fff;
+}
+
+/* Figure gallery card hover (inline styles cannot express :hover) */
+.fig-card:hover {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+.fig-card:hover .fig-zoom {
+  opacity: 1;
 }
