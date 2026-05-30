@@ -1,5 +1,14 @@
 # Harness Version
 
+## v1.7 — 2026-05-31
+- SearchView 디자인 킷 이식 (리디자인 4호 화면). 방향 A(paper-centric 집계 유지) 채택. `SearchView.tsx` 단일 파일 시각 재구성 — 데이터/IPC/스토어/타입/모델/DB/Electron/`tokens.css` 무변경
+- 이식: 중앙 컬럼(maxWidth 820, padding 32/24/80) + 검색바(height 54 + 포커스 글로우 `0 0 0 4px accent-subtle` + ⌘K kbd[focus 핸들러] + Esc clear) + **Hybrid 정보 칩**(가짜 Semantic/Keyword 토글 대체) + 카테고리 **7칩**(소스 아이콘+카운트, count=0 disabled) + 결과 카드 3단(좌측 소스 레일[대표 소스+p.N] / 본문[제목·스니펫+키워드 `<mark>`] / 우측[매치% 색뱃지+Open→]) + 하단 다중 소스 뱃지 유지 + 빈상태(eyebrow + Try칩 + 최근 논문[실데이터]) + 결과없음(search-x + 2줄)
+- 신규 헬퍼(표시용·로직 무관): `highlightSnippet`(실 쿼리 토큰 `<mark>`, `containsLatex` true면 `LatexText`로 분기·mark 미적용), `chipCounts`(scope별 매칭 논문 수 — `buildUnifiedResults` 재호출 없이 동일 검색 입력에서 도출, figures/equations는 itemType 분리), `eyebrowStyle` 인라인, `sourceLabels`에 per-source `color` 필드(킷 SOURCE_META 차용)
+- 보존: 하이브리드 4훅(`useSemanticChunk/Paper/FigureSearch` + `useSearchHighlightEmbeddings`) + `buildUnifiedResults`/`buildSearchGroups`/`semanticResultsToChunks` 퓨전 + evidence 집계 + 매치%(실 pgvector cosine) + `handleCardClick` PDF점프 + 카테고리 7종(equations 포함) + `LatexText` KaTeX + 타입(any 0) + i18n `t()`. lucide named import에 `Sparkles`/`SearchX`/`ArrowRight` 추가
+- 미채택(가짜): RECENT_SEARCHES 하드코딩, all-MiniLM 오모델명, "전체 라이브러리" 버튼(SearchSidebar 중복), 키보드 힌트 푸터, 킷 수동 `**` 파싱, kit 화학-특정 Try 예시. `SearchSidebar.tsx` 무변경(글로벌 소속)
+- 빌드(tsc -b+vite) 통과·vitest 28건(searchModel 포함) 회귀 통과. ESLint 미설정(eslint.config 없음). `CURRENT_EXTRACTION_VERSION` 범프 불필요. 커밋/비주얼 검증은 리뷰 단계
+- feature-status.md: SearchView 리디자인 행 ✅ 구현됨 처리. search.md(v1.1): UI 구조/표시용 헬퍼/하이브리드 흐름으로 전면 갱신(구식 탭 설명 정정). flows.md: 시맨틱 검색 흐름을 하이브리드 paper-centric으로 정정
+
 ## v1.6 — 2026-05-30
 - SettingsView 디자인 킷 이식 (리디자인 2호 화면). 킷 **2-pane 섹션 레이아웃**(좌측 Account/Workspace/Models/Desktop/About 네비 + 우측 Row 패널)으로 `SettingsView.tsx` 전면 재구성. 기본 진입 섹션=account
 - 프리미티브 TS 포팅: `SectionHeader`/`RowGroup`/`Row`/`Select`(네이티브 select 래퍼)/`SegmentedControl`/`Button`(icon=lucide 컴포넌트, primary/secondary/danger)/`Toast`(중앙 하단 z-index 100, 2.5초)/`ComingSoonPill`("준비 중" 비활성 칩). `.eyebrow`→인라인 `eyebrowStyle`, `.scroll-y`→인라인 overflow (FiguresView 선례)

@@ -53,23 +53,30 @@
 
 **관련 파일**: `main.mjs` (오케스트레이션), `pdf-heuristics.mjs` (inspectPdfMetadata + extractFigureImagesFromPdf), `mineru-client.mjs` (PDF 파싱), `grobid-client.mjs` (메타데이터), `ocr-extraction.mjs` (빈 테이블 GLM-OCR), `embedding-worker.mjs` (임베딩), `entity-extractor.mjs` (엔티티 추출)
 
-## 2. 시맨틱 검색
+## 2. 하이브리드 검색 (텍스트 + 시맨틱, paper-centric)
 
 ```
-사용자: 검색어 입력 (SearchView.tsx → TopBar.tsx)
+사용자: 검색어 입력 (SearchView.tsx 검색바) → uiStore.searchQuery
   │
-  ├─ IPC: EMBEDDING_GENERATE_QUERY → generateEmbedding(text, "query")
-  │   └─ vLLM 2048-dim 쿼리 임베딩
+  ├─ 텍스트 매칭 (buildSearchGroups, searchModel.ts)
+  │   └─ papers/chunks/notes/figures 부분문자열 + buildSnippet 발췌
   │
-  ├─ 프론트엔드 직접 Supabase RPC 호출 (supabasePaperRepository.ts)
-  │   ├─ match_chunks(query_embedding) → 벡터 유사도 검색
-  │   ├─ match_papers(query_embedding) → 논문 단위 검색
-  │   ├─ match_figures(query_embedding) → 그림/테이블/수식 검색
-  │   └─ match_highlight_embeddings(query_embedding) → 하이라이트 검색
+  ├─ 시맨틱 (4훅 동시, enabled: query>2)
+  │   ├─ IPC: EMBEDDING_GENERATE_QUERY → generateEmbedding(text, "query") (vLLM 2048-dim)
+  │   └─ 프론트엔드 직접 Supabase RPC (supabasePaperRepository.ts, threshold 0.35)
+  │       ├─ match_chunks   → useSemanticChunkSearch
+  │       ├─ match_papers   → useSemanticPaperSearch (제목/초록)
+  │       ├─ match_figures  → useSemanticFigureSearch (figure/table/equation)
+  │       └─ match_highlight_embeddings → useSearchHighlightEmbeddings
   │
-  └─ 결과 표시 (SearchView.tsx)
-      ├─ 탭별: 전체/논문/청크/노트/그림
-      └─ 클릭 → 논문 상세 이동 + 페이지 앵커
+  ├─ 퓨전 (buildUnifiedResults, searchModel.ts)
+  │   └─ 텍스트+시맨틱 → paper 단위 집계(evidence[] + score max) + scope(7종) 분기
+  │       → UnifiedPaperResult[] (논문 1개 = 카드 1개, score 정렬)
+  │
+  └─ 결과 표시 (SearchView.tsx — 디자인 킷 이식, 방향 A)
+      ├─ 카테고리 7칩(전체/제목·초록/본문/하이라이트/노트/Figure/테이블·수식) + 카운트(chipCounts)
+      ├─ PaperResultCard: 소스 레일(대표 소스+p.N) / 스니펫(키워드 <mark>, LaTeX는 KaTeX) / 매치% 색뱃지 + Open→ / 하단 소스 뱃지
+      └─ 클릭(handleCardClick) → PDF 페이지 점프(page evidence) or 논문 overview
 ```
 
 **관련 파일**: `frontend/src/features/search/`, `frontend/src/lib/supabasePaperRepository.ts`, `embedding-worker.mjs`
