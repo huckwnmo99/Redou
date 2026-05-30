@@ -1,5 +1,5 @@
 # 논문 관리 & 리더
-> 하네스 버전: v1.1 | 최종 갱신: 2026-05-30
+> 하네스 버전: v1.2 | 최종 갱신: 2026-05-30
 
 ## 개요
 논문 라이브러리 관리(그리드/리스트 뷰, 폴더, 태그), PDF 리더(연속 스크롤, 하이라이트, 줌), 논문 상세 뷰(overview/pdf/notes/figures), Figure 갤러리, 프로세싱 모니터링을 담당한다.
@@ -17,7 +17,7 @@
 | `frontend/src/features/figures/FiguresView.tsx` | Figure/Table/Equation 갤러리 (1-pane 전역, 디자인 킷 이식) | ~720 |
 | `frontend/src/features/import/ImportPdfDialog.tsx` | PDF 임포트 다이얼로그 | ~694 |
 | `frontend/src/features/processing/ProcessingView.tsx` | 프로세싱 작업 큐 모니터링 | ~257 |
-| `frontend/src/features/settings/SettingsView.tsx` | 설정 (모델 선택 포함) | ~487 |
+| `frontend/src/features/settings/SettingsView.tsx` | 설정 — 디자인 킷 이식(2-pane 섹션 레이아웃, 모델 선택 포함) | ~960 |
 
 ## 주요 컴포넌트
 
@@ -63,10 +63,17 @@
 - 상태별: queued, running, succeeded, failed
 - IPC 이벤트 JOB_PROGRESS/COMPLETED/FAILED 수신
 
-### SettingsView
-- LLM 모델 선택 (Ollama 모델 목록 + 현재 선택)
-- 외부 서비스 상태 표시
-- 라이브러리 경로 표시
+### SettingsView (디자인 킷 이식 — 리디자인 2호)
+- **2-pane 섹션 레이아웃**: 좌측 `<aside>` 224px 섹션 레일(Account/Workspace/Models/Desktop/About + lucide 아이콘, active=`--color-accent-subtle`) + 우측 스크롤 패널(maxWidth 720). `section` 상태로 전환, 기본 진입=`account` (이전 1-pane 카드 그리드 동선 제거)
+- **프리미티브**(킷 → TS, props 타입 명시, `any` 0): `SectionHeader`(h1 24px) / `RowGroup`(소제목=인라인 `eyebrowStyle`) / `Row`(label+description+control) / `Select`(네이티브 `<select>` 래퍼, a11y 유지) / `SegmentedControl` / `Button`(`icon`=lucide 컴포넌트, primary/secondary/danger variant) / `Toast`(`position:fixed` 중앙 하단, z-index 100, 2.5초 자동 소멸 — 인라인 `feedbackStyle` 박스 대체) / `ComingSoonPill`("준비 중" 비활성 칩)
+- **섹션 → 기능 매핑**(현재 기능 전부 보존):
+  - **Account**: `useAuthSession`/`useSignOut`. Identity strip(아바타=`session.user.name` 첫 글자, email·workspace·plan, Sign out 버튼). `session` null 가드(미로그인 안내). 킷 Security/Danger zone(Password/Sessions/**Delete account**) 완전 미이식
+  - **Workspace**: `useUIStore.locale/setLocale` → `SegmentedControl`(English/한국어). Theme는 "준비 중" placeholder. Library 뷰·정렬 설정 미이식
+  - **Models**(회귀 핵심): Status strip(Ollama 연결/에러 + `useLlmModels` 카운트 + `refetchModels`). RowGroup "Chat & table"(`useActiveLlmModel`/`useSetLlmModel` Select + `source` 표시, Streaming/Guardian은 "준비 중"). RowGroup "Knowledge graph"(`useEntityGraphEnabled`/`useSetEntityGraphEnabled` On/Off SegmentedControl + 상세 경고문 / `useActiveEntityModel`/`useSetEntityModel` Select with `inherit`=채팅 모델 사용, `source==="llm"`↔inherit 매핑 / `useEntityBackfillStatus`+`useStartEntityBackfill` 백필 Row + 프로그레스 바 `processedPapers/totalPapers`). **백필은 토글과 무관·`desktopReady` 가드 보존**
+  - **Desktop**: Runtime card(2×2 KV: `desktop.{version,platform,libraryPath,available}` 실제 바인딩, `desktopLoading`/`desktopReady` 가드). RowGroup File actions(`useDesktopPdfSelection`/`useRevealInExplorer`)·Backup(`useCreateDesktopBackup`+최근 백업 reveal)·Pipeline(`pipeline.requeueAll`). 선택 PDF 목록·최근 백업 경로 로컬 상태 유지(섹션 컴포넌트 내부로 이동). 모든 데스크톱 액션 `desktopReady` 비활성 가드 보존
+  - **About**: `useDesktopRuntime.version`·런타임만 실제값 + 정적 프론트엔드 스택 메타. 킷 서비스 health StatusPill·Diagnostics(health-check IPC 없음)는 미이식(가짜 상태 금지)
+- 보존: LLM 4훅 + entity 6훅 + 데스크톱 4훅 + auth 2훅 + `useUIStore` locale + 모든 핸들러(`handleEntityBackfill`/`handleRequeueAll` 등)·타입(`LlmModelInfo`/`EntityModelInfo`/`EntityBackfillStatus`/`OllamaModel`/`AuthSession`/`DesktopSnapshot`)·i18n(`localeText`/`t()`)
+- lucide named import: `UserRound`/`Globe2`/`BrainCircuit`/`LaptopMinimal`/`Info`/`LogOut`/`RefreshCw`/`CheckCircle2`/`FolderOpen`/`ExternalLink`/`HardDriveDownload` (킷 CDN Icon 방식 미도입). `.eyebrow`/`.scroll-y`→인라인 style(FiguresView 선례). `tokens.css`·데이터·IPC·DB·Electron 무변경
 
 ## 네비게이션 (NavItem)
 ```

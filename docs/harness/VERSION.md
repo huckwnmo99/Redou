@@ -1,5 +1,14 @@
 # Harness Version
 
+## v1.6 — 2026-05-30
+- SettingsView 디자인 킷 이식 (리디자인 2호 화면). 킷 **2-pane 섹션 레이아웃**(좌측 Account/Workspace/Models/Desktop/About 네비 + 우측 Row 패널)으로 `SettingsView.tsx` 전면 재구성. 기본 진입 섹션=account
+- 프리미티브 TS 포팅: `SectionHeader`/`RowGroup`/`Row`/`Select`(네이티브 select 래퍼)/`SegmentedControl`/`Button`(icon=lucide 컴포넌트, primary/secondary/danger)/`Toast`(중앙 하단 z-index 100, 2.5초)/`ComingSoonPill`("준비 중" 비활성 칩). `.eyebrow`→인라인 `eyebrowStyle`, `.scroll-y`→인라인 overflow (FiguresView 선례)
+- 섹션 컴포넌트: `AccountSection`(auth+identity strip, session null 가드)/`WorkspaceSection`(locale SegmentedControl)/`ModelsSection`(LLM Select + entity 토글·모델·백필·프로그레스 바 통합 — 회귀 핵심)/`DesktopSection`(Runtime card + File/Backup/Pipeline + 선택 PDF·최근 백업 로컬 상태)/`AboutSection`(desktop.version·런타임 실제값)
+- 보존: LLM 4훅 + entity 6훅(`useEntityGraphEnabled`/`useSetEntityGraphEnabled`/`useActiveEntityModel`/`useSetEntityModel`/`useEntityBackfillStatus`/`useStartEntityBackfill`) + 데스크톱 4훅 + auth 2훅 + `useUIStore.locale/setLocale` + 전체 핸들러 + 타입(any 0) + i18n(킷 한국어 하드코딩 전부 `t()`). 백필은 토글과 무관·`desktopReady` 가드 유지
+- 미이식(백엔드 없음): Streaming/Guardian/Theme = 비활성 "준비 중" placeholder로 자리만 표시(동작 로직 미연결). Library 뷰·정렬·Password·Active sessions·**Delete account(danger zone)**·Diagnostics·서비스 health StatusPill = 완전 미이식(가짜 버튼/상태 노출 금지)
+- 데이터 계층/IPC/스토어/DB/Electron/`tokens.css` 무변경. `CURRENT_EXTRACTION_VERSION` 범프 불필요. 빌드(tsc -b+vite) 통과·vitest 28건 회귀 통과. 커밋/비주얼 검증은 리뷰 단계
+- feature-status.md: SettingsView 리디자인 행 ✅ 구현됨 처리. paper.md(v1.2): SettingsView 섹션 2-pane IA로 전면 갱신 + 파일 줄 수 보정
+
 ## v1.5 — 2026-05-30
 - FiguresView 디자인 킷 이식 (리디자인 1호 시범 화면). 방향 A(1-pane 전역 갤러리) + 썸네일 A-1(paperId별 PDF doc 캐시) 채택
 - `FiguresView.tsx` 전면 재구성: 2-pane(논문선택→그림) 폴더 동선 제거 → 필터칩(All/Figure/Table/Equation + 카운트) + 캡션·제목 검색 + 카드 그리드 + 라이트박스(키보드 ←/→/Esc)

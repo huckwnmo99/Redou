@@ -1,5 +1,5 @@
 # 기능 상태 매트릭스
-> 하네스 버전: v1.5 | 최종 갱신: 2026-05-30
+> 하네스 버전: v1.6 | 최종 갱신: 2026-05-30
 
 ## 전체 기능 매트릭스
 
@@ -66,6 +66,7 @@
 | Step 7 | Agentic RAG 통합 | 💡 아이디어 |
 | 리팩토링 | PDF 파이프라인 V2 단일화 (V1 휴리스틱 폴백 제거) | ✅ 완료 (CURRENT_EXTRACTION_VERSION=25, MinerU 필수 throw, V1 코드 전체 삭제) |
 | 리디자인 | FiguresView 디자인 킷 이식 (리디자인 1호 시범 화면) | ✅ 구현됨 (`docs/features/new/12-figuresview-redesign-kit-port.md`. **방향 A(1-pane 전역 갤러리)** + 썸네일 **A-1(paperId별 PDF doc 캐시)** 채택. 필터칩(All/Figure/Table/Equation+카운트)+캡션·제목 검색+카드 그리드+라이트박스(키보드 ←/→/Esc) 시각 이식. 데이터 훅·IPC·실제 썸네일 로직·`LatexText`·i18n 100% 보존, 킷 가짜 placeholder/CDN Icon 미채택. `tokens.css`에 `--shadow-xs`/`--font-mono` + `.fig-card` hover 규칙 추가. 2-pane 폴더 동선 제거. 빌드(tsc -b+vite) 통과. 커밋/비주얼 검증은 리뷰 단계) |
+| 리디자인 | SettingsView 디자인 킷 이식 (리디자인 2호 화면) | ✅ 구현됨 (`docs/features/new/13-settingsview-redesign-kit-port.md`. 킷 **2-pane 섹션 레이아웃**(좌측 Account/Workspace/Models/Desktop/About 네비 + 우측 Row 패널)으로 `SettingsView.tsx` 전면 재구성. **기본 진입 섹션=account**. 프리미티브 TS 포팅: `SectionHeader`/`RowGroup`/`Row`/`Select`/`SegmentedControl`/`Button`(icon=lucide 컴포넌트)/`Toast`(2.5초 자동 소멸, z-index 100). entity 토글·LLM/entity 모델 선택을 **Models 섹션**에 매핑 보존(Chat & table + Knowledge graph RowGroup). 백엔드 없는 킷 목업(Streaming/Guardian/Theme)은 **비활성 "준비 중" placeholder**(`ComingSoonPill`)로 자리만 표시 — 동작 로직 미연결. Library 뷰·Password·Active sessions·**Delete account(danger zone)**·Diagnostics·서비스 health StatusPill은 **완전 미이식**(가짜 버튼/상태 노출 금지). About은 데스크탑 버전·런타임만 실제값. 보존: 4 entity 훅(`useEntityGraphEnabled`/`useSetEntityGraphEnabled`/`useActiveEntityModel`/`useSetEntityModel`/`useEntityBackfillStatus`/`useStartEntityBackfill`)·LLM 훅·`@/lib/desktop` IPC·`useAuthSession`/`useSignOut`·`useUIStore.locale/setLocale`·전체 핸들러·타입(any 0). 킷 한국어 하드코딩 전부 `t()`로 래핑, `.eyebrow`/`.scroll-y`→인라인 style(FiguresView 선례). 데이터·IPC·스토어·DB·Electron·`tokens.css` 무변경, `CURRENT_EXTRACTION_VERSION` 범프 불필요. 빌드(tsc -b+vite) 통과·vitest 28건 회귀 통과. 커밋/비주얼 검증은 리뷰 단계) |
 
 ## 최근 변경 (커밋 기준)
 
