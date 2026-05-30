@@ -1,11 +1,10 @@
 import { useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { User, Bot, AlertTriangle } from "lucide-react";
 import type { ChatMessage } from "@/types/chat";
 import type { ChatPipelineStage } from "@/types/desktop";
-import { useChatTable } from "@/lib/chatQueries";
-import { ChatTableReport } from "./ChatTableReport";
+import { useChatTable, useActiveLlmModel } from "@/lib/chatQueries";
+import { ChatTableReport, ChatTableReferences } from "./ChatTableReport";
 import { ChatPipelineStatus } from "./ChatPipelineStatus";
 import { localeText } from "@/lib/locale";
 import { useUIStore } from "@/stores/uiStore";
@@ -29,7 +28,12 @@ function TableReportLoader({
 }) {
   const { data: table } = useChatTable(tableId);
   if (!table) return null;
-  return <ChatTableReport table={table} onNavigateToPaper={onNavigateToPaper} />;
+  return (
+    <>
+      <ChatTableReport table={table} />
+      <ChatTableReferences table={table} onNavigateToPaper={onNavigateToPaper} />
+    </>
+  );
 }
 
 function InlineTableReport({ content }: { content: string }) {
@@ -67,117 +71,156 @@ function InlineTableReport({ content }: { content: string }) {
   }
 }
 
+/** Assistant identity header: R gradient avatar + "Redou Orchestrator" + real active model chip */
+function AssistantHeader({ modelName }: { modelName?: string | null }) {
+  const locale = useUIStore((s) => s.locale);
+  const t = (en: string, ko: string) => localeText(locale, en, ko);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+      <div
+        style={{
+          width: 24,
+          height: 24,
+          borderRadius: "var(--radius-sm)",
+          background: "linear-gradient(135deg, #2563eb 0%, #0f766e 100%)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#fff",
+          fontSize: 11,
+          fontWeight: 700,
+          flexShrink: 0,
+        }}
+      >
+        R
+      </div>
+      <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-text-primary)" }}>
+        {t("Redou Orchestrator", "Redou 오케스트레이터")}
+      </span>
+      {modelName ? (
+        <span
+          style={{
+            fontSize: 10,
+            color: "var(--color-text-muted)",
+            background: "var(--color-bg-panel)",
+            padding: "1px 6px",
+            borderRadius: "var(--radius-xs)",
+            fontFamily: "var(--font-mono)",
+          }}
+        >
+          {modelName}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/** Error identity header (kept distinct from the assistant header tone) */
+function ErrorHeader() {
+  const locale = useUIStore((s) => s.locale);
+  const t = (en: string, ko: string) => localeText(locale, en, ko);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+      <div
+        style={{
+          width: 24,
+          height: 24,
+          borderRadius: "var(--radius-sm)",
+          background: "rgba(220, 38, 38, 0.12)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "var(--color-danger)",
+          fontSize: 11,
+          fontWeight: 700,
+          flexShrink: 0,
+        }}
+      >
+        !
+      </div>
+      <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-danger)" }}>
+        {t("Error", "오류")}
+      </span>
+    </div>
+  );
+}
+
+function UserMessage({ content, pending }: { content: string; pending?: boolean }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+      <div
+        className="chat-user-bubble"
+        style={{
+          maxWidth: "70%",
+          padding: "10px 14px",
+          background: "var(--color-accent)",
+          color: "#fff",
+          borderRadius: "var(--radius-lg)",
+          fontSize: 13.5,
+          lineHeight: 1.6,
+          cursor: "text",
+          opacity: pending ? 0.75 : 1,
+        }}
+      >
+        {content}
+      </div>
+    </div>
+  );
+}
+
 function MessageBubble({
   message,
+  modelName,
   onNavigateToPaper,
 }: {
   message: ChatMessage;
+  modelName?: string | null;
   onNavigateToPaper?: (paperId: string) => void;
 }) {
   const isUser = message.role === "user";
   const isError = message.message_type === "error";
   const tableId = message.metadata?.table_id;
 
-  return (
-    <div
-      style={{
-        display: "flex",
-        gap: 14,
-        alignItems: "flex-start",
-        flexDirection: isUser ? "row-reverse" : "row",
-      }}
-    >
-      {/* Avatar */}
-      <div
-        style={{
-          width: 42,
-          height: 42,
-          borderRadius: "var(--radius-md)",
-          background: isUser
-            ? "var(--color-accent-subtle)"
-            : isError
-              ? "rgba(220, 38, 38, 0.1)"
-              : "rgba(15, 118, 110, 0.1)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-        }}
-      >
-        {isUser ? (
-          <User size={22} color="var(--color-accent)" />
-        ) : isError ? (
-          <AlertTriangle size={22} color="var(--color-danger)" />
-        ) : (
-          <Bot size={22} color="var(--color-success)" />
-        )}
-      </div>
+  if (isUser) {
+    return <UserMessage content={message.content} />;
+  }
 
-      {/* Content */}
-      <div
-        className={isUser ? "chat-user-bubble" : undefined}
-        style={{
-          maxWidth: "85%",
-          padding: "16px 22px",
-          borderRadius: "var(--radius-lg, 14px)",
-          background: isUser
-            ? "var(--color-accent)"
-            : isError
-              ? "rgba(254, 242, 242, 0.9)"
-              : "var(--color-bg-elevated)",
-          color: isUser ? "#fff" : "var(--color-text-primary)",
-          fontSize: 15,
-          lineHeight: 1.7,
-          border: isUser ? "none" : "1px solid var(--color-border-subtle)",
-          cursor: isUser ? "text" : undefined,
-        }}
-      >
-        {message.message_type === "table_report" && tableId ? (
-          <TableReportLoader tableId={tableId} onNavigateToPaper={onNavigateToPaper} />
-        ) : message.message_type === "table_report" && !tableId ? (
-          <InlineTableReport content={message.content} />
-        ) : (
-          <div className="chat-markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
-          </div>
-        )}
-      </div>
+  return (
+    <div style={{ maxWidth: "85%" }}>
+      {isError ? <ErrorHeader /> : <AssistantHeader modelName={modelName} />}
+      {message.message_type === "table_report" && tableId ? (
+        <TableReportLoader tableId={tableId} onNavigateToPaper={onNavigateToPaper} />
+      ) : message.message_type === "table_report" && !tableId ? (
+        <InlineTableReport content={message.content} />
+      ) : (
+        <div
+          className="chat-markdown"
+          style={{
+            fontSize: 13.5,
+            lineHeight: 1.7,
+            color: isError ? "var(--color-danger)" : "var(--color-text-primary)",
+          }}
+        >
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+        </div>
+      )}
     </div>
   );
 }
 
-function StreamingBubble({ content }: { content: string }) {
+function StreamingBubble({ content, modelName }: { content: string; modelName?: string | null }) {
   return (
-    <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+    <div style={{ maxWidth: "85%" }}>
+      <AssistantHeader modelName={modelName} />
       <div
+        className="chat-markdown"
         style={{
-          width: 42,
-          height: 42,
-          borderRadius: "var(--radius-md)",
-          background: "rgba(15, 118, 110, 0.1)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-        }}
-      >
-        <Bot size={22} color="var(--color-success)" />
-      </div>
-      <div
-        style={{
-          maxWidth: "85%",
-          padding: "16px 22px",
-          borderRadius: "var(--radius-lg, 14px)",
-          background: "var(--color-bg-elevated)",
-          border: "1px solid var(--color-border-subtle)",
-          fontSize: 15,
+          fontSize: 13.5,
           lineHeight: 1.7,
           color: "var(--color-text-primary)",
         }}
       >
-        <div className="chat-markdown">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || "..."}</ReactMarkdown>
-        </div>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || "..."}</ReactMarkdown>
       </div>
     </div>
   );
@@ -195,6 +238,8 @@ export function ChatMessageList({
   const scrollRef = useRef<HTMLDivElement>(null);
   const locale = useUIStore((s) => s.locale);
   const t = (en: string, ko: string) => localeText(locale, en, ko);
+  const { data: activeModel } = useActiveLlmModel();
+  const modelName = activeModel?.model ?? null;
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -229,56 +274,38 @@ export function ChatMessageList({
       style={{
         flex: 1,
         overflowY: "auto",
-        padding: "24px 28px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 20,
+        padding: "20px 0",
       }}
     >
-      {messages.map((msg) => (
-        <MessageBubble key={msg.id} message={msg} onNavigateToPaper={onNavigateToPaper} />
-      ))}
-      {pendingUserMessage && (
-        <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexDirection: "row-reverse" }}>
-          <div
-            style={{
-              width: 42,
-              height: 42,
-              borderRadius: "var(--radius-md)",
-              background: "var(--color-accent-subtle)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
-          >
-            <User size={22} color="var(--color-accent)" />
-          </div>
-          <div
-            className="chat-user-bubble"
-            style={{
-              maxWidth: "85%",
-              padding: "16px 22px",
-              borderRadius: "var(--radius-lg, 14px)",
-              background: "var(--color-accent)",
-              color: "#fff",
-              fontSize: 15,
-              lineHeight: 1.7,
-              cursor: "text",
-              opacity: 0.75,
-            }}
-          >
-            {pendingUserMessage}
-          </div>
-        </div>
-      )}
-      {isStreaming && pipelineStage && !streamingContent && (
-        <ChatPipelineStatus stage={pipelineStage} message={pipelineMessage} />
-      )}
-      {isStreaming && !pipelineStage && !streamingContent && (
-        <StreamingBubble content="..." />
-      )}
-      {isStreaming && streamingContent && <StreamingBubble content={streamingContent} />}
+      <div
+        style={{
+          maxWidth: 880,
+          margin: "0 auto",
+          padding: "0 20px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+        }}
+      >
+        {messages.map((msg) => (
+          <MessageBubble
+            key={msg.id}
+            message={msg}
+            modelName={modelName}
+            onNavigateToPaper={onNavigateToPaper}
+          />
+        ))}
+        {pendingUserMessage && <UserMessage content={pendingUserMessage} pending />}
+        {isStreaming && pipelineStage && !streamingContent && (
+          <ChatPipelineStatus stage={pipelineStage} message={pipelineMessage} />
+        )}
+        {isStreaming && !pipelineStage && !streamingContent && (
+          <StreamingBubble content="..." modelName={modelName} />
+        )}
+        {isStreaming && streamingContent && (
+          <StreamingBubble content={streamingContent} modelName={modelName} />
+        )}
+      </div>
     </div>
   );
 }
