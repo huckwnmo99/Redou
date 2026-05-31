@@ -1,5 +1,17 @@
 # Harness Version
 
+## v1.8 — 2026-05-31
+- NotesView 디자인 킷 이식 (리디자인 5호 화면). 방향 A 채택. `NotesView.tsx` 단일 파일 전면 재구성 — 데이터/IPC/스토어/타입/DB/Electron/`tokens.css` 무변경
+- IA 전환: 전체폭 2-grid(논문별 그룹 리스트 / 에디터) → 킷 **3-pane**(좌 리스트 패널[제목+카운트+New / 검색 / 종류칩 / 논문·정렬 CompactSelect / flat 리스트] + 드래그 `ResizeHandle` + 우 캄 에디터). 페이지 외곽 패딩 제거(`display:flex; height:100%; overflow:hidden`)
+- 신규 인터랙션 4종(전부 로컬 useState, 부수효과 0): 노트 검색(`matchesSearch` 제목·본문 lowercase includes) + 정렬(`sort`: updated/created/title/kind — 실 `updatedAt`/`createdAt`/`title`/`kind`, pinned 우선) + **종류별 필터칩**(`kindFilter`, `NOTE_KIND_KEYS=Object.keys(noteKindMeta)` 순회) + **리스트↔에디터 드래그 리사이즈**(`listWidth` 280~560px lazy init + `localStorage["redou.notes.listWidth"]`, `dragCleanupRef` + unmount cleanup으로 리스너 누수 방지)
+- 보조 컴포넌트(파일 내): `NoteList`/`KindChip`(색 점+라벨+카운트)/`CompactSelect`(논문[글로벌 selectedPaperId]·정렬, SVG chevron 인라인)/`NoteCard`(좌측 종류색 보더+칩/핀+날짜+제목 ellipsis+2줄 클램프+논문·p.N 푸터)/`ResizeHandle`(hover 인라인)/`NoteEditor`/`NoteKindSelect`(킷 NoteKindChip 시각+투명 native select 오버레이=실 draft.kind 변경)/`MetaChip`/`SaveStatus`(dirty 반영)/`IconButtonNotes`(pin 실 토글)/`EmptyEditor`
+- 보존: controlled `draft`+`isDraftDirty`/`handleSave`(`useUpdateNote`, `anchorLabel: linkedSelectionNote ? undefined` 분기 유지)·`handleCreateNote`(`useCreateNote`)·`openNoteSource`/`openPaperNotes`(`setReaderTargetAnchor`+`openPaperDetail`)·`linkedSelectionNote`(highlightId||linkedAnchor) 하이라이트 연결+`activeQuote` 인용 배너·앵커 input linked 잠금(linked 시 미표시)·`useAllNotes`/`useAllPapers`·`noteKindMeta`/`formatNoteDate`(읽기만)·타입(any 0)·i18n `t()`·노트 전환 시 `useEffect` draft 동기(킷 `key`+defaultValue 트릭 미채택)
+- 미채택(가짜): 킷 발명 종류 `idea`/`comparison`/`todo` **폐기**(실 `NoteKind` 6종 summary/insight/question/quote/action/memo만 — DB `KIND_TO_DB` 매핑 일치), 킷 `defaultValue`+`key` 입력 트릭(controlled 유지), 무조건 "저장됨" 배지→실 dirty(미저장 시 accent dot), `onNew` 빈함수→`handleCreateNote`, "소스로 이동"/핀 무동작→실 액션, **삭제(trash) 버튼 미이식**(삭제 기능 없음·가짜 노출 금지), **⌘S/⌘⏎ kbd 힌트 미이식**(키 바인딩 없음·가짜 노출 금지 — 워드/문자 카운트는 실 계산으로 유지)
+- [가정 A] 종류칩/에디터 칩 색 점만(아이콘 없음, `noteKindMeta`에 icon 필드 없음). [가정 B] 종류 라벨 영문 `meta.label` 단일. [가정 C] 논문 필터=글로벌 `selectedPaperId` 유지(리더·소스이동 동선 보존), `groupedNotes` 그룹 헤더 제거→flat 리스트+카드 푸터 논문명. [가정 D] 드래그 리사이즈 이식. [미결 2] 종류 변경=투명 select 오버레이(동작 보존)
+- `.scroll-y` 클래스 미정의→인라인 `overflowY:auto`(Figures/Settings 선례). lucide named import 정리(`BookOpen`/`Save` 제거, `ArrowUpDown`/`Bookmark`/`Check`/`ChevronDown`/`Clock`/`Pin`/`Quote`/`Search`/`SearchX`/`X` 추가)
+- 빌드(tsc -b+vite) 통과·vitest 28건 회귀 통과. ESLint 미설정(eslint.config 없음·미설치). `CURRENT_EXTRACTION_VERSION` 범프 불필요. 커밋/비주얼 검증은 리뷰 단계
+- feature-status.md: NotesView 리디자인 행 ✅ 구현됨 처리. notes.md(v1.1): 3-pane IA·신규 인터랙션·보존 로직·종류 6종으로 전면 갱신. flows.md: 노트 작성 흐름에 검색/정렬/종류필터/드래그 + 보존 로직 반영
+
 ## v1.7 — 2026-05-31
 - SearchView 디자인 킷 이식 (리디자인 4호 화면). 방향 A(paper-centric 집계 유지) 채택. `SearchView.tsx` 단일 파일 시각 재구성 — 데이터/IPC/스토어/타입/모델/DB/Electron/`tokens.css` 무변경
 - 이식: 중앙 컬럼(maxWidth 820, padding 32/24/80) + 검색바(height 54 + 포커스 글로우 `0 0 0 4px accent-subtle` + ⌘K kbd[focus 핸들러] + Esc clear) + **Hybrid 정보 칩**(가짜 Semantic/Keyword 토글 대체) + 카테고리 **7칩**(소스 아이콘+카운트, count=0 disabled) + 결과 카드 3단(좌측 소스 레일[대표 소스+p.N] / 본문[제목·스니펫+키워드 `<mark>`] / 우측[매치% 색뱃지+Open→]) + 하단 다중 소스 뱃지 유지 + 빈상태(eyebrow + Try칩 + 최근 논문[실데이터]) + 결과없음(search-x + 2줄)

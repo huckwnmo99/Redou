@@ -1,5 +1,5 @@
 # 주요 데이터 흐름
-> 하네스 버전: v1.5 | 최종 갱신: 2026-05-30
+> 하네스 버전: v1.8 | 최종 갱신: 2026-05-31
 
 ## 1. PDF 임포트 → 처리 파이프라인
 
@@ -164,19 +164,40 @@
 
 **관련 파일**: `main.mjs` (handleQaPipeline), `llm-qa.mjs` (Q&A 프롬프트 + 스트리밍), `llm-chat.mjs` (streamChat)
 
-## 5. 노트 작성
+## 5. 노트 작성 (3-pane 워크스페이스 — 디자인 킷 이식, 방향 A)
 
 ```
-사용자: 노트 작성 (NotesView.tsx)
+사용자: Notes 탭 진입 (NotesView.tsx — 3-pane: 좌 리스트 + 드래그 핸들 + 우 캄 에디터)
   │
-  ├─ 노트 목록 조회: useAllNotes → supabasePaperRepository.ts → notes 테이블
-  ├─ 새 노트 생성: useCreateNote → DB insert (notes)
-  ├─ 노트 수정: useUpdateNote → DB update (notes)
-  └─ 노트 scope: paper / section / chunk / figure / highlight
+  ├─ 데이터: useAllNotes → notes 테이블 / useAllPapers → paperMap(논문 제목·p.N)
+  │
+  ├─ 좌 NoteList: 표시용 파생(로컬 useState, 부수효과 0)
+  │   ├─ 논문 필터(CompactSelect) = 글로벌 useUIStore.selectedPaperId ("all"↔null)
+  │   │   └─ paperScopedNotes: selectedPaperId로 노트 좁힘 (리더·소스이동과 글로벌 공유)
+  │   ├─ 종류 필터칩(kindFilter): NOTE_KIND_KEYS=Object.keys(noteKindMeta) 6종 순회
+  │   ├─ 검색(search): matchesSearch — 제목·본문 lowercase includes
+  │   ├─ 정렬(sort): updated/created/title/kind 실 필드, pinned 우선
+  │   └─ flat 리스트(NoteCard, 그룹 헤더 없음) → activeNote = sortedNotes[selectedNoteId]
+  │
+  ├─ 우 NoteEditor: controlled draft 편집 (킷 시각, 로직 보존)
+  │   ├─ draft {title, content, kind, anchorLabel, pinned} — 노트 전환 시 useEffect로 buildDraft 동기
+  │   ├─ NoteKindSelect: 킷 칩 시각 + 투명 native select → draft.kind 변경
+  │   ├─ pin 토글(IconButtonNotes) → draft.pinned
+  │   ├─ linkedSelectionNote(highlightId||linkedAnchor): 앵커 input 숨김 + 인용 배너(activeQuote)
+  │   │   └─ "소스로 이동"(openNoteSource) → setReaderTargetAnchor + openPaperDetail("pdf")
+  │   ├─ dirty = isDraftDirty(activeNote, draft) → SaveStatus + 저장 버튼 활성
+  │   └─ 저장(handleSave) → useUpdateNote (anchorLabel: linked면 undefined로 보존)
+  │
+  ├─ 새 노트: handleCreateNote → useCreateNote insert (paperId=selectedPaperId 폴백)
+  │
+  ├─ 드래그 리사이즈: listWidth(280~560px) + ResizeHandle + localStorage["redou.notes.listWidth"]
+  │   └─ document mousemove/mouseup + dragCleanupRef + unmount cleanup(리스너 누수 방지)
+  │
+  └─ 노트 scope(DB): paper / section / chunk / figure / highlight
       └─ 각 scope에 맞는 FK 연결 (section_id, chunk_id, figure_id, highlight_id)
 ```
 
-**관련 파일**: `frontend/src/features/notes/NotesView.tsx`, `frontend/src/lib/queries.ts`, `frontend/src/lib/supabasePaperRepository.ts`
+**관련 파일**: `frontend/src/features/notes/NotesView.tsx`, `frontend/src/features/notes/notePresentation.ts`(noteKindMeta/formatNoteDate), `frontend/src/lib/queries.ts`, `frontend/src/lib/supabasePaperRepository.ts`, `frontend/src/stores/uiStore.ts`(selectedPaperId/selectedNoteId 소스이동)
 
 ## 6. Figure 갤러리 탐색 (1-pane 전역)
 
