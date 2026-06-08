@@ -19,7 +19,7 @@
 | `rrfFusion(vectorChunks, bm25Chunks, mode, k)` | main.mjs:2728 | 청크 RRF 병합 | table: BM25 60%+Vector 40%, qa: BM25 30%+Vector 70% |
 | `rrfFusionFigures(vectorFigs, bm25Figs, k)` | main.mjs:2764 | Figure RRF 병합 | BM25 60%+Vector 40%, TABLE_BOOST=0.005 |
 | `rerankChunksIfAvailable(query, chunks, mode)` | main.mjs:2804 | Reranker 적용 | table: top-15, qa: top-10 |
-| `assembleRagContext(chunks, figures, refMap, matrices)` | main.mjs:2959 | 전체 RAG 컨텍스트 조립 | → string (3섹션: 파싱TSV + OCR HTML + 텍스트) |
+| `assembleRagContext(chunks, figures, refMap, matrices, budget?)` | chat/table-extraction.mjs | 전체 RAG 컨텍스트 조립 | → string (3섹션: 파싱TSV + OCR HTML + 텍스트). `budget?={ocr,matrix,total}` 미지정 시 기본(OCR 70K/MATRIX 35K/TOTAL 120K). Stage 3c fallback만 `FALLBACK_RAG_BUDGET`(OCR 30K/MATRIX 20K/TOTAL 60K) 전달 |
 | `assemblePerPaperContext({chunks, figures, tables, title})` | main.mjs:3027 | 논문별 RAG 컨텍스트 (SRAG용) | 예산: 30K chars/논문 |
 | `mergeExtractionResults(results, spec, meta, refMap)` | main.mjs:3110 | SRAG 병합 (코드 전용) | → {tableJson, nullSummary} |
 | `runPaperScopedRecoverySearch(queries, paperId, signal)` | main.mjs | Stage 3d 단일 논문 재검색 | → {chunks, figures} |
@@ -56,6 +56,13 @@ searchQueries[] (Orchestrator 출력)
       │
       ├─ [Table 모드 SRAG] assemblePerPaperContext × N논문
       │   └─ 논문당 30K chars (TSV 12K + OCR 14K + 텍스트 나머지)
+      │
+      ├─ [Table 모드 Stage 3c fallback] per-paper 병합이 0행이면 단일호출 Table Agent
+      │   ├─ assembleRagContext(..., FALLBACK_RAG_BUDGET) — 축소 컨텍스트(~60K)로 300초 timeout 회피 (fix 18 P0-B)
+      │   ├─ 비차단화: generateTableFromSpec()가 throw(예: DOMException TimeoutError)해도 파이프라인 중단 안 함 (fix 18 P0-A)
+      │   │   ├─ 사용자 abort(abortSignal.aborted)는 throwIfChatAborted로 재throw
+      │   │   └─ timeout/일반 에러는 병합 부분결과(있으면) 또는 빈 테이블(rows:[] + notes) 반환
+      │   └─ extractionMode="single_call_fallback" 유지 → Stage 3d 건너뜀(nullSummary=null), persistTableReport는 rows:[] 안전 처리
       │
       ├─ [Table 모드 Stage 3d] Agentic NULL Recovery
       │   ├─ mergeExtractionResults()의 nullSummary.details를 논문별로 그룹화

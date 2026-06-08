@@ -20,6 +20,7 @@ import {
   serializeEvidenceLocations,
 } from "./source-evidence.mjs";
 import {
+  FALLBACK_RAG_BUDGET,
   assemblePerPaperContext,
   assembleRagContext,
   cleanCellValue,
@@ -555,11 +556,17 @@ async function runStage3cMergeFallback({
   let nullSummary = null;
   let agenticRecovery = null;
   let tableSpecAdherence = null;
+  // Preserve the per-paper merge result so that, if the single-call fallback
+  // throws (e.g. DOMException TimeoutError), we can still salvage partial rows
+  // instead of crashing the whole pipeline. Stays null when fallback was forced
+  // before any merge ran (e.g. all per-paper extractions failed up front).
+  let mergedTableJson = null;
 
   if (!extractionFallbackNeeded) {
     console.log("[Chat] Stage 3c: Merging per-paper extractions (code-only, no LLM)...");
     const merged = mergeExtractionResults(extractionResults, tableSpec, paperMetadata, paperRefMap);
     tableJson = merged.tableJson;
+    mergedTableJson = merged.tableJson;
     nullSummary = merged.nullSummary;
     extractionMode = "per_paper";
 
@@ -574,12 +581,43 @@ async function runStage3cMergeFallback({
       throw new TypeError("runTableConversationPipeline requires generateTableFromSpecFn for Stage 3c fallback");
     }
     console.log("[Chat] Stage 3c: Fallback -> single-call Table Agent on combined RAG context...");
-    const ragContext = assembleRagContext(ragResults.chunks, ragResults.figures, paperRefMap, parsedMatrices);
-    tableJson = await generateTableFromSpecFn(tableSpec, ragContext, paperMetadata, abortSignal);
-    throwIfChatAborted(abortSignal);
-    const normalizedFallback = normalizeFallbackTableToSpec(tableJson, tableSpec);
-    tableJson = normalizedFallback.tableJson;
-    tableSpecAdherence = normalizedFallback.diagnostics;
+    const ragContext = assembleRagContext(
+      ragResults.chunks,
+      ragResults.figures,
+      paperRefMap,
+      parsedMatrices,
+      FALLBACK_RAG_BUDGET,
+    );
+    try {
+      tableJson = await generateTableFromSpecFn(tableSpec, ragContext, paperMetadata, abortSignal);
+      throwIfChatAborted(abortSignal);
+      const normalizedFallback = normalizeFallbackTableToSpec(tableJson, tableSpec);
+      tableJson = normalizedFallback.tableJson;
+      tableSpecAdherence = normalizedFallback.diagnostics;
+    } catch (err) {
+      // User-initiated abort must still propagate so the request is cancelled.
+      throwIfChatAborted(abortSignal);
+      // Timeout / generic fallback failure: do NOT crash the pipeline. Salvage
+      // the per-paper merge result if it had any rows, otherwise return an empty
+      // table with a note so the user sees a result instead of an error screen.
+      // Stage 3d is skipped because extractionMode stays "single_call_fallback"
+      // and nullSummary is null; persistTableReport handles rows: [] safely.
+      console.error(
+        "[Chat] Stage 3c: single-call fallback failed (non-abort), returning salvaged/empty table:",
+        err?.message || err,
+      );
+      if (mergedTableJson && Array.isArray(mergedTableJson.rows) && mergedTableJson.rows.length > 0) {
+        tableJson = mergedTableJson;
+      } else {
+        tableJson = {
+          title: tableSpec?.title || "비교 테이블",
+          headers: Array.isArray(tableSpec?.column_definitions) ? tableSpec.column_definitions.slice() : [],
+          rows: [],
+          references: [],
+          notes: "표 생성이 시간 내에 완료되지 못했습니다. 요청을 더 구체적으로 좁히거나 다시 시도해주세요.",
+        };
+      }
+    }
     extractionMode = "single_call_fallback";
     agenticRecovery = buildSkippedAgenticRecovery(null, "single_call_fallback");
     nullSummary = null;

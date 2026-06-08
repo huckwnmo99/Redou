@@ -1,5 +1,14 @@
 # Harness Version
 
+## v1.9 — 2026-06-08
+- 테이블 생성 타임아웃 (single-call fallback DOMException TimeoutError) 수정 — fix 18의 **P0-A + P0-B만** 구현 (P1/P2 미구현). 수정 파일 2개: `chat/table-pipeline.mjs`, `chat/table-extraction.mjs`
+- **P0-A (fallback 비차단화)**: `runStage3cMergeFallback`의 단일호출 fallback(`generateTableFromSpecFn` + 정규화)을 try/catch로 감쌈. 사용자 abort는 `throwIfChatAborted`로 재throw, timeout/일반 에러는 병합 부분결과(있으면) 또는 빈 테이블(`rows:[]` + notes="표 생성이 시간 내에 완료되지 못했습니다…")을 반환 → 에러 화면 대신 결과 표시. `extractionMode="single_call_fallback"` 유지로 Stage 3d 건너뜀(nullSummary=null), persistTableReport는 rows:[] 안전 처리. 병합 부분결과 보존용 `mergedTableJson` 변수 추가
+- **P0-B (fallback 컨텍스트 축소)**: `assembleRagContext`에 옵셔널 5번째 인자 `budget={ocr,matrix,total}` 추가(미지정 시 기존 기본값 OCR 70K/MATRIX 35K/TOTAL 120K 유지 → main.mjs Q&A 경로 무영향). 신규 export 상수 `FALLBACK_RAG_BUDGET`(OCR 30K/MATRIX 20K/TOTAL 60K)을 Stage 3c fallback 호출에서만 전달 → ~120K→~60K 축소로 로컬 Ollama 300초 timeout 회피
+- 정상 경로(per-paper 성공→병합)·frontend 무변경. `CURRENT_EXTRACTION_VERSION` 범프 불필요(채팅 런타임 로직만 변경, 추출 산출물/임베딩 스키마 불변)
+- 검증: `node --check` 2파일 통과 · 데스크탑 단위 테스트(Node `node --test tests/*.test.mjs`) **57건 전부 회귀 통과**(table-pipeline.test.mjs + table-extraction.test.mjs 23건 직접 실행 + 전체 스위트 재실행 확인) · abort 재throw/비차단 동작은 기존 `table-pipeline.test.mjs`의 fallback·abort 케이스로 커버
+- rag-pipeline.md: `assembleRagContext` 시그니처에 `budget?` 반영 + 데이터 흐름에 Stage 3c fallback 비차단화/축소 budget 블록 추가
+- feature-status.md: fix 18 항목을 `🟡 부분 구현 (P0-A + P0-B 완료, P1/P2 미구현)`으로 갱신 (timeout 항목 1줄만 — advisor 등 무관 변경 미개입). 커밋은 사용자가 수행
+
 ## v1.8 — 2026-05-31
 - NotesView 디자인 킷 이식 (리디자인 5호 화면). 방향 A 채택. `NotesView.tsx` 단일 파일 전면 재구성 — 데이터/IPC/스토어/타입/DB/Electron/`tokens.css` 무변경
 - IA 전환: 전체폭 2-grid(논문별 그룹 리스트 / 에디터) → 킷 **3-pane**(좌 리스트 패널[제목+카운트+New / 검색 / 종류칩 / 논문·정렬 CompactSelect / flat 리스트] + 드래그 `ResizeHandle` + 우 캄 에디터). 페이지 외곽 패딩 제거(`display:flex; height:100%; overflow:hidden`)

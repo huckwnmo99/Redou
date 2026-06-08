@@ -8,6 +8,17 @@ const PER_PAPER_MATRIX_BUDGET = 12000;
 const PER_PAPER_OCR_BUDGET = 14000;
 const PER_PAPER_TOTAL_BUDGET = 30000;
 
+// Reduced budget for the single-call fallback path (Stage 3c). The fallback is
+// an emergency route invoked only when per-paper extraction yields nothing, and
+// it sends the whole context to local Ollama in one request. A ~120K context
+// frequently exceeds the 300s AbortSignal timeout, so we halve it here so the
+// fallback can actually complete. See docs/features/fix/18-table-generation-timeout.md.
+export const FALLBACK_RAG_BUDGET = {
+  ocr: 30000,
+  matrix: 20000,
+  total: 60000,
+};
+
 export function cleanCellValue(cell) {
   if (typeof cell !== "string") return cell;
   let v = cell;
@@ -17,7 +28,11 @@ export function cleanCellValue(cell) {
   return v;
 }
 
-export function assembleRagContext(chunks, figures, paperRefMap, parsedMatrices) {
+export function assembleRagContext(chunks, figures, paperRefMap, parsedMatrices, budget) {
+  const ocrBudget = budget?.ocr ?? OCR_BUDGET;
+  const matrixBudget = budget?.matrix ?? MATRIX_BUDGET;
+  const totalBudget = budget?.total ?? TOTAL_BUDGET;
+
   let matrixStr = "";
   if (parsedMatrices && parsedMatrices.length > 0) {
     const parts = [];
@@ -32,8 +47,8 @@ export function assembleRagContext(chunks, figures, paperRefMap, parsedMatrices)
       }
     }
     matrixStr = parts.join("\n\n");
-    if (matrixStr.length > MATRIX_BUDGET) {
-      matrixStr = matrixStr.slice(0, MATRIX_BUDGET) + "\n... (truncated)";
+    if (matrixStr.length > matrixBudget) {
+      matrixStr = matrixStr.slice(0, matrixBudget) + "\n... (truncated)";
     }
   }
 
@@ -47,12 +62,12 @@ export function assembleRagContext(chunks, figures, paperRefMap, parsedMatrices)
     });
   let ocrTables = "";
   for (const entry of ocrEntries) {
-    if (ocrTables.length + entry.length > OCR_BUDGET) break;
+    if (ocrTables.length + entry.length > ocrBudget) break;
     ocrTables += (ocrTables ? "\n\n" : "") + entry;
   }
 
   const usedBudget = matrixStr.length + ocrTables.length;
-  const chunkBudget = Math.max(10000, TOTAL_BUDGET - usedBudget);
+  const chunkBudget = Math.max(10000, totalBudget - usedBudget);
   let textChunksStr = "";
   for (let i = 0; i < chunks.length; i++) {
     const ref = paperRefMap.get(chunks[i].paper_id);
