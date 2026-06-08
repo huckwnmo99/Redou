@@ -57,6 +57,41 @@ export interface CellVerification {
   evidence?: string;
 }
 
+/**
+ * Per-paper missing-data reason, collected by the merge step and stored in
+ * `chat_generated_tables.metadata.perPaperReasons` (see fix 19). Used to render
+ * a "no data found" section explaining why a scope paper produced an empty row.
+ */
+export interface PerPaperReason {
+  paperId: string;
+  paperTitle: string;
+  /** Reference number shown as "[refNo]" in the table/references. */
+  refNo: string;
+  /** True when the paper contributed at least one real data row (no reason needed). */
+  hadRows: boolean;
+  /** True when extraction failed (vs. simply finding no matching data). */
+  failed: boolean;
+  /** Human-readable reason (English LLM notes or a default). Empty for hadRows papers. */
+  note: string;
+}
+
+export interface PartialExtractionFailure {
+  paperId: string;
+  paperTitle?: string;
+  error?: string;
+}
+
+/**
+ * Contents of `chat_generated_tables.metadata` (JSONB). Only the fields consumed
+ * by the renderer are typed here; the column may hold additional diagnostic keys.
+ */
+export interface ChatTableMetadata {
+  extractionMode?: string;
+  perPaperReasons?: PerPaperReason[];
+  partialFailures?: PartialExtractionFailure[];
+  [key: string]: unknown;
+}
+
 export interface ChatGeneratedTable {
   id: string;
   message_id: string;
@@ -66,6 +101,7 @@ export interface ChatGeneratedTable {
   rows: string[][];
   source_refs: TableReference[] | null;
   verification: CellVerification[] | null;
+  metadata?: ChatTableMetadata | null;
   created_at: string;
 }
 

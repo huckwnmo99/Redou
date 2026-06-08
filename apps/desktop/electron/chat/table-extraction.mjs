@@ -226,11 +226,17 @@ export function mergeExtractionResults(extractionResults, tableSpec, paperMetada
   const rows = [];
   const nullDetails = [];
   const usedPaperIds = new Set();
+  // Per-paper extraction notes, indexed by paperId, so we can surface "why a
+  // paper produced no data" to the user (see docs/features/fix/19-...).
+  const notesByPaperId = new Map();
   let totalNulls = 0;
   let totalCells = 0;
   let droppedRowCount = 0;
 
   for (const result of extractionResults) {
+    const rawNote = typeof result.extraction?.notes === "string" ? result.extraction.notes.trim() : "";
+    if (rawNote) notesByPaperId.set(result.paperId, rawNote);
+
     if (!result.success) continue;
     const dataRows = result.extraction?.data_rows ?? [];
     if (!Array.isArray(dataRows) || dataRows.length === 0) continue;
@@ -288,6 +294,48 @@ export function mergeExtractionResults(extractionResults, tableSpec, paperMetada
     }
   }
 
+  // Force a row for every scope paper that produced no data row above (empty
+  // data_rows or success=false). Without this, a comparison request would render
+  // "headers + references only" with an empty body. The placeholder row is all
+  // N/A (the identity column included — we do not invent a fake material name;
+  // the paper is identified via its [refNo] in the references + the reasons
+  // section below). Placeholder rows bypass the >50% N/A drop rule because they
+  // are intentionally empty. See docs/features/fix/19-table-empty-rows-and-reasons.md.
+  const reasons = [];
+  const failedByPaperId = new Map();
+  for (const result of extractionResults) {
+    if (!result.success) failedByPaperId.set(result.paperId, result.error || "");
+  }
+  for (const p of paperMetadata) {
+    const ref = paperRefMap.get(p.paperId);
+    const refNo = ref?.refNo ?? null;
+    const hadRows = usedPaperIds.has(p.paperId);
+    const failed = failedByPaperId.has(p.paperId);
+    const note = notesByPaperId.get(p.paperId) || "";
+
+    if (!hadRows) {
+      // All-N/A placeholder row. Intentionally NOT recorded in nullSummary
+      // (no totalCells/totalNulls/details entry) so that Stage 3d Agentic NULL
+      // Recovery treats it as a deliberately empty row and does not re-search
+      // a paper already judged to have no data, and so the NULL ratio gate for
+      // real data rows is not skewed by placeholders.
+      const row = headers.map(() => "N/A");
+      rows.push(row);
+      usedPaperIds.add(p.paperId);
+    }
+
+    reasons.push({
+      paperId: p.paperId,
+      paperTitle: p.title,
+      refNo: refNo ? String(refNo) : "",
+      hadRows,
+      failed,
+      note: hadRows
+        ? note
+        : note || (failed ? `Extraction failed: ${failedByPaperId.get(p.paperId) || "unknown error"}` : "No matching data found in this paper"),
+    });
+  }
+
   const doiLookup = new Map(paperMetadata.map((p) => [p.paperId, p.doi]));
   const references = paperMetadata
     .filter((p) => usedPaperIds.has(p.paperId))
@@ -304,12 +352,17 @@ export function mergeExtractionResults(extractionResults, tableSpec, paperMetada
     })
     .sort((a, b) => (parseInt(a.refNo, 10) || 0) - (parseInt(b.refNo, 10) || 0));
 
+  const missingCount = reasons.filter((r) => !r.hadRows).length;
+  const notes = missingCount > 0
+    ? `${missingCount} of ${reasons.length} paper(s) had no matching data; see the missing-data notes below.`
+    : "";
+
   const tableJson = {
     title: tableSpec.title || "비교 테이블",
     headers,
     rows,
     references,
-    notes: "",
+    notes,
   };
 
   const nullSummary = {
@@ -320,8 +373,8 @@ export function mergeExtractionResults(extractionResults, tableSpec, paperMetada
   };
 
   console.log(
-    `[Chat/Merge] rows=${rows.length}, cells=${totalCells}, nulls=${totalNulls}, droppedRows=${droppedRowCount}`,
+    `[Chat/Merge] rows=${rows.length}, cells=${totalCells}, nulls=${totalNulls}, droppedRows=${droppedRowCount}, missingPapers=${missingCount}`,
   );
 
-  return { tableJson, nullSummary };
+  return { tableJson, nullSummary, reasons };
 }

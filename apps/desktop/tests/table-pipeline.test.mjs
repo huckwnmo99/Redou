@@ -790,6 +790,74 @@ describe("runTableConversationPipeline", () => {
     ]);
   });
 
+  // fix 19: a scope paper with no matching data gets an all-N/A placeholder row,
+  // and its reason (LLM notes or default) is persisted into
+  // chat_generated_tables.metadata.perPaperReasons end-to-end (merge -> Stage 3c
+  // return -> persist), so the frontend can render a "no data found" section.
+  it("persists per-paper missing-data reasons into the generated table metadata", async () => {
+    const { supabase, inserts } = createRecordingSupabase({
+      papers: [
+        { id: "paper-1", title: "Has Data Paper", authors: [], publication_year: 2025 },
+        { id: "paper-2", title: "No Data Paper", authors: [], publication_year: 2026 },
+      ],
+      figures: (state) => {
+        if (state.select === "paper_id, figure_no, caption") return [];
+        return [];
+      },
+    });
+
+    const result = await runTableConversationPipeline({
+      supabase,
+      emitStatus: () => {},
+      abortSignal: new AbortController().signal,
+      conversationId: "conv-reasons",
+      ownerId: "user-1",
+      ownerPaperIds: ["paper-1", "paper-2"],
+      history: [{ role: "user", content: "compare", message_type: "text" }],
+      generateOrchestratorPlanFn: async () => ({
+        action: "generate_table",
+        keyword_hints: ["q_max"],
+        search_queries: [{ query: "q_max", intent: "primary" }],
+        table_spec: { title: "Reasons", row_axis: "Papers", column_definitions: ["Adsorbent", "q_max"] },
+      }),
+      runMultiQueryRagFn: async () => ({
+        chunks: [
+          { chunk_id: "chunk-1", paper_id: "paper-1", text: "paper one evidence" },
+          { chunk_id: "chunk-2", paper_id: "paper-2", text: "paper two evidence" },
+        ],
+        figures: [],
+      }),
+      extractColumnsFromPaperFn: async (tableSpec, _paperContext, paperTitle) => {
+        if (paperTitle.startsWith("Has Data")) {
+          return {
+            paper_title: paperTitle,
+            data_rows: [{ values: { [tableSpec.column_definitions[0]]: "Carbon", [tableSpec.column_definitions[1]]: "120 mg/g" } }],
+          };
+        }
+        // No matching data — report why via notes (mirrors EXTRACTION_AGENT prompt).
+        return { paper_title: paperTitle, data_rows: [], notes: "no fitted isotherm model parameters reported" };
+      },
+      ...createStage3cDeps(),
+    });
+
+    assert.equal(result.hasTable, true);
+    const tableInsert = inserts.find((entry) => entry.table === "chat_generated_tables");
+    assert.equal(tableInsert.data.metadata.extractionMode, "per_paper");
+    // paper-1 real row + paper-2 all-N/A placeholder row.
+    assert.deepEqual(tableInsert.data.rows, [["Carbon [1]", "120 mg/g [1]"], ["N/A", "N/A"]]);
+    // Reasons reached metadata for both papers.
+    const reasons = tableInsert.data.metadata.perPaperReasons;
+    assert.equal(Array.isArray(reasons), true);
+    assert.equal(reasons.length, 2);
+    const hasData = reasons.find((r) => r.paperId === "paper-1");
+    const noData = reasons.find((r) => r.paperId === "paper-2");
+    assert.equal(hasData.hadRows, true);
+    assert.equal(noData.hadRows, false);
+    assert.equal(noData.failed, false);
+    assert.equal(noData.paperTitle, "No Data Paper");
+    assert.equal(noData.note, "no fitted isotherm model parameters reported");
+  });
+
   it("merges per-paper extraction results before shell continuation", async () => {
     const { supabase, inserts } = createRecordingSupabase({
       papers: [{ id: "paper-1", title: "Merge Paper", authors: [], publication_year: 2026 }],
@@ -911,7 +979,7 @@ describe("runTableConversationPipeline", () => {
     assert.deepEqual(tableInsert.data.rows, [["Fallback"]]);
   });
 
-  it("falls back to single-call when per-paper merge produces empty rows and preserves fallback diagnostics", async () => {
+  it("falls back to single-call when per-paper extraction fails for every paper and preserves fallback diagnostics", async () => {
     const { supabase, inserts } = createRecordingSupabase({
       papers: [{ id: "paper-1", title: "Empty Merge Paper", authors: [], publication_year: 2026 }],
       figures: (state) => {
@@ -938,10 +1006,12 @@ describe("runTableConversationPipeline", () => {
         chunks: [{ chunk_id: "chunk-1", paper_id: "paper-1", text: "empty merge evidence" }],
         figures: [],
       }),
-      extractColumnsFromPaperFn: async (tableSpec, _paperContext, paperTitle) => ({
-        paper_title: paperTitle,
-        data_rows: [{ values: { [tableSpec.column_definitions[0]]: "" } }],
-      }),
+      // fix 19: the per-paper merge now emits all-N/A placeholder rows instead of
+      // returning empty rows, so the single-call fallback is only reached when
+      // every per-paper extraction *fails* (extractionSuccessCount === 0).
+      extractColumnsFromPaperFn: async () => {
+        throw new Error("force fallback");
+      },
       ...createStage3cDeps({
         generateTableFromSpecFn: async () => ({
           title: "Empty Merge",
@@ -964,11 +1034,11 @@ describe("runTableConversationPipeline", () => {
   });
 
   // P0-A regression (fix 18): single-call fallback timeout must NOT crash the
-  // pipeline. The fallback path is reached because per-paper merge is empty
-  // (every per-paper row is blank, matching the production log where all papers
-  // returned data_rows=0). When generateTableFromSpecFn throws a non-abort error
-  // (e.g. DOMException TimeoutError), the pipeline must complete and return an
-  // empty table with a notes string instead of propagating the error.
+  // pipeline. The fallback path is reached because every per-paper extraction
+  // fails (extractionSuccessCount === 0; fix 19 made empty data_rows produce
+  // placeholder rows rather than an empty merge). When generateTableFromSpecFn
+  // throws a non-abort error (e.g. DOMException TimeoutError), the pipeline must
+  // complete and return an empty table with a notes string instead of propagating.
   it("returns an empty table with notes when single-call fallback times out (non-abort error)", async () => {
     const { supabase, inserts } = createRecordingSupabase({
       papers: [{ id: "paper-1", title: "Timeout Fallback Paper", authors: [], publication_year: 2026 }],
@@ -997,10 +1067,11 @@ describe("runTableConversationPipeline", () => {
         chunks: [{ chunk_id: "chunk-1", paper_id: "paper-1", text: "timeout fallback evidence" }],
         figures: [],
       }),
-      extractColumnsFromPaperFn: async (tableSpec, _paperContext, paperTitle) => ({
-        paper_title: paperTitle,
-        data_rows: [{ values: { [tableSpec.column_definitions[0]]: "" } }],
-      }),
+      // fix 19: force the fallback path via failed extraction (empty data_rows now
+      // become placeholder rows instead of an empty merge).
+      extractColumnsFromPaperFn: async () => {
+        throw new Error("force fallback");
+      },
       ...createStage3cDeps({
         generateTableFromSpecFn: async () => {
           fallbackCalled = true;
@@ -1058,10 +1129,11 @@ describe("runTableConversationPipeline", () => {
         chunks: [{ chunk_id: "chunk-1", paper_id: "paper-1", text: "generic fallback evidence" }],
         figures: [],
       }),
-      extractColumnsFromPaperFn: async (tableSpec, _paperContext, paperTitle) => ({
-        paper_title: paperTitle,
-        data_rows: [{ values: { [tableSpec.column_definitions[0]]: "" } }],
-      }),
+      // fix 19: force the fallback path via failed extraction (empty data_rows now
+      // become placeholder rows instead of an empty merge).
+      extractColumnsFromPaperFn: async () => {
+        throw new Error("force fallback");
+      },
       ...createStage3cDeps({
         generateTableFromSpecFn: async () => {
           throw new Error("Ollama request failed");
@@ -1108,10 +1180,11 @@ describe("runTableConversationPipeline", () => {
           chunks: [{ chunk_id: "chunk-1", paper_id: "paper-1", text: "fallback abort evidence" }],
           figures: [],
         }),
-        extractColumnsFromPaperFn: async (tableSpec, _paperContext, paperTitle) => ({
-          paper_title: paperTitle,
-          data_rows: [{ values: { [tableSpec.column_definitions[0]]: "" } }],
-        }),
+        // fix 19: force the fallback path via failed extraction (empty data_rows now
+        // become placeholder rows instead of an empty merge).
+        extractColumnsFromPaperFn: async () => {
+          throw new Error("force fallback");
+        },
         ...createStage3cDeps({
           generateTableFromSpecFn: async () => {
             // Realistic user-cancel race: the abort signal fires (user pressed

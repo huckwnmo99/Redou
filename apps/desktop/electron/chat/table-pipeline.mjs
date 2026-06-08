@@ -556,6 +556,10 @@ async function runStage3cMergeFallback({
   let nullSummary = null;
   let agenticRecovery = null;
   let tableSpecAdherence = null;
+  // Per-paper missing-data reasons collected by the merge (fix 19). Surfaced to
+  // the user via chat_generated_tables.metadata.perPaperReasons. The single-call
+  // fallback path has no per-paper breakdown, so it stays an empty array there.
+  let perPaperReasons = [];
   // Preserve the per-paper merge result so that, if the single-call fallback
   // throws (e.g. DOMException TimeoutError), we can still salvage partial rows
   // instead of crashing the whole pipeline. Stays null when fallback was forced
@@ -568,6 +572,7 @@ async function runStage3cMergeFallback({
     tableJson = merged.tableJson;
     mergedTableJson = merged.tableJson;
     nullSummary = merged.nullSummary;
+    perPaperReasons = merged.reasons ?? [];
     extractionMode = "per_paper";
 
     if (!tableJson.rows || tableJson.rows.length === 0) {
@@ -629,6 +634,7 @@ async function runStage3cMergeFallback({
     extractionMode,
     agenticRecovery,
     tableSpecAdherence,
+    perPaperReasons,
     extractionFallbackNeeded,
   };
 }
@@ -898,6 +904,7 @@ async function persistTableReport({
   extractionMode,
   agenticRecovery,
   tableSpecAdherence,
+  perPaperReasons,
   abortSignal,
   emitComplete,
   unwrapSingleFn,
@@ -915,6 +922,10 @@ async function persistTableReport({
     stage3bMs,
     perPaperTiming: extractionResults.map((r) => ({ paperId: r.paperId, ms: r.ms, success: r.success })),
     partialFailures: extractionResults.filter((r) => !r.success).map((r) => ({ paperId: r.paperId, paperTitle: r.paperTitle, error: r.error })),
+    // Per-paper missing-data reasons (fix 19) so the frontend can render a
+    // "no data found" section explaining why each empty-row paper produced no
+    // data. Empty array on the single-call fallback path (no per-paper breakdown).
+    perPaperReasons: Array.isArray(perPaperReasons) ? perPaperReasons : [],
     nullSummary,
     agenticRecovery,
     tableSpecAdherence,
@@ -1215,6 +1226,7 @@ export async function runTableConversationPipeline({
     extractionMode: stage3cContext.extractionMode,
     agenticRecovery: stage3dContext.agenticRecovery,
     tableSpecAdherence: stage3cContext.tableSpecAdherence,
+    perPaperReasons: stage3dContext.perPaperReasons,
     abortSignal,
     emitComplete,
     unwrapSingleFn,

@@ -112,6 +112,7 @@ describe("table extraction helpers", () => {
         paperId: "paper-2",
         paperTitle: "Paper Two",
         success: false,
+        error: "extraction boom",
         extraction: { data_rows: [{ values: { dose: "ignored", outcome: "ignored" } }] },
       },
     ], {
@@ -125,11 +126,63 @@ describe("table extraction helpers", () => {
       ["paper-2", { refNo: 2, title: "Paper Two" }],
     ]));
 
-    assert.deepEqual(result.tableJson.rows, [["5 mg [1]", "AUC [1]"]]);
-    assert.deepEqual(result.tableJson.references.map((ref) => ref.paperId), ["paper-1"]);
+    // fix 19: paper-2 produced no data (success=false) so it gets an all-N/A
+    // placeholder row instead of being skipped, and is included in references.
+    assert.deepEqual(result.tableJson.rows, [["5 mg [1]", "AUC [1]"], ["N/A", "N/A"]]);
+    assert.deepEqual(result.tableJson.references.map((ref) => ref.paperId), ["paper-1", "paper-2"]);
+    // Placeholder cells are NOT recorded in nullSummary (deliberately empty rows).
     assert.equal(result.nullSummary.totalCells, 4);
     assert.equal(result.nullSummary.totalNulls, 2);
     assert.equal(result.nullSummary.droppedRowCount, 1);
     assert.deepEqual(result.nullSummary.details, []);
+    // fix 19: per-paper reasons — paper-1 had data, paper-2 failed.
+    assert.equal(result.reasons.length, 2);
+    const reasonOne = result.reasons.find((r) => r.paperId === "paper-1");
+    const reasonTwo = result.reasons.find((r) => r.paperId === "paper-2");
+    assert.equal(reasonOne.hadRows, true);
+    assert.equal(reasonTwo.hadRows, false);
+    assert.equal(reasonTwo.failed, true);
+    assert.equal(reasonTwo.refNo, "2");
+    assert.match(reasonTwo.note, /Extraction failed: extraction boom/);
+    assert.match(result.tableJson.notes, /1 of 2 paper/);
+  });
+
+  it("forces an all-N/A placeholder row + reason for every scope paper when no paper yields data", () => {
+    const result = mergeExtractionResults([
+      {
+        paperId: "paper-1",
+        paperTitle: "Paper One",
+        success: true,
+        extraction: { data_rows: [], notes: "no q_max reported in this paper" },
+      },
+      {
+        paperId: "paper-2",
+        paperTitle: "Paper Two",
+        success: true,
+        extraction: { data_rows: [] },
+      },
+    ], {
+      title: "All Empty",
+      column_definitions: ["Adsorbent", "q_max"],
+    }, [
+      { paperId: "paper-1", title: "Paper One", authors: ["Kim"], year: 2026, doi: "10.1/one" },
+      { paperId: "paper-2", title: "Paper Two", authors: ["Lee"], year: 2025, doi: "10.1/two" },
+    ], new Map([
+      ["paper-1", { refNo: 1, title: "Paper One" }],
+      ["paper-2", { refNo: 2, title: "Paper Two" }],
+    ]));
+
+    // Both papers become all-N/A placeholder rows (no empty-body table).
+    assert.deepEqual(result.tableJson.rows, [["N/A", "N/A"], ["N/A", "N/A"]]);
+    assert.deepEqual(result.tableJson.references.map((ref) => ref.paperId), ["paper-1", "paper-2"]);
+    // Reasons carry the per-paper LLM note where present, default otherwise.
+    assert.equal(result.reasons.length, 2);
+    const reasonOne = result.reasons.find((r) => r.paperId === "paper-1");
+    const reasonTwo = result.reasons.find((r) => r.paperId === "paper-2");
+    assert.equal(reasonOne.hadRows, false);
+    assert.equal(reasonOne.failed, false);
+    assert.equal(reasonOne.note, "no q_max reported in this paper");
+    assert.equal(reasonTwo.note, "No matching data found in this paper");
+    assert.match(result.tableJson.notes, /2 of 2 paper/);
   });
 });

@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
-import { Table2, ShieldCheck, ShieldAlert, Download } from "lucide-react";
-import type { ChatGeneratedTable, CellVerification } from "@/types/chat";
+import { Table2, ShieldCheck, ShieldAlert, Download, Info } from "lucide-react";
+import type { ChatGeneratedTable, CellVerification, PerPaperReason } from "@/types/chat";
 import { localeText } from "@/lib/locale";
 import { useUIStore } from "@/stores/uiStore";
 import { useExportChatCsv } from "@/lib/chatQueries";
@@ -61,6 +61,13 @@ export function ChatTableReport({ table }: ChatTableReportProps) {
     ? verification.filter((v) => v.status === "unverified").length
     : 0;
   const allVerified = hasVerification && unverifiedCount === 0;
+
+  // "No data found" reasons (fix 19): papers that produced no real data row are
+  // rendered as all-N/A rows above; this section explains *why* (per-paper LLM
+  // notes or a default). Papers with data (hadRows) carry no reason and are skipped.
+  const missingDataReasons: PerPaperReason[] = Array.isArray(table.metadata?.perPaperReasons)
+    ? table.metadata.perPaperReasons.filter((r) => r && r.hadRows === false)
+    : [];
 
   return (
     <div
@@ -244,6 +251,66 @@ export function ChatTableReport({ table }: ChatTableReportProps) {
             />
             {t("Unverified", "미검증")}
           </span>
+        </div>
+      )}
+
+      {/* "No data found" section (fix 19) — explains why some scope papers have
+          all-N/A rows. Reason strings come from the extraction LLM (English);
+          labels are localized. Hidden when every paper contributed data. */}
+      {missingDataReasons.length > 0 && (
+        <div
+          style={{
+            padding: "10px 14px",
+            borderTop: "1px solid var(--color-border-subtle)",
+            background: "var(--color-bg-surface)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              marginBottom: 6,
+            }}
+          >
+            <Info size={11} color="var(--color-text-muted)" style={{ flexShrink: 0 }} />
+            <span style={eyebrowStyle}>{t("No data found", "데이터 없음")}</span>
+          </div>
+          <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
+            {missingDataReasons.map((reason) => (
+              <li
+                key={reason.paperId}
+                style={{
+                  fontSize: 11.5,
+                  color: "var(--color-text-secondary)",
+                  lineHeight: 1.5,
+                  display: "flex",
+                  gap: 6,
+                  alignItems: "baseline",
+                }}
+              >
+                {reason.refNo ? (
+                  <span
+                    style={{
+                      flexShrink: 0,
+                      fontWeight: 700,
+                      color: "var(--color-accent)",
+                    }}
+                  >
+                    [{reason.refNo}]
+                  </span>
+                ) : null}
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ color: "var(--color-text-primary)", fontWeight: 600 }}>
+                    {reason.paperTitle || t("Untitled", "제목 없음")}
+                  </span>
+                  {reason.note ? (
+                    <span style={{ color: "var(--color-text-muted)" }}> — {reason.note}</span>
+                  ) : null}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

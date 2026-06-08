@@ -1191,3 +1191,44 @@ Verification:
 - `node --test tests/table-pipeline.test.mjs` in `apps/desktop` passed: 21 tests, 0 fail.
 - `node --test tests/*.test.mjs` in `apps/desktop` passed: 60 tests / 13 suites, 0 fail (no regressions).
 - Logs confirm the salvage path executes: `[Chat] Stage 3c: single-call fallback failed (non-abort), returning salvaged/empty table: The operation was aborted due to timeout` (and `... : Ollama request failed`); the abort case short-circuits before that log line, confirming AbortError propagation.
+
+## fix 19 — Force per-paper rows + surface missing-data reasons
+
+Status: completed 2026-06-09 (P0; P1 deferred to a separate fix).
+
+Goal: a comparison table must never render "headers + references only". Every scope paper that produced no data is shown as an all-N/A row, and *why* it is empty is surfaced to the user.
+
+Production changes:
+
+- `chat/table-extraction.mjs` `mergeExtractionResults` (done by the prior fixer, verified here):
+  - After the real-data merge loop, every scope paper not in `usedPaperIds` (empty `data_rows` or `success=false`) gets an all-N/A placeholder row. The identity column is N/A too (decision **B** in the plan — no invented material name; the paper is identified via `[refNo]` + the reasons section). Placeholder rows bypass the >50% N/A drop rule and are NOT recorded in `nullSummary` (so Stage 3d does not re-search a paper already judged empty, and the real-row NULL gate is not skewed).
+  - Placeholder papers are added to `usedPaperIds`, so `references` covers the full scope (not just papers that yielded data).
+  - Collects `reasons: [{ paperId, paperTitle, refNo, hadRows, failed, note }]`. `note` = trimmed per-paper `extraction.notes`, falling back to `"Extraction failed: <error>"` (when `success=false`) or `"No matching data found in this paper"`.
+  - Sets `tableJson.notes` to `"<M> of <N> paper(s) had no matching data; see the missing-data notes below."` (previously always `""`).
+  - Return signature widened to `{ tableJson, nullSummary, reasons }`.
+- `chat/table-pipeline.mjs` (completed in this slice — the prior fixer had only received `merged.reasons` into a local and stopped):
+  - `runStage3cMergeFallback` now returns `perPaperReasons` (was dropped from the return object). The single-call fallback path leaves it `[]`.
+  - `runStage3dAgenticNullRecovery` already spreads `...stage3cContext`, so `perPaperReasons` flows through untouched.
+  - `persistTableReport` takes `perPaperReasons` and writes it into `extractionMetadata.perPaperReasons`, which is persisted to `chat_generated_tables.metadata` (existing JSONB column — no migration).
+  - The pipeline orchestrator passes `stage3dContext.perPaperReasons` into `persistTableReport`.
+
+Frontend changes:
+
+- `frontend/src/types/chat.ts`: added `PerPaperReason`, `PartialExtractionFailure`, `ChatTableMetadata` types and `metadata?: ChatTableMetadata | null` on `ChatGeneratedTable` (optional — `useChatTable` selects `*` so the column flows through with no mapper change; optional avoids breaking other `ChatGeneratedTable` literals e.g. advisor tests). No `any`.
+- `frontend/src/features/chat/ChatTableReport.tsx`: a "No data found" section below the verification legend renders `metadata.perPaperReasons` entries with `hadRows === false` as "[refNo] title — note". Hidden when none. Reason strings stay English (LLM notes); labels are localized via `t()`. The all-N/A placeholder rows themselves are already visible through the existing row renderer.
+
+Effect on the fix 18 fallback path: because the merge now always emits placeholder rows, `tableJson.rows.length === 0` after a code merge no longer occurs, so the single-call fallback is only reached via the upstream forced path (`extractionSuccessCount === 0 && extractionFailCount > 0`, i.e. every per-paper extraction threw). The fix 18 P0-A salvage behavior is unchanged and still covered; the regression tests below were re-pointed from the (now unreachable) empty-merge trigger to the failed-extraction trigger.
+
+Test changes (`apps/desktop/tests`):
+
+| File | Change |
+|------|--------|
+| `table-extraction.test.mjs` | Updated the existing merge test to the new behavior (a `success=false` paper now yields an all-N/A placeholder row + is included in references + carries a failure reason). Added a case where all scope papers are empty → both become placeholder rows, reasons carry per-paper notes/defaults, `tableJson.notes` matches `2 of 2 paper`. |
+| `table-pipeline.test.mjs` | Re-pointed the 4 fallback cases (empty-merge → single-call) to trigger fallback via `extractColumnsFromPaperFn` throwing (every extraction fails) instead of returning blank `data_rows` (which now becomes placeholder rows). Added an end-to-end case: paper-1 has data, paper-2 returns empty `data_rows` + `notes` → persisted `chat_generated_tables.metadata.perPaperReasons` has `paper-1 hadRows=true`, `paper-2 hadRows=false` with its LLM note. |
+
+Verification:
+
+- `node --check apps/desktop/electron/chat/table-extraction.mjs apps/desktop/electron/chat/table-pipeline.mjs` passed.
+- `node --test tests/*.test.mjs` in `apps/desktop` passed: 62 tests / 13 suites, 0 fail (was 60; +2 extraction, +1 pipeline; existing merge/fallback tests updated, no unexplained regressions).
+- `npm run build` (tsc -b + vite) in `frontend` passed.
+- `CURRENT_EXTRACTION_VERSION` unchanged (chat runtime + display layer only; PDF extraction artifacts/embeddings untouched). No DB/IPC/new-component changes.
