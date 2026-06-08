@@ -1150,3 +1150,44 @@ Verification:
 Select-String -Path apps\desktop\electron\main.mjs -Pattern "CHAT_SEND_MESSAGE|runMultiQueryRag|runAgenticNullRecovery|handleQaPipeline"
 git diff --check
 ```
+
+## fix 18 P0-A Regression Test Coverage
+
+Status: completed 2026-06-08.
+
+Scope:
+
+- Added test-only coverage for the fix 18 P0-A non-blocking single-call fallback behavior in `apps/desktop/tests/table-pipeline.test.mjs`.
+- No production code changed. `chat/table-pipeline.mjs` and `chat/table-extraction.mjs` already implement P0-A/P0-B (`runStage3cMergeFallback` try/catch at lines 591-620, salvage/empty-table path with `notes`, `FALLBACK_RAG_BUDGET`).
+- Reused the existing empty-merge fallback setup (every per-paper row blank via `extractColumnsFromPaperFn` returning `{ values: { [col]: "" } }`), which forces the Stage 3c code merge to produce zero rows and route into the single-call fallback path.
+
+Added cases:
+
+| Case | Fake `generateTableFromSpecFn` behavior | Asserted pipeline behavior |
+|------|------------------------------------------|----------------------------|
+| Timeout non-abort (P0-A core) | throws `DOMException("The operation was aborted due to timeout", "TimeoutError")` | pipeline does NOT throw; `hasTable: true`; `chat_generated_tables` insert has `metadata.extractionMode === "single_call_fallback"`, `rows: []`, `headers: ["Outcome"]`; assistant `chat_messages` content JSON has `notes` matching `시간 내에 완료되지 못` |
+| Generic error salvage | throws `new Error("Ollama request failed")` | pipeline does NOT throw; `rows: []`; `extractionMode === "single_call_fallback"` |
+| User abort propagation (P0-A boundary) | calls `abortController.abort()` then throws `AbortError` | pipeline rejects with `err.name === "AbortError"` (re-thrown by `throwIfChatAborted(abortSignal)` at `table-pipeline.mjs:599`); no `chat_messages` or `chat_generated_tables` inserts |
+
+Design notes:
+
+- `notes` is not a `chat_generated_tables` column. It lives on `tableJson` and is serialized into the assistant `chat_messages.content` via `JSON.stringify(tableJson)` in `persistTableReport`. Tests assert it by `JSON.parse(messageInsert.data.content).notes`.
+- The empty-table salvage path persists normally because RAG returned chunks (so the no-data early return is not taken). `persistTableReport` handles `rows: []` safely; Guardian scheduling iterates an empty row set with no error.
+- The "salvage non-empty `mergedTableJson` rows" branch (`table-pipeline.mjs:609-610`) is not reachable through the public `runTableConversationPipeline` entry: when the per-paper merge yields rows, the code never enters the fallback (`extractionFallbackNeeded` stays false). It can only be reached via a forced-fallback-after-non-empty-merge state, which the current flow does not produce. Not tested because reproducing it would require modifying production code (out of scope) and the real timeout log shows all papers at `data_rows=0`, which is the empty-merge case already covered.
+
+D9 measurement:
+
+| Metric | Baseline before fix 18 test coverage | Current after fix 18 test coverage | Notes |
+|--------|--------------------------------------|------------------------------------|-------|
+| `table-pipeline.test.mjs` test count | 18 | 21 | Added 3 P0-A fallback cases. |
+| `table-pipeline.mjs` line count | 1086 (Stage 2A cleanup) → unchanged by fix 18 P0 + this slice | unchanged | Test-only slice. |
+| Full desktop unit suite | n/a | 60 tests / 13 suites pass | `node --test tests/*.test.mjs`. |
+
+Verification:
+
+- `node --check apps/desktop/tests/table-pipeline.test.mjs` passed.
+- `node --check apps/desktop/electron/chat/table-pipeline.mjs` passed.
+- `node --check apps/desktop/electron/chat/table-extraction.mjs` passed.
+- `node --test tests/table-pipeline.test.mjs` in `apps/desktop` passed: 21 tests, 0 fail.
+- `node --test tests/*.test.mjs` in `apps/desktop` passed: 60 tests / 13 suites, 0 fail (no regressions).
+- Logs confirm the salvage path executes: `[Chat] Stage 3c: single-call fallback failed (non-abort), returning salvaged/empty table: The operation was aborted due to timeout` (and `... : Ollama request failed`); the abort case short-circuits before that log line, confirming AbortError propagation.

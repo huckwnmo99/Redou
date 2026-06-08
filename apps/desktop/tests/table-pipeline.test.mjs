@@ -963,6 +963,172 @@ describe("runTableConversationPipeline", () => {
     assert.deepEqual(tableInsert.data.rows, [["Recovered"]]);
   });
 
+  // P0-A regression (fix 18): single-call fallback timeout must NOT crash the
+  // pipeline. The fallback path is reached because per-paper merge is empty
+  // (every per-paper row is blank, matching the production log where all papers
+  // returned data_rows=0). When generateTableFromSpecFn throws a non-abort error
+  // (e.g. DOMException TimeoutError), the pipeline must complete and return an
+  // empty table with a notes string instead of propagating the error.
+  it("returns an empty table with notes when single-call fallback times out (non-abort error)", async () => {
+    const { supabase, inserts } = createRecordingSupabase({
+      papers: [{ id: "paper-1", title: "Timeout Fallback Paper", authors: [], publication_year: 2026 }],
+      figures: (state) => {
+        if (state.select === "paper_id, figure_no, caption") return [];
+        return [];
+      },
+    });
+    let fallbackCalled = false;
+
+    const result = await runTableConversationPipeline({
+      supabase,
+      emitStatus: () => {},
+      abortSignal: new AbortController().signal,
+      conversationId: "conv-fallback-timeout",
+      ownerId: "user-1",
+      ownerPaperIds: ["paper-1"],
+      history: [{ role: "user", content: "timeout fallback", message_type: "text" }],
+      generateOrchestratorPlanFn: async () => ({
+        action: "generate_table",
+        keyword_hints: ["outcome"],
+        search_queries: [{ query: "outcome", intent: "primary" }],
+        table_spec: { title: "Timeout Fallback", row_axis: "Papers", column_definitions: ["Outcome"] },
+      }),
+      runMultiQueryRagFn: async () => ({
+        chunks: [{ chunk_id: "chunk-1", paper_id: "paper-1", text: "timeout fallback evidence" }],
+        figures: [],
+      }),
+      extractColumnsFromPaperFn: async (tableSpec, _paperContext, paperTitle) => ({
+        paper_title: paperTitle,
+        data_rows: [{ values: { [tableSpec.column_definitions[0]]: "" } }],
+      }),
+      ...createStage3cDeps({
+        generateTableFromSpecFn: async () => {
+          fallbackCalled = true;
+          // Simulate the production failure: AbortSignal.timeout(300s) fires while
+          // the local Ollama call is in flight -> DOMException [TimeoutError].
+          throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+        },
+      }),
+    });
+
+    // P0-A core: pipeline completed (did NOT throw) and produced a table result.
+    assert.equal(fallbackCalled, true);
+    assert.equal(result.hasTable, true);
+
+    const messageInsert = inserts.find((entry) => entry.table === "chat_messages");
+    const tableInsert = inserts.find((entry) => entry.table === "chat_generated_tables");
+    // Fallback path was taken.
+    assert.equal(tableInsert.data.metadata.extractionMode, "single_call_fallback");
+    // Empty table (rows: []) is persisted instead of an error screen.
+    assert.deepEqual(tableInsert.data.rows, []);
+    assert.deepEqual(tableInsert.data.headers, ["Outcome"]);
+    // notes lives on tableJson, which is serialized into the assistant message content.
+    const persistedTableJson = JSON.parse(messageInsert.data.content);
+    assert.deepEqual(persistedTableJson.rows, []);
+    assert.equal(typeof persistedTableJson.notes, "string");
+    assert.match(persistedTableJson.notes, /시간 내에 완료되지 못/);
+  });
+
+  // P0-A: a generic (non-DOMException) timeout-style Error must also be salvaged
+  // into an empty table rather than crashing the pipeline.
+  it("returns an empty table with notes when single-call fallback throws a generic error", async () => {
+    const { supabase, inserts } = createRecordingSupabase({
+      papers: [{ id: "paper-1", title: "Generic Fallback Paper", authors: [], publication_year: 2026 }],
+      figures: (state) => {
+        if (state.select === "paper_id, figure_no, caption") return [];
+        return [];
+      },
+    });
+
+    const result = await runTableConversationPipeline({
+      supabase,
+      emitStatus: () => {},
+      abortSignal: new AbortController().signal,
+      conversationId: "conv-fallback-generic",
+      ownerId: "user-1",
+      ownerPaperIds: ["paper-1"],
+      history: [{ role: "user", content: "generic fallback", message_type: "text" }],
+      generateOrchestratorPlanFn: async () => ({
+        action: "generate_table",
+        keyword_hints: ["outcome"],
+        search_queries: [{ query: "outcome", intent: "primary" }],
+        table_spec: { title: "Generic Fallback", row_axis: "Papers", column_definitions: ["Outcome"] },
+      }),
+      runMultiQueryRagFn: async () => ({
+        chunks: [{ chunk_id: "chunk-1", paper_id: "paper-1", text: "generic fallback evidence" }],
+        figures: [],
+      }),
+      extractColumnsFromPaperFn: async (tableSpec, _paperContext, paperTitle) => ({
+        paper_title: paperTitle,
+        data_rows: [{ values: { [tableSpec.column_definitions[0]]: "" } }],
+      }),
+      ...createStage3cDeps({
+        generateTableFromSpecFn: async () => {
+          throw new Error("Ollama request failed");
+        },
+      }),
+    });
+
+    assert.equal(result.hasTable, true);
+    const tableInsert = inserts.find((entry) => entry.table === "chat_generated_tables");
+    assert.equal(tableInsert.data.metadata.extractionMode, "single_call_fallback");
+    assert.deepEqual(tableInsert.data.rows, []);
+  });
+
+  // P0-A boundary: user-initiated abort must STILL propagate even on the fallback
+  // path. When the abort signal is firing (e.g. the user cancelled mid-request)
+  // and generateTableFromSpecFn rejects with AbortError, the pipeline must reject
+  // with AbortError rather than swallowing it into an empty table.
+  it("re-throws AbortError when the single-call fallback is aborted by the user", async () => {
+    const abortController = new AbortController();
+    const { supabase, inserts } = createRecordingSupabase({
+      papers: [{ id: "paper-1", title: "Fallback User Abort Paper", authors: [], publication_year: 2026 }],
+      figures: (state) => {
+        if (state.select === "paper_id, figure_no, caption") return [];
+        return [];
+      },
+    });
+
+    await assert.rejects(
+      () => runTableConversationPipeline({
+        supabase,
+        emitStatus: () => {},
+        abortSignal: abortController.signal,
+        conversationId: "conv-fallback-user-abort",
+        ownerId: "user-1",
+        ownerPaperIds: ["paper-1"],
+        history: [{ role: "user", content: "fallback user abort", message_type: "text" }],
+        generateOrchestratorPlanFn: async () => ({
+          action: "generate_table",
+          keyword_hints: ["outcome"],
+          search_queries: [{ query: "outcome", intent: "primary" }],
+          table_spec: { title: "Fallback User Abort", row_axis: "Papers", column_definitions: ["Outcome"] },
+        }),
+        runMultiQueryRagFn: async () => ({
+          chunks: [{ chunk_id: "chunk-1", paper_id: "paper-1", text: "fallback abort evidence" }],
+          figures: [],
+        }),
+        extractColumnsFromPaperFn: async (tableSpec, _paperContext, paperTitle) => ({
+          paper_title: paperTitle,
+          data_rows: [{ values: { [tableSpec.column_definitions[0]]: "" } }],
+        }),
+        ...createStage3cDeps({
+          generateTableFromSpecFn: async () => {
+            // Realistic user-cancel race: the abort signal fires (user pressed
+            // stop) and the in-flight request rejects with AbortError.
+            abortController.abort();
+            throw createAbortError("fallback aborted by user");
+          },
+        }),
+      }),
+      (err) => err?.name === "AbortError",
+    );
+
+    // Abort must short-circuit before any persistence.
+    assert.equal(inserts.filter((entry) => entry.table === "chat_messages").length, 0);
+    assert.equal(inserts.filter((entry) => entry.table === "chat_generated_tables").length, 0);
+  });
+
   it("aborts after single-call fallback generation before normalization or shell continuation", async () => {
     const abortController = new AbortController();
     const { supabase, inserts } = createRecordingSupabase({

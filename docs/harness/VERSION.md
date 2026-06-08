@@ -1,5 +1,14 @@
 # Harness Version
 
+## v1.10 — 2026-06-08
+- fix 18 **P0-A 전용 기능/회귀 테스트 추가** (프로덕션 코드 무변경 — `tests/table-pipeline.test.mjs`에 테스트 케이스만 3건 추가). v1.9에서 "abort 재throw/비차단 동작은 기존 fallback·abort 케이스로 커버"라고 적었으나 timeout→빈 테이블 전환을 직접 실증하는 전용 케이스는 없었음 → 이번에 명시적으로 추가해 "timeout fix가 실제 작동하는가"를 기능 검증
+- 케이스 1(비차단): empty-merge 경로(per-paper 전부 빈 값)에서 `generateTableFromSpecFn`이 `DOMException("…","TimeoutError")` throw → `runTableConversationPipeline`이 **throw하지 않고 정상 반환**, 영속화된 테이블 `rows:[]` + 어시스턴트 메시지 content의 `tableJson.notes`에 "시간 내에 완료되지 못…" 포함, `metadata.extractionMode="single_call_fallback"` (P0-A 핵심 = 에러 화면 대신 빈 테이블 실증)
+- 케이스 1-변형(일반 에러): fallback이 일반 `Error` throw 시에도 동일하게 빈 테이블로 salvage
+- 케이스 2(abort 전파): fallback에서 `abortController.abort()` + `AbortError` throw(실사용자 취소 레이스 모방) → `runStage3cMergeFallback`의 `throwIfChatAborted(abortSignal)`(`table-pipeline.mjs:599`)가 `abortSignal.aborted` 감지해 **AbortError 재throw** → `assert.rejects(..., err=>err.name==="AbortError")` + `chat_messages`/`chat_generated_tables` 미insert 검증 (취소 보존 = P0-A 경계조건)
+- 미작성(이유): "per-paper 부분성공분 salvage(mergedTableJson rows>0)" 변형은 **공개 진입점으로 도달 불가** — 병합이 rows>0이면 `runStage3cMergeFallback`이 fallback 분기에 진입하지 않으므로(`!extractionFallbackNeeded`에서 merge→rows 있으면 fallback skip) `mergedTableJson` salvage 브랜치는 프로덕션 흐름상 빈-merge 후 빈 테이블 케이스로 귀결. 프로덕션 코드 수정 없이는 인위적 재현 불가라 미작성(로그 재현 케이스도 4편 전부 data_rows=0 = 빈 테이블 케이스와 동일)
+- 검증: `node --check` 3파일(test + table-pipeline.mjs + table-extraction.mjs) 통과 · `node --test tests/table-pipeline.test.mjs` **21건 전부 통과**(기존 18 + 신규 3) · 전체 데스크탑 단위 스위트 `node --test tests/*.test.mjs` **60건/13스위트 전부 통과**(회귀 없음). 커밋은 사용자
+- chat-table-pipeline-state.md: "fix 18 P0-A Regression Test Coverage" 섹션 추가. feature-status.md: fix 18 행 테스트 노트를 전용 케이스 3건 + 60건 통과로 갱신
+
 ## v1.9 — 2026-06-08
 - 테이블 생성 타임아웃 (single-call fallback DOMException TimeoutError) 수정 — fix 18의 **P0-A + P0-B만** 구현 (P1/P2 미구현). 수정 파일 2개: `chat/table-pipeline.mjs`, `chat/table-extraction.mjs`
 - **P0-A (fallback 비차단화)**: `runStage3cMergeFallback`의 단일호출 fallback(`generateTableFromSpecFn` + 정규화)을 try/catch로 감쌈. 사용자 abort는 `throwIfChatAborted`로 재throw, timeout/일반 에러는 병합 부분결과(있으면) 또는 빈 테이블(`rows:[]` + notes="표 생성이 시간 내에 완료되지 못했습니다…")을 반환 → 에러 화면 대신 결과 표시. `extractionMode="single_call_fallback"` 유지로 Stage 3d 건너뜀(nullSummary=null), persistTableReport는 rows:[] 안전 처리. 병합 부분결과 보존용 `mergedTableJson` 변수 추가
