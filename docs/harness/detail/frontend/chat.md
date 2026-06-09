@@ -39,6 +39,7 @@ LLM 기반 비교 테이블 생성 및 Q&A 채팅 UI. 대화 관리, 메시지 �
 - 테이블 그리드 렌더링 (headers + rows)
 - source_refs → 참조 목록 (DOI 링크)
 - verification → 셀별 verified/unverified 뱃지
+- `metadata.perPaperReasons` → 하단 "데이터 없음" 섹션 (fix 19): `hadRows=false`인 논문을 "[refNo] 논문 제목 — 사유"로 렌더(빈 셀 N/A 행이 왜 비었는지 설명). 항목 없으면 섹션 미렌더. 사유 문자열은 영어(추출 LLM notes), 라벨은 i18n
 - CSV 내보내기 버튼
 
 ### ChatPipelineStatus.tsx

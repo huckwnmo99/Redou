@@ -21,7 +21,7 @@
 | `rerankChunksIfAvailable(query, chunks, mode)` | main.mjs:2804 | Reranker 적용 | table: top-15, qa: top-10 |
 | `assembleRagContext(chunks, figures, refMap, matrices, budget?)` | chat/table-extraction.mjs | 전체 RAG 컨텍스트 조립 | → string (3섹션: 파싱TSV + OCR HTML + 텍스트). `budget?={ocr,matrix,total}` 미지정 시 기본(OCR 70K/MATRIX 35K/TOTAL 120K). Stage 3c fallback만 `FALLBACK_RAG_BUDGET`(OCR 30K/MATRIX 20K/TOTAL 60K) 전달 |
 | `assemblePerPaperContext({chunks, figures, tables, title})` | main.mjs:3027 | 논문별 RAG 컨텍스트 (SRAG용) | 예산: 30K chars/논문 |
-| `mergeExtractionResults(results, spec, meta, refMap)` | main.mjs:3110 | SRAG 병합 (코드 전용) | → {tableJson, nullSummary} |
+| `mergeExtractionResults(results, spec, meta, refMap)` | chat/table-extraction.mjs | SRAG 병합 (코드 전용) | → {tableJson, nullSummary, reasons}. 데이터 0행 스코프 논문은 전 셀 N/A placeholder 행 생성(+`usedPaperIds` 등록 → references 포함). `reasons[{paperId,paperTitle,refNo,hadRows,failed,note}]`=per-paper `extraction.notes`(없으면 기본 사유) (fix 19) |
 | `runPaperScopedRecoverySearch(queries, paperId, signal)` | main.mjs | Stage 3d 단일 논문 재검색 | → {chunks, figures} |
 | `runAgenticNullRecovery(args)` | main.mjs | Stage 3d NULL 복구 오케스트레이션 | → {tableJson, nullSummary, agenticRecovery} |
 
@@ -55,21 +55,30 @@ searchQueries[] (Orchestrator 출력)
       │   └─ Section 3: 텍스트 청크 (나머지 예산)
       │
       ├─ [Table 모드 SRAG] assemblePerPaperContext × N논문
-      │   └─ 논문당 30K chars (TSV 12K + OCR 14K + 텍스트 나머지)
+      │   ├─ 논문당 30K chars (TSV 12K + OCR 14K + 텍스트 나머지)
+      │   └─ extractColumnsFromPaper 논문당 hard timeout = PER_PAPER_TIMEOUT_MS (env REDOU_PER_PAPER_TIMEOUT_MS, 기본 240초, fix 20)
+      │       └─ 내부 ollamaSignal 300초보다 작게 유지(권장 상한 300초). 느린 모델(gemma4 등) 60초 미완료 → 빈 테이블 방지
+      │
+      ├─ [Table 모드 Stage 3c 병합] mergeExtractionResults (fix 19)
+      │   ├─ 데이터 0행 스코프 논문 → 전 셀 N/A placeholder 행 + references 포함 (빈-바디 테이블 방지)
+      │   ├─ placeholder는 50% N/A 폐기 규칙 우회 + nullSummary 미기록(Stage 3d 재검색 대상 제외)
+      │   └─ reasons[] = per-paper 사유 → Stage 3c 반환 → persistTableReport가 metadata.perPaperReasons로 저장
       │
       ├─ [Table 모드 Stage 3c fallback] per-paper 병합이 0행이면 단일호출 Table Agent
+      │   │   (fix 19로 placeholder가 항상 행을 채워 이 경로 진입은 per-paper 추출 전부 실패 시로 한정)
       │   ├─ assembleRagContext(..., FALLBACK_RAG_BUDGET) — 축소 컨텍스트(~60K)로 300초 timeout 회피 (fix 18 P0-B)
       │   ├─ 비차단화: generateTableFromSpec()가 throw(예: DOMException TimeoutError)해도 파이프라인 중단 안 함 (fix 18 P0-A)
       │   │   ├─ 사용자 abort(abortSignal.aborted)는 throwIfChatAborted로 재throw
       │   │   └─ timeout/일반 에러는 병합 부분결과(있으면) 또는 빈 테이블(rows:[] + notes) 반환
-      │   └─ extractionMode="single_call_fallback" 유지 → Stage 3d 건너뜀(nullSummary=null), persistTableReport는 rows:[] 안전 처리
+      │   └─ extractionMode="single_call_fallback" 유지 → Stage 3d 건너뜀(nullSummary=null), perPaperReasons=[](per-paper 분해 없음), persistTableReport는 rows:[] 안전 처리
       │
       ├─ [Table 모드 Stage 3d] Agentic NULL Recovery
       │   ├─ mergeExtractionResults()의 nullSummary.details를 논문별로 그룹화
       │   ├─ buildRecoveryQueries(): LLM 없이 컬럼명/단위/keyword_hints 기반 쿼리 생성
       │   ├─ runPaperScopedRecoverySearch(): 단일 paperId로 runMultiQueryRag() 재사용
       │   ├─ Gate 1: 새 chunk_id/figure_id가 없으면 LLM 재추출 생략
-      │   └─ Gate 2: confidence="high" 셀만 기존 N/A에 적용
+      │   ├─ Gate 2: confidence="high" 셀만 기존 N/A에 적용
+      │   └─ 재추출 hard timeout = NULL_RECOVERY_TIMEOUT_MS (env REDOU_NULL_RECOVERY_TIMEOUT_MS, 기본 30초, fix 20)
       │
       └─ [Q&A 모드] assembleRagContext(chunks, figures, refMap, [])
           └─ 텍스트 위주 (파싱 매트릭스 없음)

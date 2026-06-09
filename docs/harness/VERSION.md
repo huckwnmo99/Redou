@@ -1,5 +1,12 @@
 # Harness Version
 
+## v1.11 — 2026-06-09
+- Per-paper 추출 타임아웃 env화 (fix 20). `chat/table-pipeline.mjs` 1파일 — Stage 3b/3d hard timeout의 하드코딩 ms를 모듈 상수 + env로 분리
+- 상수 2개(import 직후): `PER_PAPER_TIMEOUT_MS = parseInt(process.env.REDOU_PER_PAPER_TIMEOUT_MS,10)||240000` (Stage 3b per-paper, 기본 240초·권장 상한 300초=내부 ollamaSignal 정합), `NULL_RECOVERY_TIMEOUT_MS = parseInt(process.env.REDOU_NULL_RECOVERY_TIMEOUT_MS,10)||30000` (Stage 3d NULL 재검색, 기본 30초 유지). 두 setTimeout의 60000/30000을 각 상수로 치환
+- 값만 상수+env로 치환 — wrapper의 AbortController/사용자 abort 전파/clearTimeout/catch 분기는 무변경. 근본 원인: 60초 wrapper가 내부 ollamaSignal 300초보다 먼저 abort=binding → gemma4:31b가 60초 안에 못 끝내 per-paper 4편 전부 timeout→fallback→빈 테이블
+- item 3(fail placeholder/사유)은 이미 fix 19에 구현·배선 완료 → 신규 코드 없음. 타임아웃 상향 효과=per-paper 최소 1편 성공 시 fallback 회피→merge 진입→fix19 placeholder/사유 발현
+- DB/IPC/컴포넌트·CURRENT_EXTRACTION_VERSION 무변경. 검증: node --check 통과 + env 시맨틱(미설정→기본값, override, invalid→폴백) + 단위 테스트 28건(table-pipeline 22 + table-extraction 6) 전부 통과
+
 ## v1.10 — 2026-06-08
 - fix 18 **P0-A 전용 기능/회귀 테스트 추가** (프로덕션 코드 무변경 — `tests/table-pipeline.test.mjs`에 테스트 케이스만 3건 추가). v1.9에서 "abort 재throw/비차단 동작은 기존 fallback·abort 케이스로 커버"라고 적었으나 timeout→빈 테이블 전환을 직접 실증하는 전용 케이스는 없었음 → 이번에 명시적으로 추가해 "timeout fix가 실제 작동하는가"를 기능 검증
 - 케이스 1(비차단): empty-merge 경로(per-paper 전부 빈 값)에서 `generateTableFromSpecFn`이 `DOMException("…","TimeoutError")` throw → `runTableConversationPipeline`이 **throw하지 않고 정상 반환**, 영속화된 테이블 `rows:[]` + 어시스턴트 메시지 content의 `tableJson.notes`에 "시간 내에 완료되지 못…" 포함, `metadata.extractionMode="single_call_fallback"` (P0-A 핵심 = 에러 화면 대신 빈 테이블 실증)

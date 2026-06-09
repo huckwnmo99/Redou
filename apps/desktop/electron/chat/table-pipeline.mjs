@@ -28,6 +28,14 @@ import {
   normalizeFallbackTableToSpec,
 } from "./table-extraction.mjs";
 
+// Per-paper extraction (Stage 3b) hard timeout. Wraps extractColumnsFromPaper so a
+// slow local model (e.g. gemma4:31b) can finish a large paper. Must stay <= the inner
+// Ollama ollamaSignal default (300s, llm-chat.mjs); a larger value is cut off by the
+// inner timeout first. See docs/features/fix/20-per-paper-extraction-timeout-env.md.
+const PER_PAPER_TIMEOUT_MS = parseInt(process.env.REDOU_PER_PAPER_TIMEOUT_MS, 10) || 240000;
+// Stage 3d Agentic NULL Recovery per-paper re-extraction timeout (small context).
+const NULL_RECOVERY_TIMEOUT_MS = parseInt(process.env.REDOU_NULL_RECOVERY_TIMEOUT_MS, 10) || 30000;
+
 const ORCHESTRATING_MESSAGE = "\uC0AC\uC6A9\uC790 \uC694\uCCAD \uBD84\uC11D \uC911...";
 const DEFAULT_CLARIFICATION_TEXT = "\uC694\uCCAD\uC744 \uC880 \uB354 \uAD6C\uCCB4\uC801\uC73C\uB85C \uD574\uC8FC\uC138\uC694.";
 const SEARCHING_MESSAGE = "\uAD00\uB828 \uB17C\uBB38 \uB370\uC774\uD130 \uAC80\uC0C9 \uC911...";
@@ -475,7 +483,7 @@ async function runPerPaperExtraction({
       const t0 = Date.now();
       try {
         const timeoutController = new AbortController();
-        const timeoutId = setTimeout(() => timeoutController.abort(), 60000);
+        const timeoutId = setTimeout(() => timeoutController.abort(), PER_PAPER_TIMEOUT_MS);
         const onAbort = () => timeoutController.abort();
         abortSignal?.addEventListener("abort", onAbort);
 
@@ -754,7 +762,7 @@ async function runAgenticNullRecovery({
         }
 
         const timeoutController = new AbortController();
-        const timeoutId = setTimeout(() => timeoutController.abort(), 30000);
+        const timeoutId = setTimeout(() => timeoutController.abort(), NULL_RECOVERY_TIMEOUT_MS);
         const onAbort = () => timeoutController.abort();
         abortSignal?.addEventListener("abort", onAbort);
 
