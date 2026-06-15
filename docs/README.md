@@ -16,7 +16,7 @@
 - `harness/decisions/` — 아키텍처 결정 기록(ADR)
 
 ## 진행 중인 작업 — [`tasks/`](tasks/) (ledger)
-각 작업의 ledger. **README 먼저 읽고** 링크된 것만 연다.
+각 작업의 ledger. **README 먼저 읽고** 링크된 것만 연다. ledger 운영 방식(매 작업 사이클·구조·트리거): [`tasks/README.md`](tasks/README.md).
 - [`tasks/read-only-improvement-advisor/`](tasks/read-only-improvement-advisor/) — 읽기 전용 개선 어드바이저 (활성)
 - [`tasks/docs-cleanup/`](tasks/docs-cleanup/) — 문서 재편 (이 정리 작업)
 - 활성 기능 계획서: [`features/new/17-read-only-improvement-advisor.md`](features/new/17-read-only-improvement-advisor.md)
