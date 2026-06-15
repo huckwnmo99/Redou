@@ -1,8 +1,10 @@
 # 임베딩 모듈
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+> 하네스 버전: v1.12 | 최종 갱신: 2026-06-15
 
 ## 개요
 vLLM 서버의 nvidia/llama-nemotron-embed-vl-1b-v2 모델로 텍스트/이미지 임베딩(2048-dim)을 생성한다. 청크, 논문, Figure/Table/Equation에 대해 임베딩을 생성하고 pgvector에 저장한다.
+
+> 엔티티 임베딩(`entities.embedding`)은 같은 모델을 쓰되 별도 경로(`entity-extractor.mjs` persistEntities, opt-in) — `entity-graph.md` 참고.
 
 ## 핵심 파일
 | 파일 | 역할 | 줄 수 |

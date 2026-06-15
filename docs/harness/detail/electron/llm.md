@@ -1,8 +1,10 @@
 # LLM 모듈
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-22
+> 하네스 버전: v1.12 | 최종 갱신: 2026-06-15
 
 ## 개요
 Ollama 기반 LLM 채팅 스트리밍, 비교 테이블 생성 오케스트레이션, Q&A 응답, Granite Guardian 검증을 담당한다. 사용자가 Settings에서 모델을 변경할 수 있다.
+
+> **이 문서는 LLM 에이전트/프롬프트 계층**(`llm-orchestrator`/`llm-chat`/`llm-qa`)을 다룬다. 테이블 생성 **파이프라인의 모듈 구조·스테이지별 상태**는 6월 리팩터(ADR 0001 debuggable-module-split)로 `chat/*` 모듈에 분리됨 → 권위 문서 `chat-table-pipeline-state.md`. RAG 검색은 `rag-pipeline.md`, 그래프 QA는 `entity-graph.md` 참고.
 
 ## 핵심 파일
 | 파일 | 역할 | 줄 수 |
@@ -11,6 +13,8 @@ Ollama 기반 LLM 채팅 스트리밍, 비교 테이블 생성 오케스트레�
 | `apps/desktop/electron/llm-orchestrator.mjs` | Orchestrator + Table Agent + Extraction Agent + NULL Recovery Agent | ~660 |
 | `apps/desktop/electron/llm-qa.mjs` | Q&A 시스템 프롬프트 + 응답 생성 + 출처 귀속 | ~121 |
 | `apps/desktop/electron/html-table-parser.mjs` | HTML 테이블 → headers/rows 파싱 (코드) | ~312 |
+| `apps/desktop/electron/chat/*` | 테이블 파이프라인 스테이지 분리(table-pipeline, table-extraction, agentic-null-recovery, source-evidence, status-events, abort-guards, extraction-utils) — 6월 ADR 0001 | → `chat-table-pipeline-state.md` |
+| `apps/desktop/electron/rag/multi-query-rag.mjs` | 멀티쿼리 RAG (orchestrator에서 분리) | → `rag-pipeline.md` |
 
 ## 주요 함수/컴포넌트
 
@@ -63,6 +67,8 @@ action = "generate_table" / "modify_table"
 ```
 
 ## Stage 3d Agentic NULL Recovery
+
+> 구현 위치: `chat/agentic-null-recovery.mjs`(6월 분리). 아래 로직 설명은 유효.
 
 테이블 생성의 SRAG 경로에서 `mergeExtractionResults()`가 `nullSummary`를 만든 직후, `cleanCellValue()` 전에 실행된다. `single_call_fallback` 경로는 `nullSummary`가 없으므로 건너뛴다.
 

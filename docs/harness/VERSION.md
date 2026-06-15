@@ -6,6 +6,8 @@
 - `detail/database/schema.md` 갱신 — 마이그레이션 20→27개, 엔티티 테이블 2개 + `extract_entities` enum + `entity_extraction_version`/`entity_extraction_model`/`entity_graph_enabled` 컬럼.
 - `detail/database/rpc.md` 갱신 — 엔티티 RPC 3개(match_entities, resolve_same_as, graph_traverse_1hop).
 - `main/feature-status.md` 헤더 버전 동기화(v1.8→v1.12) + 엔티티 행 detail 링크.
+- electron detail 노후 갱신: `llm.md`(6월 `chat/*` 모듈 분리·`chat-table-pipeline-state.md` 포인터), `main-process.md`(엔티티 IPC·분리 모듈 의존성·archive된 ROADMAP 참조 제거), `embedding.md`(엔티티 임베딩 cross-ref).
+- 검토 후 무변경(이미 현행): `pdf-pipeline.md`(v2.0, V2 단일·V1 제거 반영), `services/external.md`(UniMERNet 미사용 반영).
 
 ## v1.11 — 2026-06-09
 - Per-paper 추출 타임아웃 env화 (fix 20). `chat/table-pipeline.mjs` 1파일 — Stage 3b/3d hard timeout의 하드코딩 ms를 모듈 상수 + env로 분리

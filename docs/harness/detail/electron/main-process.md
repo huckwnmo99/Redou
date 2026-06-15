@@ -1,8 +1,10 @@
 # Electron Main Process
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+> 하네스 버전: v1.12 | 최종 갱신: 2026-06-15
 
 ## 개요
-Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처리 파이프라인 오케스트레이션, DB 프록시, 채팅 파이프라인 전체를 관장한다.
+Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처리 파이프라인 오케스트레이션, DB 프록시, 채팅 파이프라인 진입을 관장한다.
+
+> 6월 리팩터(ADR 0001) 이후 **테이블 파이프라인은 `chat/*`, 멀티쿼리 RAG는 `rag/multi-query-rag.mjs`, 엔티티 그래프는 `entity-extractor`/`graph-search`로 분리**됨. 채널 정의의 SoT는 `types/ipc-channels.mjs`. 아래 줄번호는 작성 당시 기준(드리프트 가능).
 
 ## 핵심 파일
 | 파일 | 역할 | 줄 수 |
@@ -52,6 +54,7 @@ Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처
 | `llm:list-models` | 3939 | Ollama 모델 목록 |
 | `llm:get-model` | 3960 | 현재 모델 조회 |
 | `llm:set-model` | 3981 | 모델 변경 |
+| 엔티티 그래프 (GET/SET enabled·model, 수동 backfill) | — | opt-in 토글·엔티티 모델·백필 (fix 16/17). 채널명은 `types/ipc-channels.mjs`. 상세 `entity-graph.md` |
 
 ### Main → Renderer (webContents.send)
 | 이벤트 | 설명 |
@@ -66,8 +69,7 @@ Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처
 | `chat:verification-done` | Guardian 검증 완료 |
 
 ## DB 테이블 화이트리스트
-- `DB_QUERY_TABLES`: 23개 테이블 (main.mjs:99-124)
-- `DB_MUTATE_TABLES`: 22개 테이블 (main.mjs:125-149)
+- `DB_QUERY_TABLES` / `DB_MUTATE_TABLES`: 화이트리스트 (main.mjs). 엔티티 그래프 추가로 `entities`/`entity_relations` 포함 (4월 기준 23/22개에서 증가).
 - 테이블 추가 시 반드시 양쪽 갱신 필요
 
 ## 앱 라이프사이클
@@ -78,9 +80,9 @@ Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처
 5. LLM 모델 로드: `user_workspace_preferences.llm_model` → `setActiveModel()`
 
 ## 의존성
-- 사용: supabase, embedding-worker, pdf-heuristics, ocr-extraction, mineru-client, grobid-client, llm-chat, llm-orchestrator, llm-qa, html-table-parser, reranker-worker
+- 사용: supabase, embedding-worker, pdf-heuristics, ocr-extraction, mineru-client, grobid-client, llm-chat, llm-orchestrator, llm-qa, html-table-parser, reranker-worker, **entity-extractor, graph-search, oauth-callback-server, chat/*, rag/multi-query-rag, processing/job-runner** (6월 추가/분리)
 - 사용됨: preload.mjs (renderer bridge)
 
 ## 현재 상태
-- 구현 완료: 전체 IPC, PDF 파이프라인 V2 단일, 채팅 테이블/Q&A, Guardian, 모델 선택
-- 알려진 이슈: ROADMAP에 chat Supabase null 처리 수정 계획됨
+- 구현 완료: 전체 IPC, PDF 파이프라인 V2 단일, 채팅 테이블/Q&A, Guardian, 모델 선택, 엔티티 그래프 IPC(opt-in)
+- 채팅 파이프라인 상세는 `chat-table-pipeline-state.md`, 엔티티 그래프는 `entity-graph.md` 참고
