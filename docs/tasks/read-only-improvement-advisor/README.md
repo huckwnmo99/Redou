@@ -35,7 +35,7 @@ Choose whether the next slice should add actual read-only query/data loading onl
 ## Documents To Read
 
 - `docs/features/new/17-read-only-improvement-advisor.md` - feature plan, analyzer categories, data retention strategy, and MVP boundaries.
-- `AGENTS.md` - current project status, skill policy, active work, and recommended next work.
+- `CLAUDE.md` (repo root) - workflow, rules, skill policy. (AGENTS.md was removed in docs-cleanup; CLAUDE.md is the active agent-context file.) Current status: `docs/harness/main/feature-status.md`.
 - `docs/agents/codex-claude/decisions.md` - D38 context that entity graph work is accepted and paused by default.
 
 ## Planned

@@ -21,7 +21,7 @@
 
 ## Next Action
 
-마무리: 사용자 보고. 후속(선택, 비차단) — backlog→`archive/legacy/01-Idea` 상대링크 정리(원래도 일부 깨져 있었음), `AGENTS.md`(세션 전부터 삭제 스테이징) 처리 결정.
+마무리: 사용자 보고 + 푸시. `AGENTS.md`는 **삭제 확정**(사용자 재구성 예정; CLAUDE.md가 활성 에이전트 컨텍스트). 후속(선택, 비차단) — backlog→`archive/legacy/01-Idea` 상대링크 정리(원래도 일부 깨져 있었음), 루트 `CONTEXT.md`의 AGENTS.md 참조는 재구성 시 정리.
 
 ## Success Criteria
 
