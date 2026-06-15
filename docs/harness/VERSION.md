@@ -1,5 +1,12 @@
 # Harness Version
 
+## v1.12 — 2026-06-15
+- harness 갭 보강(docs-cleanup 후속). 엔티티 그래프 커버리지 누락 + DB 문서 노후화(4월) 정리.
+- 신설 `detail/electron/entity-graph.md` — entity-extractor.mjs + graph-search.mjs (opt-in 추출·그래프 RAG, entities/entity_relations 테이블, RPC 3개).
+- `detail/database/schema.md` 갱신 — 마이그레이션 20→27개, 엔티티 테이블 2개 + `extract_entities` enum + `entity_extraction_version`/`entity_extraction_model`/`entity_graph_enabled` 컬럼.
+- `detail/database/rpc.md` 갱신 — 엔티티 RPC 3개(match_entities, resolve_same_as, graph_traverse_1hop).
+- `main/feature-status.md` 헤더 버전 동기화(v1.8→v1.12) + 엔티티 행 detail 링크.
+
 ## v1.11 — 2026-06-09
 - Per-paper 추출 타임아웃 env화 (fix 20). `chat/table-pipeline.mjs` 1파일 — Stage 3b/3d hard timeout의 하드코딩 ms를 모듈 상수 + env로 분리
 - 상수 2개(import 직후): `PER_PAPER_TIMEOUT_MS = parseInt(process.env.REDOU_PER_PAPER_TIMEOUT_MS,10)||240000` (Stage 3b per-paper, 기본 240초·권장 상한 300초=내부 ollamaSignal 정합), `NULL_RECOVERY_TIMEOUT_MS = parseInt(process.env.REDOU_NULL_RECOVERY_TIMEOUT_MS,10)||30000` (Stage 3d NULL 재검색, 기본 30초 유지). 두 setTimeout의 60000/30000을 각 상수로 치환

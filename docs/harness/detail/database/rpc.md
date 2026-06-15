@@ -1,8 +1,8 @@
 # RPC 함수 (PostgreSQL Functions)
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+> 하네스 버전: v1.12 | 최종 갱신: 2026-06-15
 
 ## 개요
-Supabase RPC로 호출하는 PostgreSQL 함수. 벡터 검색 4종, BM25 검색 2종, 즐겨찾기 토글 1종. 모두 `LANGUAGE plpgsql STABLE`.
+Supabase RPC로 호출하는 PostgreSQL 함수. 벡터 검색 4종 + 엔티티 그래프 3종, BM25 검색 2종, 즐겨찾기 토글 1종. 모두 `LANGUAGE plpgsql STABLE`.
 
 ## 함수 목록
 
@@ -66,6 +66,33 @@ Supabase RPC로 호출하는 PostgreSQL 함수. 벡터 검색 4종, BM25 검색 
 | 입력 | `paper_id uuid` |
 | 로직 | papers.is_important 토글 |
 | 호출처 | 프론트엔드 |
+
+### 8. match_entities (엔티티 벡터 검색) — 엔티티 그래프
+| 항목 | 값 |
+|------|------|
+| 정의 | `20260423010000_add_entity_graph.sql:107` |
+| 입력 | `query_embedding vector(2048)`, `match_threshold float=0.35`, `match_count int=20`, `filter_paper_ids uuid[]`, `filter_types text[]` |
+| 반환 | `entity_id, paper_id, chunk_id, entity_type, canonical_name, value, unit, confidence, confidence_tag, similarity` |
+| 로직 | `entities.embedding` cosine similarity. type/paper 필터. |
+| 호출처 | graph-search.mjs `matchQueryEntitiesToGraph` |
+
+### 9. resolve_same_as — 엔티티 그래프
+| 항목 | 값 |
+|------|------|
+| 정의 | `20260423010000_add_entity_graph.sql:150` |
+| 입력 | `seed_entity_ids uuid[]` |
+| 반환 | `uuid[]` (same_as로 연결된 엔티티 집합) |
+| 로직 | `entity_relations` `relation_type='same_as'` WITH RECURSIVE 확장. |
+| 호출처 | graph-search.mjs |
+
+### 10. graph_traverse_1hop — 엔티티 그래프
+| 항목 | 값 |
+|------|------|
+| 정의 | `20260423010000_add_entity_graph.sql:179` |
+| 입력 | `seed_entity_ids uuid[]`, `max_results int=50` |
+| 반환 | `chunk_id, paper_id, neighbor_entity_id, neighbor_canonical_name, relation_type, direction, hop` |
+| 로직 | seed 엔티티의 1-hop 이웃 + evidence/neighbor 청크. |
+| 호출처 | graph-search.mjs `fetchGraphChunks` |
 
 ## BM25 설정
 - `paper_chunks.fts`: `to_tsvector('english', coalesce(text, ''))` GENERATED STORED

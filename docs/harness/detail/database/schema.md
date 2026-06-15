@@ -1,8 +1,8 @@
 # 데이터베이스 스키마
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+> 하네스 버전: v1.12 | 최종 갱신: 2026-06-15
 
 ## 개요
-로컬 Supabase(PostgreSQL + pgvector, port 55321)에 20개 마이그레이션으로 구성된 스키마. 핵심 테이블 24개, RPC 함수 8개.
+로컬 Supabase(PostgreSQL + pgvector, port 55321)에 27개 마이그레이션으로 구성된 스키마. 핵심 테이블 26개, RPC 함수 11개.
 
 ## 마이그레이션 히스토리 (20개)
 | # | 파일 | 설명 |
@@ -27,6 +27,13 @@
 | 18 | `20260408010000_add_bm25_search.sql` | paper_chunks BM25 (fts, GIN) |
 | 19 | `20260409010000_add_figures_bm25_search.sql` | figures BM25 (fts, GIN) |
 | 20 | `20260410012147_add_chat_generated_tables_metadata.sql` | SRAG metadata JSONB |
+| 21 | `20260410020000_fix_bm25_or_tsquery.sql` | BM25 OR tsquery (0건 반환 수정) |
+| 22 | `20260423010000_add_entity_graph.sql` | 엔티티 그래프: entities/entity_relations + RPC 3개 |
+| 23 | `20260503010000_secure_chat_tables.sql` | 채팅 테이블 RLS 강화 |
+| 24 | `20260504010000_add_supplementary_source_tracking.sql` | 보조파일 출처 추적 |
+| 25 | `20260506010000_add_rag_source_file_metadata.sql` | RAG 소스파일 메타데이터 |
+| 26 | `20260524010000_drop_stale_match_chunks_overload.sql` | match_chunks 구 오버로드 제거 |
+| 27 | `20260527073618_add_entity_graph_enabled.sql` | entity_graph_enabled opt-in 플래그 |
 
 ## 핵심 테이블
 
@@ -34,7 +41,7 @@
 | 테이블 | PK | 주요 컬럼 | 비고 |
 |--------|------|-----------|------|
 | `app_users` | uuid | display_name, email, role | 사용자 |
-| `papers` | uuid | title, normalized_title, authors(jsonb), publication_year, doi, abstract, reading_status, extraction_version, embedding(vector 2048) | 논문 메타 |
+| `papers` | uuid | title, normalized_title, authors(jsonb), publication_year, doi, abstract, reading_status, extraction_version, entity_extraction_version, embedding(vector 2048) | 논문 메타 |
 | `paper_files` | uuid | paper_id(FK), file_kind, stored_path, checksum_sha256, file_size_bytes | PDF 파일 |
 | `paper_sections` | uuid | paper_id(FK), section_name, section_order, page_start/end, raw_text | 섹션 |
 | `paper_chunks` | uuid | paper_id(FK), section_id(FK), chunk_order, page, text, token_count, fts(tsvector) | 청크 |
@@ -71,12 +78,18 @@
 | `chat_messages` | uuid | conversation_id(FK), role, content, message_type, metadata(jsonb) | user/assistant |
 | `chat_generated_tables` | uuid | message_id(FK), conversation_id(FK), table_title, headers(jsonb), rows(jsonb), source_refs(jsonb), verification(jsonb), metadata(jsonb) | SRAG 메타 포함 |
 
+### 엔티티 그래프 (opt-in)
+| 테이블 | PK | 주요 컬럼 | 비고 |
+|--------|------|-----------|------|
+| `entities` | uuid | paper_id(FK), chunk_id(FK), entity_type, raw_name, canonical_name, value, unit, confidence, confidence_tag, source_hint, embedding(vector 2048) | entity_type: substance/method/condition/metric/phenomenon/concept |
+| `entity_relations` | uuid | source_entity_id(FK), target_entity_id(FK), relation_type, direction, source_paper_id(FK), evidence_chunk_id(FK), confidence | relation_type: affects/correlates_with/measures/uses/compared_to/outperforms/produces/same_as. detail: `../electron/entity-graph.md` |
+
 ### 시스템
 | 테이블 | PK | 주요 컬럼 | 비고 |
 |--------|------|-----------|------|
 | `processing_jobs` | uuid | paper_id(FK), job_type, status, source_path, error_message | 작업 큐 |
 | `backup_snapshots` | uuid | backup_path, backup_kind, status | 백업 |
-| `user_workspace_preferences` | user_id(FK) | layout_*, llm_model | 사용자 설정 |
+| `user_workspace_preferences` | user_id(FK) | layout_*, llm_model, entity_extraction_model, entity_graph_enabled | 사용자 설정 (entity_graph_enabled: opt-in 기본 false) |
 
 ## Enum 타입
 | 이름 | 값 |
@@ -85,7 +98,7 @@
 | `file_kind` | main_pdf, supplementary_pdf, figure_asset |
 | `note_scope` | paper, section, chunk, figure, highlight |
 | `note_type` | summary_note, relevance_note, presentation_note, result_note, followup_note, figure_note, question_note, custom |
-| `job_type` | import_pdf, run_ocr, extract_metadata, parse_sections, extract_figures, generate_embeddings, generate_summary, create_backup |
+| `job_type` | import_pdf, run_ocr, extract_metadata, parse_sections, extract_figures, generate_embeddings, generate_summary, create_backup, extract_entities |
 | `job_status` | queued, running, succeeded, failed |
 | `backup_status` | created, failed, imported |
 

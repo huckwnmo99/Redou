@@ -1,5 +1,5 @@
 # 기능 상태 매트릭스
-> 하네스 버전: v1.8 | 최종 갱신: 2026-05-31
+> 하네스 버전: v1.12 | 최종 갱신: 2026-06-15
 
 ## 전체 기능 매트릭스
 
@@ -35,7 +35,7 @@
 | 노트 워크스페이스 | ✅ 구현됨 | frontend/notes.md | NoteKind 6종(summary/insight/question/quote/action/memo). NotesView.tsx — 디자인 킷 이식 완료(3-pane: 좌 리스트[검색+종류칩+논문·정렬 select]+드래그 리사이즈+우 캄 에디터). controlled draft 편집/저장·소스이동·하이라이트 연결 보존 |
 | 프로세싱 모니터링 | ✅ 구현됨 | frontend/paper.md | ProcessingView.tsx (import_pdf / generate_embeddings / extract_entities 라벨 구분 표시) |
 | 라이브러리 카드 처리 상태 | ✅ 구현됨 | frontend/stores-queries.md | `paperSignals.ts`가 core(import_pdf+generate_embeddings) job 합성으로 계산. 둘 다 succeeded일 때만 "Complete". entity는 제외 |
-| 엔티티 추출 (graph) | ✅ 구현됨 (opt-in, 기본 OFF) | — | `entity-extractor.mjs`. **opt-in**: 자동 큐잉/QA graph 경로를 `user_workspace_preferences.entity_graph_enabled`(기본 OFF)로 게이트(fix 16). OFF: import 시 `extract_entities` 자동 큐잉 안 함 + QA는 plain `runMultiQueryRag`. ON: embedding 후 비차단 큐잉 + QA는 `runGraphEnhancedRag`. **수동 백필 버튼은 토글과 무관하게 항상 동작**. 부가 기능(실패 시 core 영향 없음). `codex/rag-infra-extraction` |
+| 엔티티 추출 (graph) | ✅ 구현됨 (opt-in, 기본 OFF) | electron/entity-graph.md | `entity-extractor.mjs`. **opt-in**: 자동 큐잉/QA graph 경로를 `user_workspace_preferences.entity_graph_enabled`(기본 OFF)로 게이트(fix 16). OFF: import 시 `extract_entities` 자동 큐잉 안 함 + QA는 plain `runMultiQueryRag`. ON: embedding 후 비차단 큐잉 + QA는 `runGraphEnhancedRag`. **수동 백필 버튼은 토글과 무관하게 항상 동작**. 부가 기능(실패 시 core 영향 없음). `codex/rag-infra-extraction` |
 | Google OAuth 인증 | ✅ 구현됨 | electron/main-process.md | oauth-callback-server.mjs |
 | 백업/복원 | ✅ 구현됨 | electron/main-process.md | BACKUP_CREATE/RESTORE |
 | 다국어 (한/영) | ✅ 구현됨 | frontend/stores-queries.md | locale.ts |
