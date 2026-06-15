@@ -8,10 +8,10 @@
 
 | 작업 | ledger? |
 |------|---------|
-| 소규모 단발 수정(버그·타입·UI 1~2파일) | ❌ 불필요 — `codex:rescue` 직행 |
+| 소규모 단발 수정(버그·타입·UI 1~2파일) | ❌ 불필요 — ledger 없이 바로 처리 |
 | 6개 파일↑ / DB 변경 / 다단계 / 장기 작업 | ✅ ledger 생성 |
 
-CLAUDE.md의 "6파일↑ 또는 DB 변경이면 `/plan` 먼저" 기준과 동일. ledger는 그 `/plan` 산출물이 사는 곳.
+"6파일↑ 또는 DB 변경이면 계획 먼저" 기준과 동일. ledger는 그 계획 산출물이 사는 곳.
 
 ## 구조
 
@@ -33,8 +33,8 @@ docs/tasks/<work-slug>/
 1. READ      관련 ledger README를 먼저 읽는다 (없으면 새 작업 → bootstrap).
 2. NEXT      README의 "Next Action" = 이번에 할 일.
 3. PLAN      필요 시 planned/NN_*.md에 이번 슬라이스를 작게 계획 (가정·검증기준 명시).
-4. BUILD     Codex(codex:rescue)가 코드 구현. Claude는 설계·검증·소통만.
-5. VERIFY    Success Criteria 대조 + /test (빌드·타입·테스트).
+4. BUILD     코드/문서 구현·변경.
+5. VERIFY    Success Criteria 대조 + 빌드·타입·테스트.
 6. UPDATE    슬라이스를 planned/ → completed/ 이동.
              README의 Status·Next Action·Completed·Last Updated 갱신.
 7. HARNESS   시스템이 바뀌었으면 docs/harness 갱신 + VERSION 범프.
@@ -53,8 +53,9 @@ docs/tasks/<work-slug>/
 ## 다른 문서와의 관계
 
 - **ledger ↔ harness**: ledger는 "지금 **무슨 작업**을 어디까지"(좁고 한시적). harness(`docs/harness/`)는 "지금 **시스템이 어떤지**"(넓고 항구적, SSoT). 작업 완료 시 ledger→completed **그리고** harness 갱신. 둘 다 코드와 괴리되면 안 됨.
-- **ledger ↔ CLAUDE.md 역할**: Claude(오케스트레이터)가 ledger를 작성·갱신, Codex가 코드 구현. ledger는 워크플로(`/plan → codex:rescue → /test → /review`)의 추적 장부.
 - **ledger ↔ backlog**: 아이디어는 `docs/backlog/`. 착수 결정 시 ledger로 승격.
+
+> **범위 밖(의도적)**: 구현 주체·협업 방식(예: 별도 구현 에이전트와의 분담)은 이 가이드에서 다루지 않는다. ledger 기계장치 자체는 누가 구현하든 동일하게 작동한다. 협업 모델은 추후 별도로 정의·추가한다.
 
 ## 네이밍
 
