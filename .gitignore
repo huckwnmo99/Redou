@@ -13,3 +13,8 @@ vite.config.d.ts
 .npm-cache/
 .tmp_*
 00_adsorption_paper/
+
+# Large reference binaries / generated archives (do not bloat git history)
+ppt/
+Redou Design System.zip
+__pycache__/
