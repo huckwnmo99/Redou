@@ -8,9 +8,9 @@
 
 ## Current Status
 
-- Status: in-progress
+- Status: **core 완료** — Phase 1~4 적용·커밋됨
 - Size: Large (시작 시 `docs/` 367파일 / 전체 `.md` 379)
-- Current phase: **Phase 1(vendored + 발표자료 245개 삭제) 작업 트리에 스테이징됨(미커밋).** Phase 2~4는 계획 수립 완료, 승인 대기.
+- Current phase: Phase 1~4 완료. vendored/발표자료 245개 삭제, features·proposals·레거시 → `archive/`, 단일 인덱스 `docs/README.md` 작성.
 - Owner: Claude(계획·문서 이동) — 코드 영향 없는 문서 작업
 - Source of truth: this README + `planned/01_2026-06-15_phase-plan.md`
 - Review cadence: phase별
@@ -21,7 +21,7 @@
 
 ## Next Action
 
-Phase 1 삭제 커밋 여부 + Phase 2(단일 인덱스)·Phase 3/4(완료 계획서·레거시 폴더 처리) 방침을 승인받는다. → `planned/01_2026-06-15_phase-plan.md`의 "결정 필요" 참고.
+마무리: 사용자 보고. 후속(선택, 비차단) — backlog→`archive/legacy/01-Idea` 상대링크 정리(원래도 일부 깨져 있었음), `AGENTS.md`(세션 전부터 삭제 스테이징) 처리 결정.
 
 ## Success Criteria
 
@@ -44,11 +44,14 @@ Phase 1 삭제 커밋 여부 + Phase 2(단일 인덱스)·Phase 3/4(완료 계�
 
 ## In Progress
 
-- Phase 1 — vendored(reference 146 + exports 66) + presentation_assets 33 삭제. **스테이징됨, 커밋 대기.**
+- 없음 (core 완료).
 
 ## Completed
 
-- (없음 — Phase 1 커밋 후 `completed/`로 이동)
+- Phase 1 — vendored(reference 146 + exports 66) + presentation_assets 33 = 245개 삭제. 커밋 `ad76d41`. → `completed/01_2026-06-15_phase1-noise-deletion.md`
+- Phase 3 — features(fix 01-20 + new 01-16) + proposals → `archive/`. advisor(new/17)만 잔존. 커밋 `5172fc9`.
+- Phase 4 — 레거시 numbered 폴더(01-Idea/02-database/03-frontend/04-planning) → `archive/legacy/`. 커밋 `3c8ff5e`.
+- Phase 2 — stale 루트 3문서(ROADMAP/PROJECT_STRUCTURE/RECOMMENDED_SUBAGENTS) → `archive/`, `ONBOARDING.md`→`docs/README.md` 단일 인덱스 승격, `archive/README.md` 추가, harness feature-status·advisor ledger 링크 정합. → `completed/02_2026-06-15_index-and-archive.md`
 
 ## Last Updated
 

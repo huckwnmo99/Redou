@@ -20,6 +20,8 @@ Outputs:
 - `docs/presentation_assets/scripts/render-read-only-advisor-overview-infographic.py`
 - `docs/presentation_assets/scripts/render-read-only-advisor-previews.py`
 
+> 참고(2026-06-15): 위 `docs/presentation_assets/*` 산출물은 docs-cleanup Phase 1에서 제거됨(커밋 `ad76d41`, git 이력으로 복구 가능). `ppt/*.pptx`는 영향 없음.
+
 The deck covers:
 
 - self-improvement method
