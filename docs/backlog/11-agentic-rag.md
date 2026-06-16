@@ -1,6 +1,6 @@
 # Agentic RAG 동적 검색 에이전트
 
-> 상태: 💡 아이디어 | 등록일: 2026-04-06 | 출처: [RAG 설계 제안서](../01-Idea/Rag_design_report.md#idea8)
+> 상태: 💡 아이디어 | 등록일: 2026-04-06 | 출처: [RAG 설계 제안서](../archive/legacy/01-Idea/01_Rag_design_report.md#idea8)
 
 ## 배경
 현재 RAG 파이프라인은 고정된 순서로 실행됨. LLM 에이전트가 스스로 검색 계획을 세우고, 중간 결과를 평가하고, 전략을 수정하면 훨씬 유연해짐.

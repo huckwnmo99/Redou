@@ -1,6 +1,6 @@
 # Contextual Chunking (Anthropic 기법)
 
-> 상태: 💡 아이디어 | 등록일: 2026-04-07 | 출처: [Table RAG 개선 제안서](../01-Idea/Table_RAG_improvement_report.md#3-contextual-chunking-anthropic-기법)
+> 상태: 💡 아이디어 | 등록일: 2026-04-07 | 출처: [Table RAG 개선 제안서](../archive/legacy/01-Idea/Table_RAG_improvement_report.md#3-contextual-chunking-anthropic-기법)
 
 ## 배경
 현재 각 청크가 독립적으로 임베딩되어 "이 수치가 어떤 논문의 어떤 섹션에서 나왔는지" 맥락이 손실됨.

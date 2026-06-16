@@ -1,6 +1,6 @@
 # HyDE (Hypothetical Document Embedding)
 
-> 상태: 💡 아이디어 | 등록일: 2026-04-06 | 출처: [RAG 설계 제안서](../01-Idea/Rag_design_report.md#idea6)
+> 상태: 💡 아이디어 | 등록일: 2026-04-06 | 출처: [RAG 설계 제안서](../archive/legacy/01-Idea/01_Rag_design_report.md#idea6)
 
 ## 배경
 짧고 기술적인 쿼리("PSA H₂ purity")는 임베딩 공간에서 관련 청크와 거리가 멀 수 있음.

@@ -1,6 +1,6 @@
 # Sentence Window Retrieval
 
-> 상태: 💡 아이디어 | 등록일: 2026-04-06 | 출처: [RAG 설계 제안서](../01-Idea/Rag_design_report.md#idea1)
+> 상태: 💡 아이디어 | 등록일: 2026-04-06 | 출처: [RAG 설계 제안서](../archive/legacy/01-Idea/01_Rag_design_report.md#idea1)
 
 ## 배경
 현재 청크 단위로 검색하지만, 문장 단위로 검색 후 주변 윈도우를 함께 반환하면 정밀도와 맥락 모두 확보 가능.

@@ -38,7 +38,7 @@ Use `docs/agents/codex-claude/` when Claude and Codex need to communicate throug
 
 | 도구 | 주체 | 모델 | 역할 |
 |------|------|------|------|
-| `/plan` | Claude (planner) | opus | 기능 분석 → `docs/features/new/` 또는 `docs/features/fix/` 계획서 작성 |
+| `/plan` | Claude (planner) | opus | 기능 분석 → `docs/tasks/<work>/` ledger에 계획서 작성 |
 | `codex:rescue` | **Codex CLI** | — | **모든 코드 구현/수정** — 계획서 기반 구현 또는 소규모 직접 수정 |
 | `/test` | Claude (tester) | sonnet | 빌드/타입/린트/테스트 검증 + 오류 분석 |
 | `/review` | Claude (reviewer) | opus | 코드 리뷰 → PR 생성 |
@@ -69,9 +69,9 @@ Idea (리서치/토의)
   - `main/` — 에이전트 필수 읽기 (overview, flows, feature-status)
   - `detail/` — 작업 대상 영역별 상세
 - 아이디어/백로그: `docs/backlog/`
-- 리서치/제안서: `docs/01-Idea/`
-- 기능 계획서: `docs/features/new/`, 수정 계획서: `docs/features/fix/`
-- 로드맵 (참고용): `docs/ROADMAP.md`
+- 문서 진입점: `docs/README.md` (전체 지도)
+- 작업 계획·추적: `docs/tasks/<work>/` ledger (운영 가이드: `docs/tasks/README.md`)
+- 완료·레거시 보관: `docs/archive/` (구 `features/`·`01-Idea`·`ROADMAP` 등; 현행 상태는 `docs/harness/main/feature-status.md`)
 - 에이전트 정의: `.claude/agents/`
 - 스킬 정의: `.claude/skills/`
 
@@ -180,6 +180,6 @@ docs/              → 프로젝트 구조, 기능 계획서, 설계 문서
 - IPC 채널은 `electron/types/ipc-channels.mjs`에서 중앙 관리.
 - 추출 로직 변경 시 `CURRENT_EXTRACTION_VERSION` (main.mjs) 반드시 증가.
 - DB 테이블 추가 시 `main.mjs`의 `DB_QUERY_TABLES`/`DB_MUTATE_TABLES` 화이트리스트 갱신.
-- 모든 작업(기능/수정)은 `/plan`을 먼저 거쳐 `docs/features/new/` 또는 `docs/features/fix/`에 계획서 작성 후 진행.
+- 모든 작업(기능/수정)은 `/plan`을 먼저 거쳐 `docs/tasks/<work>/` ledger에 계획서 작성 후 진행 (ledger 운영: `docs/tasks/README.md`).
 - 기능 추가/수정 시 `docs/harness/` 관련 파일도 함께 갱신. 하네스가 코드와 괴리되면 안 됨.
 - 사용자 언어: 한국어. 한국어로 응답할 것.

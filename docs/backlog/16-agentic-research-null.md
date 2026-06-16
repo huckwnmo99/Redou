@@ -1,6 +1,6 @@
 # Agentic 재검색 루프 (NULL 셀 기반)
 
-> 상태: 💡 아이디어 | 등록일: 2026-04-07 | 출처: [Table RAG 개선 제안서](../01-Idea/Table_RAG_improvement_report.md#6-agentic-재검색-루프-null-셀-기반)
+> 상태: 💡 아이디어 | 등록일: 2026-04-07 | 출처: [Table RAG 개선 제안서](../archive/legacy/01-Idea/Table_RAG_improvement_report.md#6-agentic-재검색-루프-null-셀-기반)
 
 ## 배경
 현재 검색 1회 후 결과가 부족해도 그대로 테이블 생성. SRAG 추출 후 NULL 셀을 감지하면 해당 셀만 타겟하여 재검색 가능.

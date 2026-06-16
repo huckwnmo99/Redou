@@ -1,6 +1,6 @@
 # Reranker 추가 (bge-reranker-v2-m3)
 
-> 상태: 💡 아이디어 | 등록일: 2026-04-06 | 출처: [RAG 설계 제안서](../01-Idea/Rag_design_report.md#idea6)
+> 상태: 💡 아이디어 | 등록일: 2026-04-06 | 출처: [RAG 설계 제안서](../archive/legacy/01-Idea/01_Rag_design_report.md#idea6)
 
 ## 배경
 벡터 검색은 의미적 유사도만 측정. Cross-encoder reranker로 검색 결과를 재정렬하면 정밀도가 크게 향상됨.

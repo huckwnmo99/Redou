@@ -1,6 +1,6 @@
 # 쿼리 분해 + 멀티홉 추론
 
-> 상태: 💡 아이디어 | 등록일: 2026-04-06 | 출처: [RAG 설계 제안서](../01-Idea/Rag_design_report.md#idea5)
+> 상태: 💡 아이디어 | 등록일: 2026-04-06 | 출처: [RAG 설계 제안서](../archive/legacy/01-Idea/01_Rag_design_report.md#idea5)
 
 ## 배경
 "Zeolite 5A PSA 7단계가 5단계보다 효율적인 이유?"처럼 복잡한 질문은 1회 검색으로 답할 수 없음.

@@ -21,7 +21,7 @@
 
 ## Next Action
 
-마무리: 사용자 보고 + 푸시. `AGENTS.md`는 **삭제 확정**(사용자 재구성 예정; CLAUDE.md가 활성 에이전트 컨텍스트). 후속(선택, 비차단) — backlog→`archive/legacy/01-Idea` 상대링크 정리(원래도 일부 깨져 있었음), 루트 `CONTEXT.md`의 AGENTS.md 참조는 재구성 시 정리.
+완료(core + reorg 잔존 참조 최신화). **남은 것은 에이전트 컨텍스트/Codex 협업 재구성**(사용자 영역, 의도적 보류): 루트 `CONTEXT.md`의 AGENTS.md 참조, `.agents/skills/*`(develop의 `features/` 경로·lessons-to-skill·setup-matt-pocock의 AGENTS.md 전제).
 
 ## Success Criteria
 
@@ -52,7 +52,8 @@
 - Phase 3 — features(fix 01-20 + new 01-16) + proposals → `archive/`. advisor(new/17)만 잔존. 커밋 `5172fc9`.
 - Phase 4 — 레거시 numbered 폴더(01-Idea/02-database/03-frontend/04-planning) → `archive/legacy/`. 커밋 `3c8ff5e`.
 - Phase 2 — stale 루트 3문서(ROADMAP/PROJECT_STRUCTURE/RECOMMENDED_SUBAGENTS) → `archive/`, `ONBOARDING.md`→`docs/README.md` 단일 인덱스 승격, `archive/README.md` 추가, harness feature-status·advisor ledger 링크 정합. → `completed/02_2026-06-15_index-and-archive.md`
+- 잔존 참조 최신화(2026-06-16) — 전수 검사 후 reorg로 어긋난 옛 주소 수정: `CLAUDE.md` 경로 5곳(`features/`→`tasks/` ledger, `01-Idea`·`ROADMAP`→`archive/`), `backlog/*.md` 13파일 죽은 링크(→`archive/legacy/01-Idea/`). 에이전트 컨텍스트(`CONTEXT.md`·`.agents/skills`)는 보류.
 
 ## Last Updated
 
-2026-06-15
+2026-06-16

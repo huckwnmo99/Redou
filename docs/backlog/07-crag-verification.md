@@ -1,6 +1,6 @@
 # CRAG 자가 검증 루프
 
-> 상태: 💡 아이디어 | 등록일: 2026-04-06 | 출처: [RAG 설계 제안서](../01-Idea/Rag_design_report.md#idea7)
+> 상태: 💡 아이디어 | 등록일: 2026-04-06 | 출처: [RAG 설계 제안서](../archive/legacy/01-Idea/01_Rag_design_report.md#idea7)
 
 ## 배경
 현재 `granite-guardian`으로 groundedness 체크는 하지만, 검색 결과가 부족하면 재검색하는 루프가 없음.

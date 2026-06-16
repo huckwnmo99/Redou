@@ -1,6 +1,6 @@
 # SRAG 스타일 2단계 추출 (추출 → 조립 분리)
 
-> 상태: 💡 아이디어 | 등록일: 2026-04-07 | 출처: [Table RAG 개선 제안서](../01-Idea/Table_RAG_improvement_report.md#5-srag-스타일-2단계-추출-추출--조립-분리)
+> 상태: 💡 아이디어 | 등록일: 2026-04-07 | 출처: [Table RAG 개선 제안서](../archive/legacy/01-Idea/Table_RAG_improvement_report.md#5-srag-스타일-2단계-추출-추출--조립-분리)
 
 ## 배경
 현재 RAG 결과 전체를 LLM에 한 번에 전달하여 테이블 생성. 다수 논문의 데이터가 섞이면 LLM이 수치를 혼동하거나 누락.

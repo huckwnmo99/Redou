@@ -1,6 +1,6 @@
 # 인용 네트워크 연쇄 검색
 
-> 상태: 💡 아이디어 | 등록일: 2026-04-06 | 출처: [RAG 설계 제안서](../01-Idea/Rag_design_report.md#idea4)
+> 상태: 💡 아이디어 | 등록일: 2026-04-06 | 출처: [RAG 설계 제안서](../archive/legacy/01-Idea/01_Rag_design_report.md#idea4)
 
 ## 배경
 GROBID로 `paper_references`를 이미 추출하고 있지만, 검색 시 인용 논문까지 연쇄적으로 탐색하지 않음.

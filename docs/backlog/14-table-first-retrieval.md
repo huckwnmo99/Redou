@@ -1,6 +1,6 @@
 # 테이블 우선 검색 (Table-first Retrieval)
 
-> 상태: 💡 아이디어 | 등록일: 2026-04-07 | 출처: [Table RAG 개선 제안서](../01-Idea/Table_RAG_improvement_report.md#4-테이블-우선-검색-table-first-retrieval)
+> 상태: 💡 아이디어 | 등록일: 2026-04-07 | 출처: [Table RAG 개선 제안서](../archive/legacy/01-Idea/Table_RAG_improvement_report.md#4-테이블-우선-검색-table-first-retrieval)
 
 ## 배경
 현재 논문 본문 텍스트 청크와 테이블/figure를 동등하게 검색. 테이블 생성 시 논문에 이미 정리된 테이블 데이터를 우선 활용하면 정확도가 향상됨.
