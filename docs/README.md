@@ -25,14 +25,13 @@
 구현 전 아이디어 목록. `/plan` 후보.
 
 ## 에이전트 — [`agents/`](agents/)
-- `agents/codex-claude/` — Claude↔Codex 파일 교환 (README, decisions, open-questions)
 - `agents/redou-spec-loop.md` — 스펙 루프
 
 ## 보관 — [`archive/`](archive/)
 완료/레거시 문서를 **이력용으로 보존**(현행 아님). → [`archive/README.md`](archive/README.md)
 
 ## 워크플로우
-루트 [`../CLAUDE.md`](../CLAUDE.md) — 역할 분리(Claude=오케스트레이터, Codex=개발자), 워크플로우, 절대 규칙.
+루트 [`../CLAUDE.md`](../CLAUDE.md) — 역할 분리(메인 Claude=오케스트레이터, 서브에이전트 planner/developer/fixer/tester/reviewer=실행), 워크플로우, 절대 규칙.
 
 ## 빠른 참조 — 상황별 "어디 보지?"
 | 상황 | 먼저 볼 곳 |

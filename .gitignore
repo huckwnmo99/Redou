@@ -9,7 +9,7 @@ vite.config.js
 vite.config.d.ts
 .env
 .env.local
-.claude/
+.claude/settings.local.json
 .npm-cache/
 .tmp_*
 00_adsorption_paper/

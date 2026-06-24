@@ -6,63 +6,58 @@ Redou는 연구 논문 읽기 & 관리 데스크탑 앱이다. Electron이 React
 
 ## Development Workflow
 
-### Codex-Claude File Exchange
+### 역할 구성
 
-Use `docs/agents/codex-claude/` when Claude and Codex need to communicate through files.
-
-- Claude writes review notes, orchestration comments, and implementation requests to `docs/agents/codex-claude/claude-to-codex.md`.
-- Codex writes implementation notes, handoffs, and questions to `docs/agents/codex-claude/codex-to-claude.md`.
-- Keep unresolved items in `docs/agents/codex-claude/open-questions.md`.
-- Promote only accepted outcomes to `docs/agents/codex-claude/decisions.md`.
-- Do not add large unresolved inline comment blocks to execution proposals. Put debate in the exchange folder, then update the proposal only with confirmed decisions.
+Redou의 모든 작업은 메인 Claude(오케스트레이터)가 전용 서브에이전트에 위임해 수행한다. 모든 에이전트는 Claude 기반이며 `.claude/agents/`에 정의되어 있다.
 
 > **역할 분리 원칙**
-> - **Claude** = Orchestrator — 계획, 설계 분석, 검증, 리뷰, 사용자 소통
-> - **Codex** = Developer — 모든 실제 코드 작성/수정
+> - **메인 Claude** = Orchestrator — 작업 분배, 단계 진행 관리, 검증 종합, 사용자 소통
+> - **서브에이전트** = 실제 실행 — `planner`(설계) · `developer`/`fixer`(구현) · `tester`(검증) · `reviewer`(리뷰·PR)
 
 ### 새 기능 추가
 
 ```
-/plan (Claude 설계) → (승인) → codex:rescue (Codex 구현) → /test → /review → (PR merge)
+/plan (planner 설계) → (승인) → /develop (developer 구현) → /test (tester 검증) → /review (reviewer 리뷰·PR) → (PR merge)
 ```
 
 ### 수정 (버그, UI 조정, 타입 오류)
 
 ```
-소규모 → codex:rescue (직접 수정 + 자체 검증)
-대규모 → /plan (Claude 설계) → (승인) → codex:rescue (Codex 구현) → /test → /review → (PR merge)
+/plan (planner 분석 → 규모 판단)
+   ├─ 소규모 → /fix (fixer 수정 + 자체 검증)
+   └─ 대규모 → /develop (developer 구현)
+→ /test (tester) → /review (reviewer) → (PR merge)
 ```
-소규모 수정은 `codex:rescue`를 직접 사용한다. 6개 파일 이상이거나 DB 변경이 필요하면 `/plan`부터 시작한다.
+planner가 규모를 판단해 `/fix`(소규모) 또는 `/develop`(대규모)로 안내한다. 6개 파일 이상이거나 DB 변경이 있으면 대규모다. **판단 축은 '파일 수'가 아니라 '동작이 바뀌나'다**: 로직·동작이 바뀌지 않는 사소한 수정(오타·디버그 로그·포맷·주석·미사용 import 등, 크기 무관)은 ledger·harness 없이 메인 Claude가 직접 처리하고 git 커밋만 남긴다. 동작이 바뀌는 수정은 아무리 작아도 ledger를 만든다.
 
 ### 에이전트 구성
 
-| 도구 | 주체 | 모델 | 역할 |
-|------|------|------|------|
-| `/plan` | Claude (planner) | opus | 기능 분석 → `docs/tasks/<work>/` ledger에 계획서 작성 |
-| `codex:rescue` | **Codex CLI** | — | **모든 코드 구현/수정** — 계획서 기반 구현 또는 소규모 직접 수정 |
-| `/test` | Claude (tester) | sonnet | 빌드/타입/린트/테스트 검증 + 오류 분석 |
-| `/review` | Claude (reviewer) | opus | 코드 리뷰 → PR 생성 |
+| 스킬 | 에이전트 | 모델 | 역할 |
+|------|---------|------|------|
+| `/plan` | planner | opus | 코드 분석 → `docs/tasks/<work>/` ledger 계획서 작성 + 규모 판단(fix/develop 분기) |
+| `/develop` | developer | opus | 계획서 기반 대규모 구현 (DB 마이그레이션 → Electron → IPC → Frontend 순) |
+| `/fix` | fixer | opus | 계획서 기반 소규모 수정 + 자체 검증 |
+| `/test` | tester | sonnet | 빌드/타입/린트/테스트 검증 + 명백한 오류 자동 수정 |
+| `/review` | reviewer | opus | 코드 리뷰 → PR 생성 |
 
 ### 하네스 관리
 모든 에이전트는 작업 완료 시 `docs/harness/`를 갱신할 책임이 있다.
 하네스는 프로젝트의 단일 진실 원천(Single Source of Truth)이다.
 
 ### 사용자 개입 지점
-1. `/plan` 계획서 승인/수정
+1. `/plan` 계획서 승인/수정 (규모 판단이 애매하면 planner가 먼저 질의)
 2. `/review` PR merge 판단
 
 ### 전체 흐름
 ```
 Idea (리서치/토의)
     → backlog 등록
-    → /plan (Claude 설계·계획서 작성)
-    → codex:rescue (Codex 구현)
-    → /test (Claude 검증)
-    → /review (Claude 리뷰 + PR)
-
-소규모 수정: codex:rescue 직행
+    → /plan (planner 설계·규모 판단)
+    → /develop (developer) 또는 /fix (fixer) 구현
+    → /test (tester 검증)
+    → /review (reviewer 리뷰 + PR)
 ```
-사용자가 "이거 구현하자"라고 하기 전까지는 아이디어 토의 단계. 구현 결정 후 `/plan`부터 시작. 소규모 수정은 `codex:rescue` 직행.
+사용자가 "이거 구현하자"라고 하기 전까지는 아이디어 토의 단계. 구현 결정 후 `/plan`부터 시작한다.
 
 ### 참조 문서
 - 기능 하네스 (최우선): `docs/harness/` — 전체 기능 명세, 현재 상태, 데이터 흐름
@@ -166,12 +161,12 @@ docs/              → 프로젝트 구조, 기능 계획서, 설계 문서
 
 ## 절대 규칙 (위반 금지)
 
-- **Claude는 코드를 직접 수정하지 않는다.** 모든 코드 변경은 반드시 **`codex:rescue`(Codex)**를 통해서만 수행한다.
-- **Codex가 중단/실패해도 Claude가 대신 코드를 작성하지 않는다.** `codex:rescue`를 재호출하거나 사용자에게 보고한다.
-- **대규모 변경은 반드시 `/plan` 계획서가 선행해야 한다.** 계획서 없이 Codex에 대규모 구현을 위임하지 않는다.
-- **소규모 수정(버그, UI, 타입 오류 등)은 `codex:rescue` 직행.** 6개 파일 이상이거나 DB 변경이 필요하면 `/plan` 먼저.
-- **워크플로우 단계를 건너뛰지 않는다.** `/plan` 없이 대규모 구현 위임 금지, `/test` 없이 `/review` 금지.
-- Claude 메인 에이전트의 역할은 **오케스트레이션**(계획 수립, Codex 위임, 검증, 사용자 소통)에 한정한다.
+- **Codex를 사용하지 않는다.** 구현·검증·리뷰 전부 Claude 서브에이전트가 담당한다. `codex:rescue`·`codex-companion` 등을 호출하거나 "codex로 진행"이라고 안내하지 않는다. 구현 안내는 항상 `/fix`(소규모)·`/develop`(대규모).
+- **구현은 전용 서브에이전트(`developer`/`fixer`)를 통한다.** 메인 Claude의 1차 역할은 오케스트레이션이며, 정말 사소한 단발 수정이 아니면 직접 구현하지 않고 `/develop`·`/fix`에 위임한다.
+- **`/fix`·`/develop`는 ledger(계획서)가 선행해야 실행된다.** `planner`가 작성한 `docs/tasks/<work>/` 계획서 없이 구현 에이전트를 돌리지 않는다. 단, **로직·동작이 바뀌지 않는 사소한 수정(오타·로그·포맷·주석·미사용 import)**은 ledger 없이 메인 Claude가 직접 처리하고 git 커밋만 남긴다 — 동작이 바뀌면 작아도 ledger.
+- **대규모 변경은 반드시 `/plan`이 선행해야 한다.** 계획서 없이 `/develop`에 대규모 구현을 위임하지 않는다.
+- **워크플로우 단계를 건너뛰지 않는다.** `/plan` 없이 대규모 구현 금지, `/test` 없이 `/review` 금지.
+- **에이전트가 중단/실패해도 워크플로우를 깨지 않는다.** 해당 스킬을 재호출하거나 사용자에게 보고한다.
 
 ## Conventions
 
@@ -180,6 +175,7 @@ docs/              → 프로젝트 구조, 기능 계획서, 설계 문서
 - IPC 채널은 `electron/types/ipc-channels.mjs`에서 중앙 관리.
 - 추출 로직 변경 시 `CURRENT_EXTRACTION_VERSION` (main.mjs) 반드시 증가.
 - DB 테이블 추가 시 `main.mjs`의 `DB_QUERY_TABLES`/`DB_MUTATE_TABLES` 화이트리스트 갱신.
-- 모든 작업(기능/수정)은 `/plan`을 먼저 거쳐 `docs/tasks/<work>/` ledger에 계획서 작성 후 진행 (ledger 운영: `docs/tasks/README.md`).
+- 동작이 바뀌는 수정·기능은 `/plan`을 먼저 거쳐 `docs/tasks/<work>/` ledger에 계획서 작성 후 진행한다. 로직이 바뀌지 않는 사소한 수정(오타·로그·포맷·주석·미사용 import)은 예외로 git 커밋만 남긴다 (ledger 운영: `docs/tasks/README.md`).
 - 기능 추가/수정 시 `docs/harness/` 관련 파일도 함께 갱신. 하네스가 코드와 괴리되면 안 됨.
+- **파일 길이**: 문서는 한 파일 **~500줄 상한**(300줄 넘으면 분할 검토 → 인덱스+링크로 쪼갠다), 진입점·README류는 **~150줄**. `docs/harness/`는 **'현재 상태'만** 담고 작업 과정·이력(tracer bullet 류)은 ledger·git에 둔다(과정 로그 누적 금지). 코드 모듈 비대화는 ADR 0002(module ownership)를 따른다.
 - 사용자 언어: 한국어. 한국어로 응답할 것.
