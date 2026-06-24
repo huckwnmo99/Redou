@@ -1,5 +1,10 @@
 # Harness Version
 
+## v1.13 — 2026-06-17
+- `detail/electron/chat-table-pipeline-state.md` 트리밍: 1234줄→270줄. 작업 과정 로그(Stage 2A tracer bullet 13개, Plan 12 Stage 3 슬라이스, fix 18/19 구현 기록, Verification Commands[ADR 0002와 중복]) 제거 → '현재 상태'만 유지(Files Read~Extraction Targets). 이력은 git history.
+- `decisions/0002-module-ownership.md` 자립화: 삭제된 codex-claude의 D8 종속 제거(D8 Mapping → Source Of Truth). 이 ADR이 `main.mjs` module ownership의 단일 진실원천.
+- 배경: 파일 길이 규칙 신설(CLAUDE.md — 문서 ~500줄 상한, harness는 '현재 상태'만), Codex 전면 배제로 `docs/agents/codex-claude/` 폴더 삭제.
+
 ## v1.12 — 2026-06-15
 - harness 갭 보강(docs-cleanup 후속). 엔티티 그래프 커버리지 누락 + DB 문서 노후화(4월) 정리.
 - 신설 `detail/electron/entity-graph.md` — entity-extractor.mjs + graph-search.mjs (opt-in 추출·그래프 RAG, entities/entity_relations 테이블, RPC 3개).
@@ -108,4 +113,4 @@
 ## 변경 규칙
 - major (v2.0): 하네스 구조 변경 (파일 추가/삭제/재편)
 - minor (v1.1): 기존 파일 내용 갱신
-- 모든 기능 추가/수정 커밋 ��� 관련 하네스 파일도 함께 갱신
+- 모든 기능 추가/수정 커밋 시 관련 하네스 파일도 함께 갱신

@@ -8,7 +8,7 @@
 
 ## Current Status
 
-- Status: **core 완료** — Phase 1~4 적용·커밋됨
+- Status: **완료** (2026-06-17 마감 — 에이전트 컨텍스트/Codex 협업 재구성까지 종료)
 - Size: Large (시작 시 `docs/` 367파일 / 전체 `.md` 379)
 - Current phase: Phase 1~4 완료. vendored/발표자료 245개 삭제, features·proposals·레거시 → `archive/`, 단일 인덱스 `docs/README.md` 작성.
 - Owner: Claude(계획·문서 이동) — 코드 영향 없는 문서 작업
@@ -21,7 +21,7 @@
 
 ## Next Action
 
-완료(core + reorg 잔존 참조 최신화). **남은 것은 에이전트 컨텍스트/Codex 협업 재구성**(사용자 영역, 의도적 보류): 루트 `CONTEXT.md`의 AGENTS.md 참조, `.agents/skills/*`(develop의 `features/` 경로·lessons-to-skill·setup-matt-pocock의 AGENTS.md 전제).
+없음 — 작업 종료. (에이전트 컨텍스트/Codex 협업 재구성을 2026-06-17 세션에서 처리: CLAUDE.md를 Claude 서브에이전트 체계로 재작성, CONTEXT.md의 AGENTS.md 참조 정리, Codex 전면 배제[플러그인·스킬·문서 + `docs/agents/codex-claude/` 폴더 삭제], `.agents/skills`의 develop `features/`→`tasks/` 경로 수정. 잔여 `lessons-to-skill`·`setup-matt-pocock`의 AGENTS.md 전제는 외부 스킬이라 미처리.)
 
 ## Success Criteria
 
@@ -40,7 +40,7 @@
 
 ## Planned
 
-- Phase 2~4 (단일 인덱스 / features 재편 / 레거시·루트 통합) — `planned/01_2026-06-15_phase-plan.md`
+- 없음 (모든 Phase 완료).
 
 ## In Progress
 
@@ -56,4 +56,4 @@
 
 ## Last Updated
 
-2026-06-16
+2026-06-17
