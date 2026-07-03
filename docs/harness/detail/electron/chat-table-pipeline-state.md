@@ -107,7 +107,7 @@ QA metadata currently stores:
 | Stage 3c | `assembling` | Merge per-paper extraction or use `generateTableFromSpec` fallback | `tableJson`, `nullSummary`, `extractionMode` |
 | Stage 3d | `researching` then `assembling` | Run Agentic NULL Recovery when gate passes | `agenticRecovery`, recovered evidence |
 | Persist | `CHAT_COMPLETE` | Insert assistant table message, generated table, source refs, metadata | `chat_messages`, `chat_generated_tables` |
-| Stage 4 | `verifying` then `CHAT_VERIFICATION_DONE` | Background Guardian verification via `setImmediate` | `chat_generated_tables.verification` |
+| Stage 4 | `verifying` then `CHAT_VERIFICATION_DONE` | Background two-pass verification via `setImmediate`: (1) deterministic code back-match (`runCodeBackMatchPass`) marks matrix-backed cells `method:"code"`; (2) Guardian (LLM) only re-checks unmatched cells with narrow MeasHalu claims | `chat_generated_tables.verification` (records carry `method`/`checkType`/`scope`) |
 
 ## Pipeline Context Fields
 

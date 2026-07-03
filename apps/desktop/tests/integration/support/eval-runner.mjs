@@ -80,6 +80,255 @@ export function normalizeEvalString(value) {
   return String(value ?? "").trim().replace(/\s+/g, " ");
 }
 
+// ---------------------------------------------------------------------------
+// table_fidelity mode
+//
+// Compares a persisted generated table against hand-verified ground-truth cells
+// (extracted directly from the source PDF tables). Unlike table_generation this
+// mode reports scores (not pass/fail) so it can grade extraction/A-B changes.
+// Ground-truth fixture schema: table-fidelity-v0
+// (apps/desktop/tests/fixtures/evals/adsorption-groundtruth-v0.json).
+// ---------------------------------------------------------------------------
+
+// Ground-truth values are labels/numbers; identities are matched as
+// case-insensitive substrings against the whole row so column splitting in the
+// generated table (e.g. a separate "Model" column) does not break matching.
+export function normalizeFidelityToken(value) {
+  return normalizeEvalString(value).toLowerCase();
+}
+
+// Strip inline citation tags ("[1]", "[2, 3]") the pipeline appends to cells so
+// a numeric comparison sees only the value. Value comparison stays exact.
+export function stripCitationTags(value) {
+  return normalizeEvalString(value).replace(/\[[\d\s,]+\]/g, "").trim();
+}
+
+export function isNumericCellValue(value) {
+  const cleaned = stripCitationTags(value);
+  if (cleaned === "" || cleaned.toUpperCase() === "N/A") return false;
+  return /^[+-]?\d[\d.,eE+-]*$/.test(cleaned);
+}
+
+function rowIdentityText(row) {
+  const cells = Array.isArray(row) ? row : Object.values(row ?? {});
+  return normalizeFidelityToken(cells.map((cell) => String(cell ?? "")).join("  "));
+}
+
+function rowMatchesIdentity(row, identityTokens) {
+  const text = rowIdentityText(row);
+  return (identityTokens ?? []).every((token) => text.includes(normalizeFidelityToken(token)));
+}
+
+// A generated table may name the q_m column many ways ("q_m", "qm", "q max",
+// "saturation capacity"). Ground-truth column ids stay canonical; matching is
+// tolerant on separators/case so header wording drift does not sink fidelity.
+function columnAliasKey(header) {
+  return normalizeFidelityToken(header).replace(/[_\-\s]/g, "");
+}
+
+function findColumnIndex(headers, columnName) {
+  const target = columnAliasKey(columnName);
+  const list = headers ?? [];
+  const exact = list.findIndex((header) => columnAliasKey(header) === target);
+  if (exact !== -1) return exact;
+  // fall back to substring so "q_m (mol/kg)" still binds to ground-truth "q_m"
+  return list.findIndex((header) => {
+    const key = columnAliasKey(header);
+    return key.includes(target) || target.includes(key);
+  });
+}
+
+function cellValueAt(row, columnIndex) {
+  if (columnIndex < 0) return undefined;
+  const cells = Array.isArray(row) ? row : Object.values(row ?? {});
+  return cells[columnIndex];
+}
+
+function conditionTokenPresent(text, condition) {
+  const normalized = normalizeFidelityToken(condition);
+  if (!normalized) return true;
+  // Compare on the discriminating digits/tilde so "<=1000 kPa" still matches a
+  // row that renders "DSL(≤1000 kPa)" or a cell tuple condition of "1000 kPa".
+  const digits = normalized.replace(/[^\d~]/g, "");
+  if (digits && text.replace(/[^\d~]/g, "").includes(digits)) return true;
+  return text.includes(normalized);
+}
+
+// Does any part of the matched row (identity cells or its cellTuples entry)
+// carry the ground-truth condition? Used to split "value right + condition kept"
+// (matched) from "value right + condition lost/wrong" (misattributed, D1).
+function rowCarriesCondition(row, rowIndex, condition, cellTuples) {
+  if (conditionTokenPresent(rowIdentityText(row), condition)) return true;
+  const tupleRow = Array.isArray(cellTuples) ? cellTuples[rowIndex] : null;
+  if (Array.isArray(tupleRow)) {
+    for (const tuple of tupleRow) {
+      if (tuple && conditionTokenPresent(normalizeFidelityToken(tuple.condition ?? ""), condition)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+export function evaluateTableFidelityCase(groundTruth, tableRow) {
+  const paperId = groundTruth?.paperId ?? null;
+  const headers = tableRow?.headers ?? [];
+  const rows = tableRow?.rows ?? [];
+  const cellTuples = tableRow?.metadata?.cellTuples ?? null;
+  const groundTruthCells = groundTruth?.groundTruthCells ?? [];
+
+  const groundTruthValues = new Set(
+    groundTruthCells.map((cell) => normalizeEvalString(cell.value)),
+  );
+  const groundTruthColumns = new Set(
+    groundTruthCells.map((cell) => columnAliasKey(cell.column)),
+  );
+
+  const matchedCells = [];
+  const misattributedCells = [];
+  const missingCells = [];
+
+  for (const cell of groundTruthCells) {
+    const columnIndex = findColumnIndex(headers, cell.column);
+    const expectedValue = normalizeEvalString(cell.value);
+    let matched = false;
+    let valuePresentWrongCondition = false;
+
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+      const row = rows[rowIndex];
+      if (!rowMatchesIdentity(row, cell.identity)) continue;
+      const actual = normalizeEvalString(stripCitationTags(cellValueAt(row, columnIndex)));
+      if (actual !== expectedValue) continue;
+      if (rowCarriesCondition(row, rowIndex, cell.condition, cellTuples)) {
+        matched = true;
+        break;
+      }
+      valuePresentWrongCondition = true;
+    }
+
+    if (matched) {
+      matchedCells.push(cell);
+    } else if (valuePresentWrongCondition) {
+      misattributedCells.push(cell);
+    } else {
+      missingCells.push(cell);
+    }
+  }
+
+  // Fabrication: numeric cells in ground-truth columns, inside rows that match a
+  // known identity, whose value appears in no ground-truth cell for this paper.
+  // Restricting to identity-matched rows + ground-truth columns keeps this a
+  // conservative signal (the fixture is a curated subset, not the full table).
+  const fabricatedCells = [];
+  const knownIdentityRows = rows.filter((row) =>
+    groundTruthCells.some((cell) => rowMatchesIdentity(row, cell.identity)),
+  );
+  for (const row of knownIdentityRows) {
+    for (let columnIndex = 0; columnIndex < headers.length; columnIndex += 1) {
+      if (!groundTruthColumns.has(columnAliasKey(headers[columnIndex]))) continue;
+      const rawValue = cellValueAt(row, columnIndex);
+      if (!isNumericCellValue(rawValue)) continue;
+      const value = normalizeEvalString(stripCitationTags(rawValue));
+      if (!groundTruthValues.has(value)) {
+        fabricatedCells.push({ column: headers[columnIndex], value });
+      }
+    }
+  }
+
+  // Conflict handling: did metadata.conditionConflicts flag the columns the
+  // fixture marks as inherently condition-mixed (same parameter, two conditions)?
+  const expectedConflictColumns = (groundTruth?.conditionMixedColumns ?? []).map((entry) =>
+    columnAliasKey(entry.column),
+  );
+  const reportedConflicts = tableRow?.metadata?.conditionConflicts ?? [];
+  const reportedConflictColumns = new Set(
+    reportedConflicts.map((conflict) => columnAliasKey(conflict.column)),
+  );
+  const detectedConflictColumns = expectedConflictColumns.filter((column) =>
+    reportedConflictColumns.has(column),
+  );
+
+  const fidelityTotal = groundTruthCells.length;
+  const fidelityScore = fidelityTotal === 0 ? 1 : matchedCells.length / fidelityTotal;
+  const conflictExpected = expectedConflictColumns.length;
+  const conflictScore = conflictExpected === 0 ? 1 : detectedConflictColumns.length / conflictExpected;
+
+  return {
+    mode: "table_fidelity",
+    paperId,
+    fidelity: {
+      matched: matchedCells.length,
+      total: fidelityTotal,
+      score: fidelityScore,
+    },
+    misattribution: {
+      count: misattributedCells.length,
+      cells: misattributedCells,
+    },
+    fabrication: {
+      count: fabricatedCells.length,
+      cells: fabricatedCells,
+    },
+    conflictHandling: {
+      expected: conflictExpected,
+      detected: detectedConflictColumns.length,
+      score: conflictScore,
+    },
+    missing: {
+      count: missingCells.length,
+      cells: missingCells,
+    },
+  };
+}
+
+// Load a table-fidelity-v0 ground-truth fixture and validate its shape.
+export async function loadFidelityGroundTruth(fileName) {
+  const groundTruth = await readJson(fileName);
+  assertFidelityGroundTruthShape(groundTruth);
+  return groundTruth;
+}
+
+export function assertFidelityGroundTruthShape(groundTruth) {
+  assert.equal(groundTruth?.schemaVersion, "table-fidelity-v0", "fidelity fixture must be table-fidelity-v0");
+  assert.ok(Array.isArray(groundTruth?.papers), "fidelity fixture must include papers[]");
+  for (const paper of groundTruth.papers) {
+    assert.equal(typeof paper.paperId, "string", "paper.paperId is required");
+    assert.ok(Array.isArray(paper.groundTruthCells), `${paper.paperId}: groundTruthCells[] is required`);
+    for (const cell of paper.groundTruthCells) {
+      assert.ok(Array.isArray(cell.identity) && cell.identity.length > 0, `${paper.paperId}: cell.identity[] is required`);
+      assert.equal(typeof cell.column, "string", `${paper.paperId}: cell.column is required`);
+      assert.ok(cell.value !== undefined && cell.value !== null, `${paper.paperId}: cell.value is required`);
+    }
+  }
+}
+
+// Score a whole fidelity fixture against a map of persisted tables keyed by
+// paperId (typically one merged multi-paper table applied to each paper block).
+export function evaluateTableFidelityFixture(groundTruth, tableByPaperId) {
+  assertFidelityGroundTruthShape(groundTruth);
+  const reports = (groundTruth.papers ?? []).map((paper) => {
+    const tableRow =
+      typeof tableByPaperId === "function"
+        ? tableByPaperId(paper.paperId)
+        : tableByPaperId?.[paper.paperId];
+    return evaluateTableFidelityCase(paper, tableRow ?? {});
+  });
+  const matched = reports.reduce((sum, report) => sum + report.fidelity.matched, 0);
+  const total = reports.reduce((sum, report) => sum + report.fidelity.total, 0);
+  return {
+    schemaVersion: groundTruth.schemaVersion,
+    fixture: groundTruth.fixture ?? null,
+    overall: {
+      fidelity: total === 0 ? 1 : matched / total,
+      matched,
+      total,
+      misattribution: reports.reduce((sum, report) => sum + report.misattribution.count, 0),
+      fabrication: reports.reduce((sum, report) => sum + report.fabrication.count, 0),
+    },
+    reports,
+  };
+}
+
 export function evaluateRagRetrievalCase(evalCase, ragResults) {
   assert.equal(evalCase.mode, "rag_retrieval");
   const chunks = ragResults?.chunks ?? [];

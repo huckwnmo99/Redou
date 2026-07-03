@@ -150,6 +150,70 @@ Required fields:
 }
 ```
 
+## Table Fidelity (score mode)
+
+`table_fidelity` grades a persisted generated table against **hand-verified
+ground-truth cells taken directly from the source PDF tables**. Unlike
+`table_generation` (binary pass/fail on a seeded golden-path table), this mode
+reports **scores** so it can grade extraction changes and Phase 3 A/B swaps
+(docling / LangExtract). It reuses `normalizeEvalString`; no live services.
+
+Runner: `evaluateTableFidelityCase(groundTruthBlock, tableRow)` and
+`evaluateTableFidelityFixture(groundTruth, tableByPaperId)` in
+`apps/desktop/tests/integration/support/eval-runner.mjs`.
+
+Ground-truth fixture schema `table-fidelity-v0`
+(`apps/desktop/tests/fixtures/evals/adsorption-groundtruth-v0.json`):
+
+```json
+{
+  "schemaVersion": "table-fidelity-v0",
+  "fixture": "adsorption-groundtruth",
+  "papers": [
+    {
+      "paperId": "5e0f399d-...",
+      "provenance": "Table 4 (page 6), qm1 in mol/kg + MAPE %.",
+      "conditionMixedColumns": [{ "column": "q_m", "note": "same param, two pressure ranges (D1)" }],
+      "groundTruthCells": [
+        { "identity": ["Ethane", "DSL"], "column": "q_m", "value": "2.400", "unit": "mol/kg", "condition": "~600 kPa", "sourceTable": "Table 4" }
+      ]
+    }
+  ]
+}
+```
+
+Cell fields:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `identity` | string[] | Row identity tokens (adsorbent/gas/model). **Not** the condition. All must appear (case-insensitive substring) in the row's cells. |
+| `column` | string | Target column; matched tolerantly (separators/case stripped, substring fallback) so `q_m` binds to `q_m (mol/kg)`. |
+| `value` | string | Exact expected value; compared after `normalizeEvalString` + citation-tag strip. |
+| `unit` / `condition` | string? | Documentation + condition disambiguation (which pressure range / temperature the value belongs to). |
+| `sourceTable` | string? | Provenance (`Table 3` / `Table 4`) for auditability. |
+
+Report axes (per paper block):
+
+- **fidelity** `{matched, total, score}` — ground-truth cells found at the right
+  identity+column with the right value **and** the correct condition kept on the
+  row (identity cells or `metadata.cellTuples[r][c].condition`).
+- **misattribution** `{count, cells}` — value is present but under the wrong /
+  missing condition (D1: same parameter, two conditions collapsed).
+- **fabrication** `{count, cells}` — numeric cells in ground-truth columns, inside
+  identity-matched rows, whose value appears in **no** ground-truth cell for that
+  paper (D2/D4 made-up values). Conservative (fixture is a curated subset, so this
+  is scoped to matched rows + known columns, not the whole table).
+- **conflictHandling** `{expected, detected, score}` — did
+  `metadata.conditionConflicts` flag the columns the fixture marks
+  `conditionMixedColumns` (D1 detection surfaced by Phase 1).
+- **missing** `{count, cells}` — ground-truth cells with no matching value at all.
+
+Scoring is non-binary by design (ADR 0007: "Future runners may report scores
+separately from pass/fail"). A regression gate (e.g. fidelity must not drop) is
+optional and, if used, should run on a **deterministic synthetic `tableRow`** —
+the live E2E table output is non-deterministic (local LLM), so it is for
+**recording the current score**, not for CI gating.
+
 ## Normalization Rules
 
 Initial normalization should be intentionally boring:

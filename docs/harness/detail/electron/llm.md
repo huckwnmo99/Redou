@@ -1,5 +1,5 @@
 # LLM 모듈
-> 하네스 버전: v1.18 | 최종 갱신: 2026-07-03
+> 하네스 버전: v1.19 | 최종 갱신: 2026-07-03
 
 ## 개요
 Ollama 기반 LLM 채팅 스트리밍, 비교 테이블 생성 오케스트레이션, Q&A 응답, Granite Guardian 검증을 담당한다. 사용자가 Settings에서 모델을 변경할 수 있다.
@@ -110,6 +110,33 @@ E2E 원문 대조에서 확인된 의미 매핑 결함 D1~D4를 **외부 라이�
 ### 프론트 (`types/chat.ts`, `ChatTableReport.tsx`)
 - `CellTuple`/`ConditionConflict`/`ColumnSemanticType` 타입 + `ChatTableMetadata`에 `cellTuples?`/`columnSemanticTypes?`/`conditionConflicts?` 추가(any 0).
 - 렌더: 셀에 튜플 있으면 `title` hover로 unit·condition·source_hint 노출(검증 title과 결합). 충돌 열 헤더에 경고 아이콘(AlertTriangle)+툴팁. 표 본체(rows 스칼라)·검증 셀색·references·"데이터 없음" 섹션 전부 보존.
+
+## Stage 4 검증 2단계 계약 (table-semantics-hardening Phase 2 슬라이스 02, 2026-07-03)
+
+Stage 4 검증(`scheduleGuardianVerification`)을 **결정적 코드 역매칭 → LLM Guardian 폴백**의 2단계로 재구성. 값의 상당수는 Stage 3a 파싱 매트릭스에서 글자 그대로 되찾을 수 있으므로(LLM이 거기서 옮긴 값) LLM 없이 확정한다. Guardian은 코드로 못 찾은 값에만, MeasHalu 유형별 좁은 질문으로. DB/IPC/`CURRENT_EXTRACTION_VERSION` 무변경(`verification` JSONB에 필드 부가).
+
+### 역매칭 모듈 (`chat/value-backmatch.mjs`, 신규 — 순수 함수)
+| 함수 | 역할 |
+|------|------|
+| `normalizeNumericValue(raw)` | 참조태그(`[1]`)·단위 벗겨 첫 숫자 토큰(부호·소수점·과학표기)으로 정규화. `"8.69 [1]"`→`"8.69"`. 비수치→null. **완전일치**(근사 없음) |
+| `extractTableToken(text)` | 캡션/source_hint의 "table N" 숫자 토큰 추출(가정 B). "Table 3."→"3", 그림/섹션→null |
+| `buildMatrixValueIndex(parsedMatrices)` | 전 셀 값 정규화 → `{ byTable: Map<tableToken, Set>, all: Set }` |
+| `backMatchCell({cellValue, sourceHint, valueIndex})` | 스코프 `source_hinted`(hint 테이블에 값 존재) > `any_matrix`(아무 매트릭스) > `none`. hint 없으면 source_hinted 스킵 |
+| `MEASHALU_CHECK_TYPES` / `pickCheckType(tuple)` | Guardian 좁은 질문 유형(unit/condition/value_fabrication). tuple의 condition>unit>fabrication 우선 |
+| `buildNarrowGuardianClaim(cell, tuple, checkType)` | 유형별 좁은 claim. condition/unit 임베드, identity는 **값 열 제외** 앞 2열 |
+
+### Stage 4 흐름 (`chat/table-pipeline.mjs`)
+- **`runCodeBackMatchPass({tableJson, parsedMatrices, cellTuples})`** (신규 export, 동기·순수): 모든 수치 셀에 `backMatchCell`. matched면 `{row,col,status:"verified",method:"code",checkType:"backmatch",scope}` → `codeVerified`. 아니면 `guardianCandidates`. **결정성 실증의 단위 테스트 대상.**
+- `scheduleGuardianVerification`(재구성, 미export): pass 1로 `runCodeBackMatchPass` 호출 → 코드분 push, **`guardianCandidates`(scope=none)만** pass 2 Guardian. combinedSource·`maxVerify=50` 샘플링·`batchSize=5`·`setImmediate`·`emitVerificationDone`·비차단 try/catch **보존**. Guardian 결과에 `method:"guardian"`+`checkType`. 최종 `verification = [...codeVerified, ...guardian]`.
+- 배선: `runTableConversationPipeline` 호출부에 `parsedMatrices`(=`parsedContext.parsedMatrices`)·`cellTuples`(=`stage3dContext.cellTuples`) 전달.
+- **R-3 single_call_fallback**: `cellTuples=null` → tuple 없음(value_fabrication)·source_hint 없음. parsedMatrices 있으면 여전히 `any_matrix` 코드 검증 가능.
+
+### 프론트 (`types/chat.ts`, `ChatTableReport.tsx`)
+- `CellVerification`에 `method?:"code"|"guardian"`·`checkType?`·`scope?` 추가(전부 선택, 하위호환 — 기존 테이블 verification엔 없음 → 무시).
+- 배지 툴팁: `verifiedBreakdownTitle`="코드 대조 N / Guardian M"(R-5 투명성 — Guardian 급감이 "미검증"으로 오독되지 않게). 셀 hover: code="코드 대조 확인", guardian="Guardian: {checkType}"를 evidence 앞에 결합.
+
+### eval (`scripts/e2e-table-fidelity.mjs`, 수동·CI-off)
+- `emitVerificationDone` payload에서 검증 주체 분포 "code back-match N / Guardian M/T" 리포트. baseline "Guardian N/M verified" 축과 대응(after 측정용).
 
 ## 모델 설정
 - 기본: `gpt-oss:120b` (환경변수 `REDOU_LLM_MODEL`)

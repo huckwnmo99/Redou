@@ -93,6 +93,22 @@ export function ChatTableReport({ table }: ChatTableReportProps) {
     ? verification.filter((v) => v.status === "unverified").length
     : 0;
   const allVerified = hasVerification && unverifiedCount === 0;
+  // Phase 2 slice 02: how many verified cells were decided deterministically (code
+  // back-match) vs by the Guardian (LLM). Surfaced in the badge tooltip so a big drop
+  // in Guardian calls does not read as "verification disappeared" — we say *what*
+  // verified each cell (R-5 transparency).
+  const codeVerifiedCount = hasVerification
+    ? verification.filter((v) => v.status === "verified" && v.method === "code").length
+    : 0;
+  const guardianVerifiedCount = hasVerification
+    ? verification.filter((v) => v.status === "verified" && v.method === "guardian").length
+    : 0;
+  const verifiedBreakdownTitle = codeVerifiedCount + guardianVerifiedCount > 0
+    ? t(
+        `Verified by code back-match ${codeVerifiedCount} / Guardian ${guardianVerifiedCount}`,
+        `코드 대조 ${codeVerifiedCount} / Guardian ${guardianVerifiedCount} 검증`,
+      )
+    : undefined;
 
   // "No data found" reasons (fix 19): papers that produced no real data row are
   // rendered as all-N/A rows above; this section explains *why* (per-paper LLM
@@ -141,6 +157,7 @@ export function ChatTableReport({ table }: ChatTableReportProps) {
         {/* Verification badge — driven by real per-cell verification data (no fake "always verified") */}
         {allVerified ? (
           <span
+            title={verifiedBreakdownTitle}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -158,7 +175,9 @@ export function ChatTableReport({ table }: ChatTableReportProps) {
           </span>
         ) : hasVerification ? (
           <span
-            title={t("Some cells could not be verified", "일부 셀이 검증되지 않았습니다")}
+            title={verifiedBreakdownTitle
+              ? `${t("Some cells could not be verified", "일부 셀이 검증되지 않았습니다")} · ${verifiedBreakdownTitle}`
+              : t("Some cells could not be verified", "일부 셀이 검증되지 않았습니다")}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -249,7 +268,18 @@ export function ChatTableReport({ table }: ChatTableReportProps) {
                 <tr key={ri}>
                   {row.map((cell, ci) => {
                     const v = getCellVerification(table.verification, ri, ci);
-                    const verificationTitle = v ? `${v.status}${v.evidence ? ": " + v.evidence : ""}` : undefined;
+                    // Phase 2 slice 02: name the verifier in the hover. Code back-match is
+                    // deterministic ("코드 대조 확인"); Guardian shows its MeasHalu check type.
+                    let verificationTitle: string | undefined;
+                    if (v) {
+                      const author = v.method === "code"
+                        ? t("Code back-match verified", "코드 대조 확인")
+                        : v.method === "guardian"
+                          ? t(`Guardian: ${v.checkType ?? "check"}`, `Guardian: ${v.checkType ?? "검증"}`)
+                          : undefined;
+                      const base = `${v.status}${v.evidence ? ": " + v.evidence : ""}`;
+                      verificationTitle = author ? `${author} · ${base}` : base;
+                    }
                     const tuple = getCellTuple(cellTuples, ri, ci);
                     return (
                       <td

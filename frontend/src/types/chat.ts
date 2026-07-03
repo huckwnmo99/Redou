@@ -55,6 +55,16 @@ export interface CellVerification {
   status: "verified" | "unverified";
   sourceChunkId?: string;
   evidence?: string;
+  /**
+   * Which verifier decided this cell (Phase 2 slice 02). "code" = deterministically
+   * back-matched against the parsed OCR matrix; "guardian" = LLM groundedness check.
+   * Absent on tables verified before this slice.
+   */
+  method?: "code" | "guardian";
+  /** Check kind: "backmatch" (code) or a MeasHalu type (unit/condition/value_fabrication). */
+  checkType?: string;
+  /** Back-match scope when method is "code": "source_hinted" | "any_matrix". */
+  scope?: string;
 }
 
 /**

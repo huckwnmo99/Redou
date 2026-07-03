@@ -16,6 +16,11 @@ docs/harness/evals/
 
 apps/desktop/tests/fixtures/evals/
   golden-path-v0.json
+  adsorption-groundtruth-v0.json
+
+apps/desktop/scripts/
+  pdf-page-text.mjs        # ground-truth extraction tool (manual, pure pdfjs)
+  e2e-table-fidelity.mjs   # live E2E → table_fidelity report (manual, CI-off)
 ```
 
 Runtime eval fixture files belong under `apps/desktop/tests/fixtures/evals/`. This docs directory owns the schema and policy.
@@ -45,6 +50,51 @@ Runtime eval fixture files belong under `apps/desktop/tests/fixtures/evals/`. Th
 
 - Verifies retrieval and table generation in one case.
 - Use sparingly because failures are harder to diagnose.
+
+`table_fidelity` (score mode)
+
+- Grades a persisted generated table against hand-verified ground-truth cells
+  taken directly from the source PDF tables.
+- Reports scores (fidelity / misattribution / fabrication / conflictHandling),
+  not pass/fail, so it can judge extraction changes and Phase 3 A/B swaps.
+- Schema + report axes: `rag-table-eval-schema.md` (Table Fidelity section).
+
+## Ground-Truth Fixture
+
+`table_fidelity` needs values that are **actually in the paper**, not values we
+wish for. The first ground-truth corpus is `adsorption-groundtruth-v0.json`: two
+hand-verified papers (KOH-treated activated carbon; zeolite 13X) with their
+isotherm `q_m` parameters and conditions from the original PDF Tables 3/4.
+
+This is the start of a Dagdelen-style ground-truth store (Nat. Commun. 2024):
+accumulating hand-verified answers is itself a durable asset — the fixture format
+outlives any single model or parser and becomes the judge for prompt changes and
+Phase 3 tool A/B.
+
+### How to (re)generate ground truth
+
+1. Extract the relevant table pages from the original PDF (pure pdfjs, no
+   services): from `apps/desktop`,
+   `node scripts/pdf-page-text.mjs "<pdf path>" <page> [<page> ...]`
+   (on Git Bash pipe through `tr -d '\000'` before grepping — the text can
+   contain NUL bytes).
+2. Read off the parameter, unit, and condition (pressure range / temperature)
+   for each cell. Record `paperId`, `identity` (row tokens, **not** the
+   condition), `column`, `value`, `unit?`, `condition?`, `sourceTable`.
+3. Mark inherently condition-mixed columns (same parameter reported under two
+   conditions, e.g. `q_m` in both `<=1000 kPa` Table 3 and `<=100 kPa` Table 4)
+   in `conditionMixedColumns` so `conflictHandling` can be scored.
+4. Cross-check against any prior hand-collation notes (ledger
+   `pipeline-risk-audit` / `table-semantics-hardening` "원문 대조"), but the PDF
+   is the source of truth.
+
+### Recording a current score (live E2E)
+
+`node scripts/e2e-table-fidelity.mjs` (from `apps/desktop`) runs the real table
+pipeline against live Supabase/Ollama/vLLM and prints a `table_fidelity` report.
+It is **manual and CI-off** (many minutes, real services, non-deterministic
+LLM). The deterministic regression tests live in
+`apps/desktop/tests/table-fidelity.test.mjs` on fixed synthetic tables.
 
 ## First Corpus
 
