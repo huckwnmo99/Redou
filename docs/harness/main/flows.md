@@ -128,10 +128,13 @@
   │
   ├─ DB 저장: chat_messages (table_report) + chat_generated_tables
   │
-  ├─ Stage 4: Guardian Verification (비동기, 백그라운드) [main.mjs:3796]
-  │   ├─ 수치 셀 수집 → 최대 50개 샘플링
-  │   ├─ checkGroundedness(sourceText, claim) [llm-chat.mjs]
-  │   └─ verification 결과 chat_generated_tables.verification에 저장
+  ├─ Stage 4: 셀 검증 (비동기, 백그라운드) [table-pipeline.mjs scheduleGuardianVerification]
+  │   ├─ Pass 1 코드 역매칭(결정적, LLM 없음): runCodeBackMatchPass — 수치 셀 값을
+  │   │   Stage 3a 파싱 매트릭스(parsedMatrices)에서 되찾으면 code-verified
+  │   │   (method:"code", scope: source_hinted>any_matrix) → Guardian 제외 [value-backmatch.mjs]
+  │   ├─ Pass 2 Guardian(LLM, 역매칭 실패분만 · 최대 50개 샘플링): cellTuple 기반
+  │   │   MeasHalu 유형별 좁은 claim(unit/condition/value_fabrication) → checkGroundedness [llm-chat.mjs]
+  │   └─ verification = [...code, ...guardian] → chat_generated_tables.verification 저장
   │
   └─ IPC Events → 프론트엔드
       ├─ CHAT_STATUS (stage: orchestrating/searching/parsing/extracting/assembling/verifying)
