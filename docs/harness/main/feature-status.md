@@ -44,7 +44,7 @@
 
 | 단계 | 항목 | 상태 |
 |------|------|------|
-| 버그수정 | PDF 줌이 앱 UI 전체로 새는 문제 (webContents 줌 미차단) | 📋 계획됨 (`docs/tasks/pdf-zoom-app-wide-leak/`. Ctrl+휠/Ctrl+= 가 PDF scroll container 밖/비-PDF 화면에서 Electron 기본 webContents 줌을 발동 → "리더 열기" 등 앱 UI 전체 확대·이동. 원인 코드 확정: `main.mjs` BrowserWindow `webPreferences`에 줌 제어 부재 + 렌더러 전역 가드 부재(zoom/zoomFactor/webFrame grep 0건). 수정안: `main.mjs` `createMainWindow()`+detached 창 webContents에 `setVisualZoomLevelLimits(1,1)`+`before-input-event` Ctrl+=/-/0 차단+`setZoomFactor(1)` 고정. 리더 자체 scale 줌(`PdfReaderWorkspace`)은 보존. 소규모 fix·1파일·DB/IPC/컴포넌트·`CURRENT_EXTRACTION_VERSION` 무변경) |
+| 버그수정 | PDF 줌이 앱 UI 전체로 새는 문제 (webContents 줌 미차단) | ✅ 구현됨 (`docs/tasks/pdf-zoom-app-wide-leak/`. `main.mjs`에 `lockWebContentsZoom(webContents)` 헬퍼 추가 — `setVisualZoomLevelLimits(1,1)`(핀치 차단)+`before-input-event` Ctrl/Cmd+=/+/-/0 차단+`setZoomFactor(1)`/`zoom-changed` 1 고정. 메인 창(`createMainWindow()`)·detached 패널 창 양쪽 적용. Ctrl+휠/Ctrl+= 가 PDF 영역 밖/비-PDF 화면에서 앱 UI를 확대하던 문제 해소. 리더 자체 scale 줌(`PdfReaderWorkspace`, React state)은 독립·보존. 소규모 fix·1파일·DB/IPC/컴포넌트·`CURRENT_EXTRACTION_VERSION` 무변경. `node --check` 통과. 커밋은 사용자) |
 | 버그수정 | chat Supabase null 처리 | 📋 계획됨 |
 | 버그수정 | 채팅 UI 텍스트 선택 + optimistic update | 📋 계획됨 |
 | 버그수정 | BM25 검색 0건 반환 (websearch_to_tsquery AND 과다) | ✅ 완료 (OR tsquery로 변경) |
