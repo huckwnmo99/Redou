@@ -6,15 +6,9 @@ import fs from "node:fs/promises";
 import crypto from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { IPC_CHANNELS, IPC_EVENTS } from "./types/ipc-channels.mjs";
-import { throwIfChatAborted } from "./chat/abort-guards.mjs";
-import { extractKeyTerms } from "./chat/extraction-utils.mjs";
 import { createChatStatusEmitter } from "./chat/status-events.mjs";
-import { assembleRagContext } from "./chat/table-extraction.mjs";
 import { runTableConversationPipeline } from "./chat/table-pipeline.mjs";
-import {
-  buildEvidenceLocationsByPaper,
-  serializeEvidenceLocations,
-} from "./chat/source-evidence.mjs";
+import { runQaConversationPipeline } from "./chat/qa-pipeline.mjs";
 import { createMultiQueryRag } from "./rag/multi-query-rag.mjs";
 import { runGraphEnhancedRag } from "./graph-search.mjs";
 import {
@@ -2544,124 +2538,6 @@ function groupBy(items, keyFn) {
   return map;
 }
 
-// --- Q&A Pipeline Handler ---
-async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAll, abortController, ownerPaperIds, ownerId) {
-  console.log("[Chat/QA] Starting Q&A pipeline...");
-  const emitStatus = createChatStatusEmitter({ conversationId: convId, send: broadcastToWindows });
-
-  // Stage 1: RAG search
-  emitStatus({ stage: "searching", message: "관련 논문 데이터 검색 중..." });
-
-  let filterPaperIds = ownerPaperIds;
-  if (!scopeAll && scopeFolderId) {
-    filterPaperIds = intersectPaperIds(ownerPaperIds, await getPaperIdsInFolderTree(scopeFolderId));
-  }
-
-  // Use the user's message directly as the search query (simplified vs table pipeline)
-  const searchQueries = [{ query: message, intent: "qa" }];
-  const keyTerms = extractKeyTerms(message);
-
-  // Entity graph is opt-in (default OFF). When enabled, expand context via the
-  // entity graph; otherwise fall back to plain multi-query RAG (pre-graph behavior).
-  const graphEnabled = await getEntityGraphEnabled(ownerId);
-  let ragResults;
-  if (graphEnabled) {
-    emitStatus({ stage: "graphing", message: "Expanding entity graph context..." });
-    const entityModelName = await getEntityExtractionModel(ownerId);
-    ragResults = await runGraphEnhancedRag(
-      searchQueries,
-      keyTerms,
-      filterPaperIds,
-      "qa",
-      supabase,
-      {
-        generateEmbedding,
-        runMultiQueryRag,
-        modelName: entityModelName,
-        abortSignal: abortController.signal,
-      },
-    );
-  } else {
-    ragResults = await runMultiQueryRag(searchQueries, keyTerms, filterPaperIds, "qa", {
-      abortSignal: abortController.signal,
-    });
-  }
-  throwIfChatAborted(abortController.signal);
-
-  // If no results, inform user
-  if (ragResults.chunks.length === 0 && ragResults.figures.length === 0) {
-    const noDataMsg = "관련 데이터를 찾지 못했습니다. 요청을 더 구체적으로 해주시거나, 해당 주제의 논문이 라이브러리에 있는지 확인해주세요.";
-    const errMsg = unwrapSingle(await supabase
-      .from("chat_messages")
-      .insert({ conversation_id: convId, role: "assistant", content: noDataMsg, message_type: "text" })
-      .select("id")
-      .single(), "chat_messages insert (qa/no-data)");
-    await supabase.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
-    broadcastToWindows(IPC_EVENTS.CHAT_COMPLETE, { conversationId: convId, messageId: errMsg.id, hasTable: false });
-    return { conversationId: convId, messageId: errMsg.id, hasTable: false };
-  }
-
-  // Collect paper metadata
-  const paperIds = [...new Set([
-    ...ragResults.chunks.map((c) => c.paper_id),
-    ...ragResults.figures.map((f) => f.paper_id),
-  ])];
-  const { data: papers } = await supabase.from("papers").select("id, title, authors, publication_year, doi").in("id", paperIds);
-  const paperMetadata = (papers ?? []).map((p) => ({
-    paperId: p.id,
-    title: p.title ?? "Untitled",
-    authors: Array.isArray(p.authors) ? p.authors.map((a) => a.family ?? a.name ?? "").join(", ") : "",
-    year: p.publication_year ?? 0,
-    doi: p.doi ?? "",
-  }));
-
-  // Build paper ref map (for assembleRagContext)
-  const paperRefMap = new Map();
-  paperMetadata.forEach((p, i) => paperRefMap.set(p.paperId, { refNo: i + 1, title: p.title }));
-  const evidenceLocationsByPaper = buildEvidenceLocationsByPaper(ragResults.chunks, ragResults.figures);
-
-  // Assemble RAG context (text-heavy, no parsed matrices for Q&A)
-  const ragContext = assembleRagContext(ragResults.chunks, ragResults.figures, paperRefMap, []);
-
-  // Stage 2: Q&A answering (streaming)
-  emitStatus({ stage: "answering", message: "답변 생성 중..." });
-  console.log("[Chat/QA] Streaming Q&A response...");
-
-  let fullResponse = "";
-  for await (const token of generateQaResponse(ragContext, history, paperMetadata, abortController.signal)) {
-    fullResponse += token;
-    broadcastToWindows(IPC_EVENTS.CHAT_TOKEN, { conversationId: convId, token });
-  }
-  throwIfChatAborted(abortController.signal);
-
-  // Post-process: ensure source attribution
-  const { text: finalText, referencedPaperIds } = formatSourceAttribution(fullResponse, paperMetadata, evidenceLocationsByPaper);
-
-  // Save assistant message
-  const msg = unwrapSingle(await supabase
-    .from("chat_messages")
-    .insert({
-      conversation_id: convId,
-      role: "assistant",
-      content: finalText,
-      message_type: "text",
-      metadata: {
-        source_chunk_ids: ragResults.chunks.map((c) => c.chunk_id),
-        referenced_paper_ids: referencedPaperIds,
-        source_evidence_locations: serializeEvidenceLocations(evidenceLocationsByPaper),
-      },
-    })
-    .select("id")
-    .single(), "chat_messages insert (qa/final)");
-
-  await supabase.from("chat_conversations").update({ phase: "follow_up", updated_at: new Date().toISOString() }).eq("id", convId);
-
-  broadcastToWindows(IPC_EVENTS.CHAT_COMPLETE, { conversationId: convId, messageId: msg.id, hasTable: false });
-  console.log(`[Chat/QA] Response complete. ${referencedPaperIds.length} papers referenced.`);
-
-  return { conversationId: convId, messageId: msg.id, hasTable: false };
-}
-
 // --- CHAT_SEND_MESSAGE (Multi-agent pipeline) ---
 ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, message, scopeFolderId, scopeAll, mode, userId, accessToken }) => {
   let convId = conversationId;
@@ -2727,7 +2603,30 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
 
     // ===== Q&A Pipeline Branch =====
     if (conversationType === "qa") {
-      return await handleQaPipeline(convId, message, history, scopeFolderId, scopeAll, abortController, ownerPaperIds, ownerId);
+      return await runQaConversationPipeline({
+        supabase,
+        emitStatus,
+        emitToken: (token) => broadcastToWindows(IPC_EVENTS.CHAT_TOKEN, { conversationId: convId, token }),
+        emitComplete: (payload) => broadcastToWindows(IPC_EVENTS.CHAT_COMPLETE, payload),
+        abortSignal: abortController.signal,
+        conversationId: convId,
+        message,
+        history,
+        scopeFolderId,
+        scopeAll,
+        ownerPaperIds,
+        ownerId,
+        runMultiQueryRagFn: runMultiQueryRag,
+        runGraphEnhancedRagFn: runGraphEnhancedRag,
+        getEntityGraphEnabledFn: getEntityGraphEnabled,
+        getEntityExtractionModelFn: getEntityExtractionModel,
+        generateEmbeddingFn: generateEmbedding,
+        getPaperIdsInFolderTreeFn: getPaperIdsInFolderTree,
+        generateQaResponseFn: generateQaResponse,
+        formatSourceAttributionFn: formatSourceAttribution,
+        intersectPaperIdsFn: intersectPaperIds,
+        unwrapSingleFn: unwrapSingle,
+      });
     }
 
     // ===== Table Pipeline =====

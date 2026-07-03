@@ -25,7 +25,7 @@ No runtime code changed in Stage 1.
 |-------------|---------------|------|
 | `IPC_CHANNELS.CHAT_SEND_MESSAGE` | `main.mjs` | Main request handler for table and QA conversations |
 | `IPC_CHANNELS.CHAT_ABORT` | `main.mjs` | Looks up a conversation-scoped `AbortController` and aborts it |
-| `handleQaPipeline` | `main.mjs` | QA branch after shared auth/conversation setup |
+| `runQaConversationPipeline` | `chat/qa-pipeline.mjs` | QA branch after shared auth/conversation setup — **extracted from `main.mjs` (slice 04, DI pattern, behavior-preserving)** |
 | `runMultiQueryRag` | `main.mjs` | Shared vector/BM25/figure retrieval and reranking |
 | `runAgenticNullRecovery` | `main.mjs` | Stage 3d recovery pass for remaining table NULL cells |
 | `generateOrchestratorPlan` | `llm-orchestrator.mjs` | Table/clarify planning |
@@ -73,7 +73,7 @@ Important ownership rule:
 
 ## QA Branch Flow
 
-Current owner: `handleQaPipeline`.
+Current owner: `runQaConversationPipeline` in `chat/qa-pipeline.mjs` (extracted from `main.mjs` in slice 04, table-pipeline DI pattern). `CHAT_SEND_MESSAGE` injects `supabase`, `abortSignal`, `emitStatus/emitToken/emitComplete`, and the RAG/graph/embedding/folder/QA functions; the flow, status events, persistence, and metadata keys below are unchanged from the former inline handler.
 
 | Step | Status event | Work | Persistence |
 |------|--------------|------|-------------|
@@ -259,7 +259,7 @@ The first extraction PR should preserve or explicitly redefine these behaviors.
 |---------------|-------------------------------|---------------------|
 | `chat/status-events.mjs` | typed `emitStatus`, `emitToken`, `emitComplete`, `emitError` helpers | LLM/RAG logic |
 | `chat/table-pipeline.mjs` | table branch after shared request setup | IPC auth, BrowserWindow lifecycle |
-| `chat/qa-pipeline.mjs` | QA branch after shared request setup | table-specific Stage 3b/3c/3d logic |
+| `chat/qa-pipeline.mjs` | **✅ extracted (slice 04)** — QA branch owns `runQaConversationPipeline` (DI, behavior-preserving) | table-specific Stage 3b/3c/3d logic |
 | `chat/source-evidence.mjs` | evidence location formatting and source ref enrichment | DB ownership checks |
 | `chat/agentic-null-recovery.mjs` | Stage 3d gate, query building, recovery application | top-level table persistence |
 | `rag/retrieval.mjs` | `runMultiQueryRag`, RRF, rerank, source-file metadata hydration | IPC handler code |
