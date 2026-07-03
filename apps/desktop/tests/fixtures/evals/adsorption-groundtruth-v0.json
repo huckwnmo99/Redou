@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "table-fidelity-v0",
+  "fixture": "adsorption-groundtruth",
+  "description": "Hand-verified adsorption isotherm parameters (q_m) for two papers, extracted directly from the original PDF Tables 3/4. Ground truth for table_fidelity evals: fidelity, misattribution (D1 condition mixing), fabrication (D2/D4), conflictHandling (D1).",
+  "normalization": "Values compared with normalizeEvalString (trim + collapse whitespace). Identity tokens matched case-insensitively as substrings against a row's leading (non-numeric) identity cells; values must match exactly after normalization.",
+  "papers": [
+    {
+      "paperId": "7536d494-e3a3-473c-b992-43cc18b56a4e",
+      "title": "Adsorption equilibria and kinetics of CO2, CH4, CO, N2, and H2 on KOH-treated activated carbon pellet",
+      "sourcePdf": "Suk-Hoon Hong_2022 (Chemical Engineering Journal 431, 133396)",
+      "provenance": "Langmuir q_m column (qm,L, unit mol/kg) from Table 3 (page 8, pressures <=1000 kPa) and Table 4 (page 9, pressures <=100 kPa). Temperature-dependent rows at 293.15 / 308.15 / 323.15 K. Adsorbents KACa and KACi.",
+      "conditionMixedColumns": [
+        {
+          "column": "q_m",
+          "note": "qm,L is reported in BOTH Table 3 (<=1000 kPa) and Table 4 (<=100 kPa) with different values for the same gas/temperature (e.g. KACa CO2 293.15 K = 8.69 in Table 3 vs 4.45 in Table 4). A faithful table must keep these separated by a pressure-range/source condition (D1)."
+        }
+      ],
+      "groundTruthCells": [
+        { "identity": ["KACa", "CO2", "293.15"], "column": "q_m", "value": "8.69", "unit": "mol/kg", "condition": "<=1000 kPa", "sourceTable": "Table 3" },
+        { "identity": ["KACa", "CO2", "308.15"], "column": "q_m", "value": "8.07", "unit": "mol/kg", "condition": "<=1000 kPa", "sourceTable": "Table 3" },
+        { "identity": ["KACa", "CO2", "323.15"], "column": "q_m", "value": "7.39", "unit": "mol/kg", "condition": "<=1000 kPa", "sourceTable": "Table 3" },
+        { "identity": ["KACa", "CH4", "293.15"], "column": "q_m", "value": "5.38", "unit": "mol/kg", "condition": "<=1000 kPa", "sourceTable": "Table 3" },
+        { "identity": ["KACa", "CH4", "308.15"], "column": "q_m", "value": "5.05", "unit": "mol/kg", "condition": "<=1000 kPa", "sourceTable": "Table 3" },
+        { "identity": ["KACa", "CH4", "323.15"], "column": "q_m", "value": "4.68", "unit": "mol/kg", "condition": "<=1000 kPa", "sourceTable": "Table 3" },
+        { "identity": ["KACa", "CO", "293.15"], "column": "q_m", "value": "4.27", "unit": "mol/kg", "condition": "<=1000 kPa", "sourceTable": "Table 3" },
+        { "identity": ["KACa", "CO", "308.15"], "column": "q_m", "value": "4.01", "unit": "mol/kg", "condition": "<=1000 kPa", "sourceTable": "Table 3" },
+        { "identity": ["KACa", "CO", "323.15"], "column": "q_m", "value": "3.83", "unit": "mol/kg", "condition": "<=1000 kPa", "sourceTable": "Table 3" },
+        { "identity": ["KACa", "N2", "293.15"], "column": "q_m", "value": "4.05", "unit": "mol/kg", "condition": "<=1000 kPa", "sourceTable": "Table 3" },
+        { "identity": ["KACa", "N2", "308.15"], "column": "q_m", "value": "3.86", "unit": "mol/kg", "condition": "<=1000 kPa", "sourceTable": "Table 3" },
+        { "identity": ["KACa", "N2", "323.15"], "column": "q_m", "value": "3.84", "unit": "mol/kg", "condition": "<=1000 kPa", "sourceTable": "Table 3" },
+        { "identity": ["KACi", "CO2", "293.15"], "column": "q_m", "value": "6.65", "unit": "mol/kg", "condition": "<=1000 kPa", "sourceTable": "Table 3" },
+        { "identity": ["KACi", "CO2", "308.15"], "column": "q_m", "value": "6.16", "unit": "mol/kg", "condition": "<=1000 kPa", "sourceTable": "Table 3" },
+        { "identity": ["KACi", "CO2", "323.15"], "column": "q_m", "value": "5.71", "unit": "mol/kg", "condition": "<=1000 kPa", "sourceTable": "Table 3" },
+        { "identity": ["KACa", "CO2", "293.15"], "column": "q_m", "value": "4.45", "unit": "mol/kg", "condition": "<=100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["KACa", "CO2", "308.15"], "column": "q_m", "value": "4.02", "unit": "mol/kg", "condition": "<=100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["KACa", "CO2", "323.15"], "column": "q_m", "value": "3.78", "unit": "mol/kg", "condition": "<=100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["KACa", "CH4", "293.15"], "column": "q_m", "value": "2.91", "unit": "mol/kg", "condition": "<=100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["KACa", "CH4", "308.15"], "column": "q_m", "value": "2.75", "unit": "mol/kg", "condition": "<=100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["KACa", "CH4", "323.15"], "column": "q_m", "value": "2.68", "unit": "mol/kg", "condition": "<=100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["KACa", "CO", "293.15"], "column": "q_m", "value": "2.74", "unit": "mol/kg", "condition": "<=100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["KACa", "CO", "308.15"], "column": "q_m", "value": "2.62", "unit": "mol/kg", "condition": "<=100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["KACa", "CO", "323.15"], "column": "q_m", "value": "2.49", "unit": "mol/kg", "condition": "<=100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["KACa", "N2", "293.15"], "column": "q_m", "value": "2.64", "unit": "mol/kg", "condition": "<=100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["KACa", "N2", "308.15"], "column": "q_m", "value": "2.56", "unit": "mol/kg", "condition": "<=100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["KACa", "N2", "323.15"], "column": "q_m", "value": "2.49", "unit": "mol/kg", "condition": "<=100 kPa", "sourceTable": "Table 4" }
+      ]
+    },
+    {
+      "paperId": "5e0f399d-8996-4387-9200-2dafa58658bc",
+      "title": "Adsorption equilibria and kinetics of ethane and ethylene on zeolite 13X",
+      "sourcePdf": "Kyounghee Chung_2022 (Microporous and Mesoporous Materials 343, 112199)",
+      "provenance": "Isotherm parameters from Table 4 (page 6). First saturation-capacity column (qm1 for DSL; k1,s for Sips) in unit mol/kg, plus the MAPE (%) column. Model rows distinguished by pressure range (~600 kPa full range vs ~100 kPa low-pressure fit).",
+      "conditionMixedColumns": [
+        {
+          "column": "q_m",
+          "note": "The saturation-capacity parameter is fit twice per adsorbate/model over different pressure ranges (~600 kPa vs ~100 kPa), giving different values (e.g. Ethane DSL 2.400 vs 2.328). A faithful table must keep these separated by the pressure-range condition (D1)."
+        }
+      ],
+      "groundTruthCells": [
+        { "identity": ["Ethane", "DSL"], "column": "q_m", "value": "2.400", "unit": "mol/kg", "condition": "~600 kPa", "sourceTable": "Table 4" },
+        { "identity": ["Ethane", "DSL"], "column": "q_m", "value": "2.328", "unit": "mol/kg", "condition": "~100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["Ethylene", "DSL"], "column": "q_m", "value": "2.450", "unit": "mol/kg", "condition": "~600 kPa", "sourceTable": "Table 4" },
+        { "identity": ["Ethylene", "DSL"], "column": "q_m", "value": "2.00", "unit": "mol/kg", "condition": "~100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["Ethane", "Sips"], "column": "q_m", "value": "4.89", "unit": "mol/kg", "condition": "~600 kPa", "sourceTable": "Table 4" },
+        { "identity": ["Ethane", "Sips"], "column": "q_m", "value": "2.95", "unit": "mol/kg", "condition": "~100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["Ethylene", "Sips"], "column": "q_m", "value": "6.91", "unit": "mol/kg", "condition": "~600 kPa", "sourceTable": "Table 4" },
+        { "identity": ["Ethylene", "Sips"], "column": "q_m", "value": "6.07", "unit": "mol/kg", "condition": "~100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["Ethane", "DSL"], "column": "MAPE", "value": "16.585", "unit": "%", "condition": "~600 kPa", "sourceTable": "Table 4" },
+        { "identity": ["Ethane", "DSL"], "column": "MAPE", "value": "8.242", "unit": "%", "condition": "~100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["Ethylene", "DSL"], "column": "MAPE", "value": "1.739", "unit": "%", "condition": "~600 kPa", "sourceTable": "Table 4" },
+        { "identity": ["Ethylene", "DSL"], "column": "MAPE", "value": "1.992", "unit": "%", "condition": "~100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["Ethane", "Sips"], "column": "MAPE", "value": "2.316", "unit": "%", "condition": "~600 kPa", "sourceTable": "Table 4" },
+        { "identity": ["Ethane", "Sips"], "column": "MAPE", "value": "2.928", "unit": "%", "condition": "~100 kPa", "sourceTable": "Table 4" },
+        { "identity": ["Ethylene", "Sips"], "column": "MAPE", "value": "4.112", "unit": "%", "condition": "~600 kPa", "sourceTable": "Table 4" },
+        { "identity": ["Ethylene", "Sips"], "column": "MAPE", "value": "3.739", "unit": "%", "condition": "~100 kPa", "sourceTable": "Table 4" }
+      ]
+    }
+  ]
+}
