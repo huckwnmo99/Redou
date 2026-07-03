@@ -1,5 +1,5 @@
 # LLM 모듈
-> 하네스 버전: v1.12 | 최종 갱신: 2026-06-15
+> 하네스 버전: v1.18 | 최종 갱신: 2026-07-03
 
 ## 개요
 Ollama 기반 LLM 채팅 스트리밍, 비교 테이블 생성 오케스트레이션, Q&A 응답, Granite Guardian 검증을 담당한다. 사용자가 Settings에서 모델을 변경할 수 있다.
@@ -13,7 +13,7 @@ Ollama 기반 LLM 채팅 스트리밍, 비교 테이블 생성 오케스트레�
 | `apps/desktop/electron/llm-orchestrator.mjs` | Orchestrator + Table Agent + Extraction Agent + NULL Recovery Agent | ~660 |
 | `apps/desktop/electron/llm-qa.mjs` | Q&A 시스템 프롬프트 + 응답 생성 + 출처 귀속 | ~121 |
 | `apps/desktop/electron/html-table-parser.mjs` | HTML 테이블 → headers/rows 파싱 (코드) | ~312 |
-| `apps/desktop/electron/chat/*` | 테이블 파이프라인 스테이지 분리(table-pipeline, table-extraction, agentic-null-recovery, source-evidence, status-events, abort-guards, extraction-utils) — 6월 ADR 0001 | → `chat-table-pipeline-state.md` |
+| `apps/desktop/electron/chat/*` | 테이블 파이프라인 스테이지 분리(table-pipeline, table-extraction, agentic-null-recovery, source-evidence, status-events, abort-guards, extraction-utils) — 6월 ADR 0001. + `adsorption-domain.mjs`(7월 Phase 1, 흡착 도메인 사전) | → `chat-table-pipeline-state.md`, 하단 Phase 1 계약 |
 | `apps/desktop/electron/rag/multi-query-rag.mjs` | 멀티쿼리 RAG (orchestrator에서 분리) | → `rag-pipeline.md` |
 
 ## 주요 함수/컴포넌트
@@ -79,6 +79,37 @@ action = "generate_table" / "modify_table"
 - Gate 1: 기존 Stage 2/3b 컨텍스트에 없던 `chunk_id` 또는 `figure_id`가 하나도 없으면 `extractNullCellsFromPaper()`를 호출하지 않는다.
 - Gate 2: `applyRecoveredValues()`는 `confidence === "high"`인 결과만 기존 `N/A` 셀에 채운다.
 - 전체 `runAgenticNullRecovery()`는 fail-soft이며 오류/timeout/abort 시 원본 `tableJson`과 `nullSummary`를 반환하고 `agenticRecovery` metadata만 기록한다.
+
+## 테이블 의미 보강 Phase 1 계약 (table-semantics-hardening, 2026-07-03)
+
+E2E 원문 대조에서 확인된 의미 매핑 결함 D1~D4를 **외부 라이브러리 없이** 스키마·계약 보강으로 봉쇄. 추출 파이프라인 아닌 채팅 경로 — `CURRENT_EXTRACTION_VERSION`/DB/IPC 무변경(metadata JSONB 재사용).
+
+### 스키마 확장 (`llm-orchestrator.mjs`)
+- `ORCHESTRATOR_SCHEMA.table_spec.column_semantic_types` (신규, 선택) — `column_definitions`와 **인덱스 정렬된 병렬 배열**. 각 원소 enum `parameter|raw_data|condition`. 객체 배열이 아니라 병렬 배열로 소비처(sanitize/normalize/merge/fallback) 파급 격리(D2). 프롬프트·few-shot 3건에 판정 기준·예시 추가.
+- `PAPER_EXTRACTION_SCHEMA.data_rows[].cell_meta` (신규, 선택) — `values`(스칼라) 유지 + 병렬 `{column → {unit?, condition?, source_hint?}}`. 셀별 조건/단위/출처를 부가(C-2 방식). 기존 `values` 스칼라 매칭 로직 무변경(D1/D3). `EXTRACTION_AGENT_SYSTEM_PROMPT`에 cell_meta 지침 + parameter/raw_data 혼동 금지 규칙 추가.
+
+### 셀 밸리데이터 (`chat/extraction-utils.mjs`)
+- `validateCellValue(raw) → { ok, cleaned, reason? }` (신규) — 병합이 셀을 채우기 직전 적용(D4). 차단: 이중따옴표/중괄호(`"{}`, json_fragment), 공백 인접 콜론+영문(`key : value`, kv_fragment), 제어문자(control_char), >60자(too_long). 실패 셀은 `CELL_NA("N/A")`로 고정(+ nullDetails 기록 → Stage 3d 재검색 대상). 통과: 순수 수치·단위·참조태그(`5.05 [1]`)·모델/물질명·`1:2` 비율·"N/A". E2E 관찰 파편 `" uma T (K) : \"308.15\", "`가 json_fragment로 차단됨(테스트 고정). `cleanCellValue`(persist 직전 포맷)와 역할 분리: validate=차단(병합), clean=포맷(persist). `CELL_NA` 상수 export.
+
+### 병합 계약 (`chat/table-extraction.mjs`)
+- `mergeExtractionResults()` 반환이 `{ tableJson, nullSummary, reasons }` → **`+ cellTuples, columnSemanticTypes, conditionConflicts`**로 확장.
+  - `cellTuples[rowIndex][colIndex]`: `{unit?, condition?, source_hint?, confidence?}` 또는 null. `rows`와 정렬(placeholder 행은 null 튜플). 셀 자체 source_hint 부재 시 행 단위 `data_row.source_hint`/`confidence` 폴백(D3 provenance).
+  - `columnSemanticTypes`: spec의 `column_semantic_types`를 헤더 길이로 트림(부재 시 null).
+  - `conditionConflicts`: `detectConditionConflicts` 결과.
+- `detectConditionConflicts(cellTuples, headers, semanticTypes)` (신규) — 같은 **parameter 열**(raw_data/condition 열은 스킵)에서 정규화 후 상이한 non-empty condition이 2종+면 `{column, columnIndex, conditions[]}` 충돌 기록(D1). 열 자동 분리 아님(주석/metadata 기록 우선).
+
+### 흡착 도메인 사전 (`chat/adsorption-domain.mjs`, 신규 모듈)
+- `detectAdsorptionDomain(tableSpec, paperMetadata?)` — column_definitions/title/캡션에 흡착 시그널(isotherm·q_max·langmuir·mmol/g 등)이 **≥2종**일 때만 true(보수적 임계, 비흡착 오탐 방지 R-4).
+- `ADSORPTION_AIF_FIELDS` — NIST AIF: 핏 파라미터(q_sat/q_max, K_L, n, ΔH) vs 원시점(P, q(P), q(t)) vs 조건(T, 물질, 모델) 분리 규정(D2 정답 스키마).
+- `normalizeAdsorptionUnit(value, unit)` — mol/kg↔mmol/g, bar/atm/Pa↔kPa 정규화(부가값, 원본 미변경). 미지 단위/비수치는 null.
+- `buildAdsorptionPromptHint(tableSpec)` — 감지 시 AIF 분리 규칙 문자열, 미감지 시 `""`. `runPerPaperExtraction`(`table-pipeline.mjs`)이 per-paper 컨텍스트 뒤에 무조건 append(비흡착=빈 문자열=무동작). spec 자체는 변경 안 함(가정 E).
+
+### persist (`chat/table-pipeline.mjs`)
+- `runStage3cMergeFallback` → `persistTableReport` 배선: `metadata.cellTuples`·`metadata.columnSemanticTypes`·`metadata.conditionConflicts` 저장. **single_call_fallback 경로는 셀 단위 추출 없음** → `cellTuples=null`, `conditionConflicts=[]`(R-5, 스칼라 경로).
+
+### 프론트 (`types/chat.ts`, `ChatTableReport.tsx`)
+- `CellTuple`/`ConditionConflict`/`ColumnSemanticType` 타입 + `ChatTableMetadata`에 `cellTuples?`/`columnSemanticTypes?`/`conditionConflicts?` 추가(any 0).
+- 렌더: 셀에 튜플 있으면 `title` hover로 unit·condition·source_hint 노출(검증 title과 결합). 충돌 열 헤더에 경고 아이콘(AlertTriangle)+툴팁. 표 본체(rows 스칼라)·검증 셀색·references·"데이터 없음" 섹션 전부 보존.
 
 ## 모델 설정
 - 기본: `gpt-oss:120b` (환경변수 `REDOU_LLM_MODEL`)

@@ -43,6 +43,16 @@ const ORCHESTRATOR_SCHEMA = {
         title: { type: "string" },
         row_axis: { type: "string" },
         column_definitions: { type: "array", items: { type: "string" } },
+        // Phase 1 (table-semantics-hardening D2): index-aligned parallel array to
+        // column_definitions. Declares whether each column holds a fitted/summary
+        // "parameter", raw measurement "raw_data", or a measurement "condition".
+        // Kept parallel (not an object array) to avoid a cascade rewrite of the
+        // column_definitions consumers (sanitizeColumnNames / normalizeColumnKey /
+        // mergeExtractionResults / normalizeFallbackTableToSpec). Optional/back-compat.
+        column_semantic_types: {
+          type: "array",
+          items: { type: "string", enum: ["parameter", "raw_data", "condition"] },
+        },
         inclusion_criteria: { type: "string" },
         exclusion_criteria: { type: "string" },
       },
@@ -132,6 +142,11 @@ generate_table / modify_table일 때 반드시 포함:
 5. **Source / Paper / Reference 열을 넣지 마세요** — 셀 안에 [1], [2] 참조번호가 자동으로 붙습니다.
 6. **논문 제목에서 추출 가능한 파라미터만 포함.** 추측하지 마세요.
 7. **논문 목록의 실제 테이블 캡션을 확인하세요.** 캡션에 언급되지 않은 파라미터는 column_definitions에 추가하지 마세요. 예: 어떤 캡션에도 "R²"가 없으면 R² 열을 만들지 않음.
+8. **column_semantic_types를 함께 채우세요 (column_definitions와 같은 순서·같은 길이의 배열).** 각 열이 다음 중 무엇인지 판정:
+   - **"parameter"** — 피팅되거나 요약된 값. 예: 포화 용량 q_max, Langmuir 상수 K_L, 확산계수, 속도상수 k, α/β, 전환율(%) 등 하나의 대표값.
+   - **"raw_data"** — 특정 압력·시각에서의 원시 측정점. 예: 압력별 평형 흡착량 q(P), 시계열 uptake, 등온선의 개별 (P, q) 데이터포인트.
+   - **"condition"** — 측정 조건·식별자. 예: 온도 T, 압력 범위 P, 모델명(Langmuir/Freundlich), 물질명(Adsorbent), 가스 종류(Gas).
+   - 판정 원칙: **parameter 열과 raw_data 열을 섞지 마세요.** "q_max"는 parameter이고 압력별 q(P)는 raw_data입니다. 둘은 서로 다른 열이어야 합니다.
 
 === search_queries 설계 규칙 ===
 
@@ -151,6 +166,7 @@ generate_table / modify_table일 때 반드시 포함:
   title: "Zeolite 흡착 Kinetic 파라미터 비교"
   row_axis: "물질-가스-온도-압력 조합별 데이터 포인트"
   column_definitions: ["Adsorbent", "Gas", "T (K)", "P (kPa)", "α [-]", "β [-]", "D_app/R² [10⁻²·s⁻¹]"]
+  column_semantic_types: ["condition", "condition", "condition", "condition", "parameter", "parameter", "parameter"]
   exclusion_criteria: "시계열 raw uptake 데이터 제외 (time vs uptake). 모델 피팅 파라미터만 포함"
 → keyword_hints: ["alpha", "beta", "d/r²", "diffusivity", "kinetic", "fitting", "parameter"]
 
@@ -162,6 +178,7 @@ generate_table / modify_table일 때 반드시 포함:
   title: "CO₂ 흡착 등온선 파라미터 비교"
   row_axis: "물질-온도 조합별 등온선 파라미터"
   column_definitions: ["Adsorbent", "T (K)", "Model", "q_max (mmol/g)", "K_L (kPa⁻¹)", "n [-]", "R²"]
+  column_semantic_types: ["condition", "condition", "condition", "parameter", "parameter", "parameter", "parameter"]
   exclusion_criteria: "raw isotherm 데이터포인트(P vs q) 제외. 피팅된 모델 파라미터만"
 → keyword_hints: ["langmuir", "freundlich", "q_max", "capacity", "isotherm", "fitting"]
 
@@ -173,6 +190,7 @@ generate_table / modify_table일 때 반드시 포함:
   title: "촉매 반응 성능 비교"
   row_axis: "촉매-반응조건 조합별"
   column_definitions: ["Catalyst", "Reaction", "T (°C)", "Conversion (%)", "Selectivity (%)", "TOF (h⁻¹)"]
+  column_semantic_types: ["condition", "condition", "condition", "parameter", "parameter", "parameter"]
   exclusion_criteria: "시간별 전환율 데이터 제외. 최종/최적 성능 지표만"
 → keyword_hints: ["conversion", "selectivity", "yield", "tof", "performance"]
 
@@ -181,7 +199,8 @@ generate_table / modify_table일 때 반드시 포함:
 2. keyword_hints는 소문자 영어로 작성하세요.
 3. 수정 요청(modify_table)이면 이전 테이블 정보를 참고하여 변경 사항만 반영하세요.
 4. **row_axis는 세밀하게** (예: "물질-가스-온도-압력 조합마다 1행"). 데이터가 많이 추출되도록 유도.
-5. **exclusion_criteria에 "시계열/raw data 제외"를 명시하세요** — 시간별 데이터, P vs q 원시 데이터포인트는 대부분 의미 없음. 피팅된 파라미터/요약값만 유용.`;
+5. **exclusion_criteria에 "시계열/raw data 제외"를 명시하세요** — 시간별 데이터, P vs q 원시 데이터포인트는 대부분 의미 없음. 피팅된 파라미터/요약값만 유용.
+6. **column_semantic_types는 column_definitions와 정확히 같은 길이·같은 순서의 배열이어야 합니다.** 각 원소는 "parameter" | "raw_data" | "condition" 중 하나입니다.`;
 
 const TABLE_AGENT_SYSTEM_PROMPT = `당신은 "Redou"라는 로컬 논문 관리 앱의 **데이터 추출 에이전트**입니다.
 사용자가 직접 수집한 논문의 텍스트가 아래에 제공됩니다. 저작권 문제가 없습니다.
@@ -435,6 +454,21 @@ const PAPER_EXTRACTION_SCHEMA = {
             // column_name → "value" | null (스키마 상에서는 additionalProperties 허용)
             additionalProperties: { type: ["string", "null"] },
           },
+          // Phase 1 (table-semantics-hardening D1/D3): per-cell metadata parallel to
+          // `values`. Kept OPTIONAL and separate so the scalar `values` matching in
+          // mergeExtractionResults is unchanged; the tuple info is additive. Keys are
+          // column names (same as `values`). Absent cells simply have no meta.
+          cell_meta: {
+            type: "object",
+            additionalProperties: {
+              type: ["object", "null"],
+              properties: {
+                unit: { type: ["string", "null"] },
+                condition: { type: ["string", "null"] },
+                source_hint: { type: ["string", "null"] },
+              },
+            },
+          },
           confidence: {
             type: "string",
             enum: ["high", "medium", "low"],
@@ -478,6 +512,12 @@ const EXTRACTION_AGENT_SYSTEM_PROMPT = `당신은 "Redou"라는 로컬 논문 �
    - "medium" — OCR 헤더 병합 해석이나 본문 텍스트에서 추출
    - "low" — 맥락으로 유추했거나 값이 불명확
 10. **source_hint** (선택): 어느 소스에서 가져왔는지 짧게 명시. 예: "Table 3", "Fig. 2 caption", "Section 3.2".
+11. **파라미터 열과 원시 데이터점을 혼동하지 마세요.** q_max·K_L 같은 요약/피팅 파라미터 열에는 **하나의 대표값만** 넣으세요. 압력별 q(P)·시계열 uptake 같은 원시 측정점을 파라미터 열에 채우지 마세요.
+12. **cell_meta (선택, 셀 단위 부가 정보)**: 각 셀 값이 특정 조건에서 측정됐거나 특정 출처에서 왔으면 cell_meta에 셀 단위로 기록하세요. values는 그대로 두고, 병렬로 다음을 채웁니다:
+   - "unit" — 그 셀 값의 단위(값에 단위가 이미 붙어 있지 않을 때). 예: "mmol/g".
+   - "condition" — 그 셀이 측정된 조건. 예: "at 303 K", "low pressure 0-10 kPa", "Table 4 range".
+   - "source_hint" — 그 셀이 어느 표/그림/절에서 왔는지. 예: "Table 3".
+   - **cell_meta는 values에 있는 열 이름을 키로 씁니다.** 정보가 없는 셀은 생략하세요.
 
 **출력 포맷 (JSON):**
 \`\`\`json
@@ -486,6 +526,7 @@ const EXTRACTION_AGENT_SYSTEM_PROMPT = `당신은 "Redou"라는 로컬 논문 �
   "data_rows": [
     {
       "values": { "Adsorbent": "Zeolite 13X", "T (K)": "303", "q_max (mmol/g)": "5.2", "K_L (kPa⁻¹)": null },
+      "cell_meta": { "q_max (mmol/g)": { "unit": "mmol/g", "condition": "at 303 K, full range", "source_hint": "Table 3" } },
       "confidence": "high",
       "source_hint": "Table 3"
     }
@@ -522,7 +563,7 @@ Return JSON using the same schema as the per-paper extraction agent.`;
  * @param {string} paperContext — assembled single-paper context (parsed matrices + OCR HTML + text chunks)
  * @param {string} paperTitle — the title of the paper being extracted from
  * @param {AbortSignal} [abortSignal]
- * @returns {Promise<{paper_title: string, data_rows: Array<{values: Record<string, string|null>, confidence?: string, source_hint?: string}>, notes?: string}>}
+ * @returns {Promise<{paper_title: string, data_rows: Array<{values: Record<string, string|null>, cell_meta?: Record<string, {unit?: string|null, condition?: string|null, source_hint?: string|null}|null>, confidence?: string, source_hint?: string}>, notes?: string}>}
  */
 export async function extractColumnsFromPaper(tableSpec, paperContext, paperTitle, abortSignal) {
   console.log(`[SRAG-DEBUG] Extracting for "${paperTitle?.slice(0, 40)}" with ${tableSpec.column_definitions?.length ?? 0} columns: ${JSON.stringify(tableSpec.column_definitions?.slice(0, 5))}`);
@@ -597,7 +638,7 @@ ${paperContext}`;
  * @param {string} paperContext
  * @param {string} paperTitle
  * @param {AbortSignal} [abortSignal]
- * @returns {Promise<{paper_title: string, data_rows: Array<{values: Record<string, string|null>, confidence?: string, source_hint?: string}>, notes?: string}>}
+ * @returns {Promise<{paper_title: string, data_rows: Array<{values: Record<string, string|null>, cell_meta?: Record<string, {unit?: string|null, condition?: string|null, source_hint?: string|null}|null>, confidence?: string, source_hint?: string}>, notes?: string}>}
  */
 export async function extractNullCellsFromPaper(tableSpec, nullColumns, paperContext, paperTitle, abortSignal) {
   const requestedColumns = [...new Set((nullColumns ?? []).map((col) => String(col || "").trim()).filter(Boolean))];

@@ -22,34 +22,34 @@ export function extractKeyTerms(text) {
 export function sanitizeColumnNames(columns) {
   if (!Array.isArray(columns)) return columns;
   const replacements = [
-    [/\u00B2/g, "2"],
-    [/\u00B3/g, "3"],
-    [/\u207B\u00B9/g, "-1"],
-    [/\u207B/g, "-"],
-    [/\u2070/g, "0"],
-    [/\u00B9/g, "1"],
-    [/\u2074/g, "4"],
-    [/\u2075/g, "5"],
-    [/\u2076/g, "6"],
-    [/\u2077/g, "7"],
-    [/\u2078/g, "8"],
-    [/\u2079/g, "9"],
-    [/\u2080/g, "0"],
-    [/\u2081/g, "1"],
-    [/\u2082/g, "2"],
-    [/\u2083/g, "3"],
-    [/\u2084/g, "4"],
-    [/\u00B0/g, "deg"],
-    [/\u00B1/g, "+-"],
-    [/\u00D7/g, "x"],
-    [/\u00B7/g, "."],
-    [/\u03B1/g, "alpha"],
-    [/\u03B2/g, "beta"],
-    [/\u03B3/g, "gamma"],
-    [/\u03B4/g, "delta"],
-    [/\u0394/g, "Delta"],
-    [/\u03BC/g, "mu"],
-    [/\u03C0/g, "pi"],
+    [/²/g, "2"],
+    [/³/g, "3"],
+    [/⁻¹/g, "-1"],
+    [/⁻/g, "-"],
+    [/⁰/g, "0"],
+    [/¹/g, "1"],
+    [/⁴/g, "4"],
+    [/⁵/g, "5"],
+    [/⁶/g, "6"],
+    [/⁷/g, "7"],
+    [/⁸/g, "8"],
+    [/⁹/g, "9"],
+    [/₀/g, "0"],
+    [/₁/g, "1"],
+    [/₂/g, "2"],
+    [/₃/g, "3"],
+    [/₄/g, "4"],
+    [/°/g, "deg"],
+    [/±/g, "+-"],
+    [/×/g, "x"],
+    [/·/g, "."],
+    [/α/g, "alpha"],
+    [/β/g, "beta"],
+    [/γ/g, "gamma"],
+    [/δ/g, "delta"],
+    [/Δ/g, "Delta"],
+    [/μ/g, "mu"],
+    [/π/g, "pi"],
   ];
   return columns.map((column) => {
     let value = String(column);
@@ -63,4 +63,69 @@ export function normalizeColumnKey(name) {
     .toLowerCase()
     .replace(/[\s_\-\(\)\[\]{}.,;:/\\]+/g, "")
     .trim();
+}
+
+// Phase 1 (table-semantics-hardening D4): the "N/A" sentinel a cell falls back to
+// when its raw value is rejected as a fragment. Exported so callers (merge) and
+// tests share a single source of truth.
+export const CELL_NA = "N/A";
+
+// Max plausible length for a single scientific table cell. Values longer than this
+// are almost always a leaked JSON blob / concatenated fragment, not a real datum.
+const MAX_CELL_LENGTH = 60;
+
+// Control characters (excluding normal whitespace \t\n\r) never appear in a
+// legitimate cell: \x00-\x08, \x0b-\x0c, \x0e-\x1f, \x7f.
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHAR_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/;
+
+/**
+ * Validate a raw cell value before it is written into the merged table (D4).
+ *
+ * The per-paper extraction LLM occasionally leaks JSON fragments into a cell —
+ * e.g. the E2E-observed `" uma T (K) : \"308.15\",  "` — which then render as a
+ * plausible-looking but wrong label. This gate blocks such fragments so the cell
+ * falls back to the "N/A" sentinel (and stays a Stage 3d recovery target) instead
+ * of surfacing a fabricated value.
+ *
+ * Blocks: embedded double-quotes / curly braces (JSON structure), `key : value`
+ * fragment signatures, control characters, and over-length blobs. Passes: pure
+ * numbers, numbers with units, reference tags like "5.05 [1]", model/material
+ * names, and the "N/A" sentinel.
+ *
+ * @param {unknown} raw
+ * @returns {{ ok: boolean, cleaned: string, reason?: string }}
+ */
+export function validateCellValue(raw) {
+  if (raw === null || raw === undefined) {
+    return { ok: true, cleaned: CELL_NA };
+  }
+  if (typeof raw !== "string") {
+    // Numbers/booleans coerced by the LLM — accept the string form.
+    return { ok: true, cleaned: String(raw) };
+  }
+
+  const trimmed = raw.trim();
+  if (trimmed === "" || trimmed === CELL_NA) {
+    return { ok: true, cleaned: CELL_NA };
+  }
+
+  if (CONTROL_CHAR_RE.test(trimmed)) {
+    return { ok: false, cleaned: CELL_NA, reason: "control_char" };
+  }
+  if (trimmed.length > MAX_CELL_LENGTH) {
+    return { ok: false, cleaned: CELL_NA, reason: "too_long" };
+  }
+  // JSON structural residue: a real cell never contains a double-quote or a brace.
+  if (/["{}]/.test(trimmed)) {
+    return { ok: false, cleaned: CELL_NA, reason: "json_fragment" };
+  }
+  // `key : value` fragment signature — text with a colon flanked by whitespace,
+  // then more content. Legit ratios like "1:2" or times like "12:30" have no
+  // spaces around the colon, so they pass.
+  if (/\s:\s|\s:|:\s/.test(trimmed) && /[a-zA-Z]/.test(trimmed)) {
+    return { ok: false, cleaned: CELL_NA, reason: "kv_fragment" };
+  }
+
+  return { ok: true, cleaned: trimmed };
 }

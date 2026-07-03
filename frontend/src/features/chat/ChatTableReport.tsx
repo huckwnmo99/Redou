@@ -1,6 +1,12 @@
 import type { CSSProperties } from "react";
-import { Table2, ShieldCheck, ShieldAlert, Download, Info } from "lucide-react";
-import type { ChatGeneratedTable, CellVerification, PerPaperReason } from "@/types/chat";
+import { Table2, ShieldCheck, ShieldAlert, Download, Info, AlertTriangle } from "lucide-react";
+import type {
+  ChatGeneratedTable,
+  CellVerification,
+  PerPaperReason,
+  CellTuple,
+  ConditionConflict,
+} from "@/types/chat";
 import { localeText } from "@/lib/locale";
 import { useUIStore } from "@/stores/uiStore";
 import { useExportChatCsv } from "@/lib/chatQueries";
@@ -30,6 +36,32 @@ function getCellVerification(
 ): CellVerification | undefined {
   if (!verification) return undefined;
   return verification.find((v) => v.row === row && v.col === col);
+}
+
+/** Read a cell tuple from the 2D metadata array, tolerant of ragged/absent data. */
+function getCellTuple(
+  cellTuples: (CellTuple | null)[][] | null | undefined,
+  row: number,
+  col: number,
+): CellTuple | null {
+  if (!Array.isArray(cellTuples)) return null;
+  const r = cellTuples[row];
+  if (!Array.isArray(r)) return null;
+  return r[col] ?? null;
+}
+
+/**
+ * Build the hover title for a cell (Phase 1 D1/D3): surfaces unit, measurement
+ * condition, and source provenance without changing the visible scalar cell.
+ * Falls back to the verification title when there is no tuple info.
+ */
+function buildCellTitle(tuple: CellTuple | null, verificationTitle: string | undefined): string | undefined {
+  const parts: string[] = [];
+  if (tuple?.unit) parts.push(`Unit: ${tuple.unit}`);
+  if (tuple?.condition) parts.push(`Condition: ${tuple.condition}`);
+  if (tuple?.source_hint) parts.push(`Source: ${tuple.source_hint}`);
+  if (parts.length === 0) return verificationTitle;
+  return verificationTitle ? `${parts.join(" · ")}\n${verificationTitle}` : parts.join(" · ");
 }
 
 /** Verification cell background — takes priority over zebra striping when present. */
@@ -68,6 +100,18 @@ export function ChatTableReport({ table }: ChatTableReportProps) {
   const missingDataReasons: PerPaperReason[] = Array.isArray(table.metadata?.perPaperReasons)
     ? table.metadata.perPaperReasons.filter((r) => r && r.hadRows === false)
     : [];
+
+  // Phase 1 (table-semantics-hardening): per-cell tuples (hover-only, D1/D3) and
+  // condition conflicts (header warning, D1). Both are additive metadata; the visible
+  // table body is unchanged. Absent on older tables / the single-call fallback path.
+  const cellTuples = Array.isArray(table.metadata?.cellTuples) ? table.metadata.cellTuples : null;
+  const conditionConflicts: ConditionConflict[] = Array.isArray(table.metadata?.conditionConflicts)
+    ? table.metadata.conditionConflicts
+    : [];
+  const conflictByColumnIndex = new Map<number, ConditionConflict>();
+  for (const conflict of conditionConflicts) {
+    if (conflict && typeof conflict.columnIndex === "number") conflictByColumnIndex.set(conflict.columnIndex, conflict);
+  }
 
   return (
     <div
@@ -165,23 +209,37 @@ export function ChatTableReport({ table }: ChatTableReportProps) {
         >
           <thead>
             <tr>
-              {headers.map((h, i) => (
-                <th
-                  key={i}
-                  style={{
-                    padding: "8px 12px",
-                    textAlign: "left",
-                    fontWeight: 700,
-                    fontSize: 11,
-                    color: "var(--color-text-secondary)",
-                    borderBottom: "1px solid var(--color-border-subtle)",
-                    background: "var(--color-bg-surface)",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {h}
-                </th>
-              ))}
+              {headers.map((h, i) => {
+                const conflict = conflictByColumnIndex.get(i);
+                return (
+                  <th
+                    key={i}
+                    title={conflict
+                      ? t(
+                          `Mixed measurement conditions in this column: ${conflict.conditions.join("; ")}`,
+                          `이 열에 서로 다른 측정 조건이 혼재합니다: ${conflict.conditions.join("; ")}`,
+                        )
+                      : undefined}
+                    style={{
+                      padding: "8px 12px",
+                      textAlign: "left",
+                      fontWeight: 700,
+                      fontSize: 11,
+                      color: "var(--color-text-secondary)",
+                      borderBottom: "1px solid var(--color-border-subtle)",
+                      background: "var(--color-bg-surface)",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      {h}
+                      {conflict ? (
+                        <AlertTriangle size={11} color="var(--color-warning, #d97706)" style={{ flexShrink: 0 }} />
+                      ) : null}
+                    </span>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -191,10 +249,12 @@ export function ChatTableReport({ table }: ChatTableReportProps) {
                 <tr key={ri}>
                   {row.map((cell, ci) => {
                     const v = getCellVerification(table.verification, ri, ci);
+                    const verificationTitle = v ? `${v.status}${v.evidence ? ": " + v.evidence : ""}` : undefined;
+                    const tuple = getCellTuple(cellTuples, ri, ci);
                     return (
                       <td
                         key={ci}
-                        title={v ? `${v.status}${v.evidence ? ": " + v.evidence : ""}` : undefined}
+                        title={buildCellTitle(tuple, verificationTitle)}
                         style={{
                           padding: "8px 12px",
                           borderBottom: isLastRow ? "none" : "1px solid var(--color-border-subtle)",

@@ -82,6 +82,36 @@ export interface PartialExtractionFailure {
 }
 
 /**
+ * Per-cell tuple metadata (Phase 1, table-semantics-hardening D1/D3), stored in
+ * `chat_generated_tables.metadata.cellTuples[rowIndex][colIndex]`. Additive to the
+ * scalar `rows`; a cell with no extra info is `null`. Absent entirely on the
+ * single-call fallback path (no per-cell extraction).
+ */
+export interface CellTuple {
+  /** Unit for the cell value when not already embedded in the value string. */
+  unit?: string;
+  /** Measurement condition the value was taken under (e.g. "at 293 K"). */
+  condition?: string;
+  /** Which table/figure/section the value came from (e.g. "Table 3"). */
+  source_hint?: string;
+  /** Extraction confidence ("high" | "medium" | "low"). */
+  confidence?: string;
+}
+
+/**
+ * A merged parameter column that carries cells measured under two or more different
+ * conditions without a distinguishing column (D1). Reported, not auto-split.
+ */
+export interface ConditionConflict {
+  column: string;
+  columnIndex: number;
+  conditions: string[];
+}
+
+/** Column semantic type (Phase 1 D2). Index-aligned to the table headers. */
+export type ColumnSemanticType = "parameter" | "raw_data" | "condition";
+
+/**
  * Contents of `chat_generated_tables.metadata` (JSONB). Only the fields consumed
  * by the renderer are typed here; the column may hold additional diagnostic keys.
  */
@@ -89,6 +119,12 @@ export interface ChatTableMetadata {
   extractionMode?: string;
   perPaperReasons?: PerPaperReason[];
   partialFailures?: PartialExtractionFailure[];
+  /** Per-cell tuples parallel to `rows` (Phase 1 D1/D3). null cells / null on fallback. */
+  cellTuples?: (CellTuple | null)[][] | null;
+  /** Column semantic types index-aligned to `headers` (Phase 1 D2). */
+  columnSemanticTypes?: (ColumnSemanticType | string | null)[] | null;
+  /** Columns where differently-conditioned data was merged (Phase 1 D1). */
+  conditionConflicts?: ConditionConflict[];
   [key: string]: unknown;
 }
 

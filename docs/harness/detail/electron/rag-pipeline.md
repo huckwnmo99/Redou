@@ -1,5 +1,5 @@
 # RAG 파이프라인
-> 하네스 버전: v1.1 | 최종 갱신: 2026-05-27
+> 하네스 버전: v1.2 | 최종 갱신: 2026-07-03
 
 ## 개요
 채팅(테이블 생성/Q&A) 시 관련 논문 데이터를 검색하는 Hybrid Search + RRF Fusion + Reranker 파이프라인. 검색 결과를 LLM 컨텍스트로 조립한다.
@@ -21,7 +21,10 @@
 | `rerankChunksIfAvailable(query, chunks, mode)` | main.mjs:2804 | Reranker 적용 | table: top-15, qa: top-10 |
 | `assembleRagContext(chunks, figures, refMap, matrices, budget?)` | chat/table-extraction.mjs | 전체 RAG 컨텍스트 조립 | → string (3섹션: 파싱TSV + OCR HTML + 텍스트). `budget?={ocr,matrix,total}` 미지정 시 기본(OCR 70K/MATRIX 35K/TOTAL 120K). Stage 3c fallback만 `FALLBACK_RAG_BUDGET`(OCR 30K/MATRIX 20K/TOTAL 60K) 전달 |
 | `assemblePerPaperContext({chunks, figures, tables, title})` | main.mjs:3027 | 논문별 RAG 컨텍스트 (SRAG용) | 예산: 30K chars/논문 |
-| `mergeExtractionResults(results, spec, meta, refMap)` | chat/table-extraction.mjs | SRAG 병합 (코드 전용) | → {tableJson, nullSummary, reasons}. 데이터 0행 스코프 논문은 전 셀 N/A placeholder 행 생성(+`usedPaperIds` 등록 → references 포함). `reasons[{paperId,paperTitle,refNo,hadRows,failed,note}]`=per-paper `extraction.notes`(없으면 기본 사유) (fix 19) |
+| `mergeExtractionResults(results, spec, meta, refMap)` | chat/table-extraction.mjs | SRAG 병합 (코드 전용) | → **{tableJson, nullSummary, reasons, cellTuples, columnSemanticTypes, conditionConflicts}**. 데이터 0행 스코프 논문은 전 셀 N/A placeholder 행 생성(+`usedPaperIds` 등록 → references 포함). `reasons[…]`=per-paper `extraction.notes`(fix 19). **Phase 1**(table-semantics-hardening): 셀 채우기 직전 `validateCellValue` 적용(파편→N/A, D4) + `cellTuples[r][c]`(unit/condition/source_hint, D1/D3, rows와 정렬·placeholder null) + `columnSemanticTypes`(spec 병렬 배열, D2) + `conditionConflicts`(`detectConditionConflicts`: parameter 열 상이 condition 2종+, D1) |
+| `detectConditionConflicts(cellTuples, headers, semanticTypes)` | chat/table-extraction.mjs | 조건 충돌 감지 (Phase 1 D1) | parameter 열(raw_data/condition 스킵)에서 정규화 후 상이 condition 2종+ → `[{column, columnIndex, conditions[]}]` |
+| `validateCellValue(raw)` | chat/extraction-utils.mjs | 셀 파편 차단 (Phase 1 D4) | → `{ok, cleaned, reason?}`. `"{}`·`key : value`·제어문자·>60자 차단→`CELL_NA`. E2E 파편 `" uma T (K) : \"308.15\", "` 고정 차단 |
+| `detectAdsorptionDomain / normalizeAdsorptionUnit / buildAdsorptionPromptHint` | chat/adsorption-domain.mjs | 흡착 도메인 사전 (Phase 1 D2, 신규 모듈) | 시그널 ≥2 감지 시에만 AIF 규칙 프롬프트 주입(비흡착 무동작). NIST AIF 파라미터/원시점 분리 + 단위 정규화 |
 | `runPaperScopedRecoverySearch(queries, paperId, signal)` | main.mjs | Stage 3d 단일 논문 재검색 | → {chunks, figures} |
 | `runAgenticNullRecovery(args)` | main.mjs | Stage 3d NULL 복구 오케스트레이션 | → {tableJson, nullSummary, agenticRecovery} |
 
@@ -56,13 +59,15 @@ searchQueries[] (Orchestrator 출력)
       │
       ├─ [Table 모드 SRAG] assemblePerPaperContext × N논문
       │   ├─ 논문당 30K chars (TSV 12K + OCR 14K + 텍스트 나머지)
+      │   ├─ (Phase 1) 흡착 도메인 감지 시 buildAdsorptionPromptHint를 컨텍스트 뒤에 append(비흡착 무동작, D2)
       │   └─ extractColumnsFromPaper 논문당 hard timeout = PER_PAPER_TIMEOUT_MS (env REDOU_PER_PAPER_TIMEOUT_MS, 기본 240초, fix 20)
       │       └─ 내부 ollamaSignal 300초보다 작게 유지(권장 상한 300초). 느린 모델(gemma4 등) 60초 미완료 → 빈 테이블 방지
       │
-      ├─ [Table 모드 Stage 3c 병합] mergeExtractionResults (fix 19)
+      ├─ [Table 모드 Stage 3c 병합] mergeExtractionResults (fix 19 + Phase 1)
       │   ├─ 데이터 0행 스코프 논문 → 전 셀 N/A placeholder 행 + references 포함 (빈-바디 테이블 방지)
       │   ├─ placeholder는 50% N/A 폐기 규칙 우회 + nullSummary 미기록(Stage 3d 재검색 대상 제외)
-      │   └─ reasons[] = per-paper 사유 → Stage 3c 반환 → persistTableReport가 metadata.perPaperReasons로 저장
+      │   ├─ (Phase 1) validateCellValue로 파편 셀 차단→N/A(D4) + cellTuples/columnSemanticTypes/conditionConflicts 수집(D1/D2/D3)
+      │   └─ reasons[]·cellTuples·conditionConflicts → Stage 3c 반환 → persistTableReport가 metadata에 저장
       │
       ├─ [Table 모드 Stage 3c fallback] per-paper 병합이 0행이면 단일호출 Table Agent
       │   │   (fix 19로 placeholder가 항상 행을 채워 이 경로 진입은 per-paper 추출 전부 실패 시로 한정)
