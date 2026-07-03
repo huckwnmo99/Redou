@@ -540,6 +540,11 @@ describe("runTableConversationPipeline", () => {
     assert.equal(tableInsert.data.metadata.agenticRecovery.skippedReason, "gate_not_met");
     assert.equal(tableInsert.data.metadata.tableSpecAdherence, null);
     assert.deepEqual(tableInsert.data.metadata.sourceEvidenceLocations, { "paper-1": ["Main PDF p.7"] });
+    // Phase 1: cellTuples reach metadata (aligned with rows, null when no cell_meta);
+    // no column_semantic_types on this spec -> null; no conditions -> no conflicts.
+    assert.deepEqual(tableInsert.data.metadata.cellTuples, [[null]]);
+    assert.equal(tableInsert.data.metadata.columnSemanticTypes, null);
+    assert.deepEqual(tableInsert.data.metadata.conditionConflicts, []);
 
     assert.equal(updates.some((entry) => entry.table === "chat_conversations" && entry.data.phase === "follow_up"), true);
     assert.equal(
@@ -858,6 +863,74 @@ describe("runTableConversationPipeline", () => {
     assert.equal(noData.note, "no fitted isotherm model parameters reported");
   });
 
+  // Phase 1 (table-semantics-hardening D1/D2/D3): per-cell tuples, column semantic
+  // types, and condition conflicts flow merge -> Stage 3c -> persist into metadata.
+  it("persists cell tuples, column semantic types, and condition conflicts into metadata", async () => {
+    const { supabase, inserts } = createRecordingSupabase({
+      papers: [{ id: "paper-1", title: "Isotherm Paper", authors: [], publication_year: 2026 }],
+      figures: () => [],
+    });
+
+    const result = await runTableConversationPipeline({
+      supabase,
+      emitStatus: () => {},
+      abortSignal: new AbortController().signal,
+      conversationId: "conv-tuples",
+      ownerId: "user-1",
+      ownerPaperIds: ["paper-1"],
+      history: [{ role: "user", content: "compare q_max", message_type: "text" }],
+      generateOrchestratorPlanFn: async () => ({
+        action: "generate_table",
+        keyword_hints: ["q_max"],
+        search_queries: [{ query: "q_max isotherm", intent: "primary" }],
+        table_spec: {
+          title: "Isotherm",
+          row_axis: "Papers",
+          column_definitions: ["Adsorbent", "q_max"],
+          column_semantic_types: ["condition", "parameter"],
+        },
+      }),
+      runMultiQueryRagFn: async () => ({
+        chunks: [{ chunk_id: "chunk-1", paper_id: "paper-1", text: "isotherm evidence", page: 3 }],
+        figures: [],
+      }),
+      extractColumnsFromPaperFn: async (_tableSpec, _ctx, paperTitle) => ({
+        paper_title: paperTitle,
+        data_rows: [
+          {
+            values: { Adsorbent: "Zeolite", q_max: "5.2" },
+            cell_meta: { q_max: { unit: "mmol/g", condition: "full range 293 K", source_hint: "Table 3" } },
+          },
+          {
+            values: { Adsorbent: "Zeolite", q_max: "3.1" },
+            cell_meta: { q_max: { condition: "low pressure", source_hint: "Table 4" } },
+          },
+        ],
+      }),
+      ...createStage3cDeps(),
+    });
+
+    assert.equal(result.hasTable, true);
+    const tableInsert = inserts.find((entry) => entry.table === "chat_generated_tables");
+    assert.equal(tableInsert.data.metadata.extractionMode, "per_paper");
+    // Semantic types preserved index-aligned to headers.
+    assert.deepEqual(tableInsert.data.metadata.columnSemanticTypes, ["condition", "parameter"]);
+    // Cell tuples aligned with rows; q_max tuple carries unit/condition/source_hint.
+    assert.equal(tableInsert.data.metadata.cellTuples.length, tableInsert.data.rows.length);
+    assert.deepEqual(tableInsert.data.metadata.cellTuples[0][1], {
+      unit: "mmol/g",
+      condition: "full range 293 K",
+      source_hint: "Table 3",
+    });
+    // Two different conditions on the parameter column -> one condition conflict.
+    assert.equal(tableInsert.data.metadata.conditionConflicts.length, 1);
+    assert.equal(tableInsert.data.metadata.conditionConflicts[0].column, "q_max");
+    assert.deepEqual(tableInsert.data.metadata.conditionConflicts[0].conditions, [
+      "full range 293 K",
+      "low pressure",
+    ]);
+  });
+
   it("merges per-paper extraction results before shell continuation", async () => {
     const { supabase, inserts } = createRecordingSupabase({
       papers: [{ id: "paper-1", title: "Merge Paper", authors: [], publication_year: 2026 }],
@@ -1031,6 +1104,10 @@ describe("runTableConversationPipeline", () => {
     assert.deepEqual(tableInsert.data.metadata.tableSpecAdherence.requestedHeaders, ["Outcome"]);
     assert.deepEqual(tableInsert.data.headers, ["Outcome"]);
     assert.deepEqual(tableInsert.data.rows, [["Recovered"]]);
+    // Phase 1 (R-5): the single-call fallback path has no per-cell extraction, so
+    // cellTuples stays null and no conflicts are reported (scalar-only path).
+    assert.equal(tableInsert.data.metadata.cellTuples, null);
+    assert.deepEqual(tableInsert.data.metadata.conditionConflicts, []);
   });
 
   // P0-A regression (fix 18): single-call fallback timeout must NOT crash the

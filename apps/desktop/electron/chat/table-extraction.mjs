@@ -1,4 +1,4 @@
-import { normalizeColumnKey } from "./extraction-utils.mjs";
+import { CELL_NA, normalizeColumnKey, validateCellValue } from "./extraction-utils.mjs";
 import { formatEvidenceLocation } from "./source-evidence.mjs";
 
 const OCR_BUDGET = 70000;
@@ -219,11 +219,82 @@ export function normalizeFallbackTableToSpec(tableJson, tableSpec) {
   };
 }
 
+// Phase 1 (table-semantics-hardening D1): normalize a per-cell condition string so
+// that trivially different spellings ("at 293 K" vs "293K") are treated as equal and
+// do not raise a false conflict.
+function normalizeConditionKey(condition) {
+  return String(condition ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[.,;]+/g, "")
+    .trim();
+}
+
+/**
+ * Detect condition conflicts within a single column (D1). A conflict is when the same
+ * "parameter" column carries cells measured under two or more *different* non-empty
+ * conditions — i.e. differently-conditioned parameter sets were merged into one column
+ * without a distinguishing column. We report (not auto-split, per assumption D) so the
+ * caller can annotate the table and the renderer can flag the header.
+ *
+ * Only "parameter" columns are checked (raw_data columns legitimately vary per point;
+ * condition/identity columns ARE the conditions). When semanticTypes is absent, every
+ * column is checked (fail-soft — better a heads-up than silence).
+ *
+ * @param {Array<Array<{condition?: string}|null>>} cellTuples — [rowIndex][colIndex]
+ * @param {string[]} headers
+ * @param {string[]} [semanticTypes] — index-aligned "parameter"|"raw_data"|"condition"
+ * @returns {Array<{ column: string, columnIndex: number, conditions: string[] }>}
+ */
+export function detectConditionConflicts(cellTuples, headers, semanticTypes) {
+  const conflicts = [];
+  if (!Array.isArray(cellTuples) || cellTuples.length === 0 || !Array.isArray(headers)) {
+    return conflicts;
+  }
+  const types = Array.isArray(semanticTypes) ? semanticTypes : [];
+
+  for (let ci = 0; ci < headers.length; ci++) {
+    const semanticType = types[ci];
+    // Skip raw_data (varies per point by design) and condition columns (they are
+    // the conditions). Unknown/undefined type is still checked (fail-soft).
+    if (semanticType === "raw_data" || semanticType === "condition") continue;
+
+    const seen = new Map(); // normalized key -> original display string
+    for (let ri = 0; ri < cellTuples.length; ri++) {
+      const tuple = cellTuples[ri]?.[ci];
+      const condition = tuple && typeof tuple.condition === "string" ? tuple.condition.trim() : "";
+      if (!condition) continue;
+      const key = normalizeConditionKey(condition);
+      if (key && !seen.has(key)) seen.set(key, condition);
+    }
+
+    if (seen.size >= 2) {
+      conflicts.push({
+        column: headers[ci],
+        columnIndex: ci,
+        conditions: [...seen.values()],
+      });
+    }
+  }
+
+  return conflicts;
+}
+
 export function mergeExtractionResults(extractionResults, tableSpec, paperMetadata, paperRefMap) {
   const headers = Array.isArray(tableSpec.column_definitions) ? tableSpec.column_definitions.slice() : [];
   const normalizedHeaders = headers.map((h) => normalizeColumnKey(h));
+  // Phase 1: index-aligned column semantic types from the orchestrator spec (may be
+  // absent on older specs / the fallback path). Trimmed to header length so a stray
+  // extra/short array never misaligns downstream conflict detection.
+  const columnSemanticTypes = Array.isArray(tableSpec.column_semantic_types)
+    ? headers.map((_, ci) => tableSpec.column_semantic_types[ci] ?? null)
+    : null;
 
   const rows = [];
+  // Phase 1 (D1/D3): per-cell tuple metadata parallel to `rows`. cellTuples[r][c] is
+  // { unit?, condition?, source_hint?, confidence? } or null. Placeholder rows push a
+  // row of nulls to stay aligned with `rows`.
+  const cellTuples = [];
   const nullDetails = [];
   const usedPaperIds = new Set();
   // Per-paper extraction notes, indexed by paperId, so we can surface "why a
@@ -252,17 +323,51 @@ export function mergeExtractionResults(extractionResults, tableSpec, paperMetada
       for (const [k, v] of Object.entries(values)) {
         normalizedValues.set(normalizeColumnKey(k), v);
       }
+      // Phase 1: per-cell metadata (unit/condition/source_hint) keyed by normalized
+      // column name. Optional and additive — absent on legacy extractions.
+      const cellMeta = dataRow?.cell_meta && typeof dataRow.cell_meta === "object" ? dataRow.cell_meta : null;
+      const normalizedMeta = new Map();
+      if (cellMeta) {
+        for (const [k, v] of Object.entries(cellMeta)) {
+          if (v && typeof v === "object") normalizedMeta.set(normalizeColumnKey(k), v);
+        }
+      }
+      // Row-level source_hint applies to any cell lacking its own (D3 provenance).
+      const rowSourceHint = typeof dataRow?.source_hint === "string" && dataRow.source_hint.trim()
+        ? dataRow.source_hint.trim()
+        : null;
+      const rowConfidence = typeof dataRow?.confidence === "string" ? dataRow.confidence : null;
 
       const row = [];
+      const rowTuples = [];
       const perRowNullColumns = [];
       for (let ci = 0; ci < headers.length; ci++) {
         const col = headers[ci];
         const nKey = normalizedHeaders[ci];
-        const raw = normalizedValues.has(nKey) ? normalizedValues.get(nKey) : undefined;
+        const rawValue = normalizedValues.has(nKey) ? normalizedValues.get(nKey) : undefined;
         totalCells++;
 
-        if (raw === null || raw === undefined || raw === "" || raw === "N/A") {
-          row.push("N/A");
+        // D4: block leaked JSON fragments / control chars / over-length blobs before
+        // they reach the cell. Rejected values collapse to the N/A sentinel (and stay
+        // Stage 3d recovery targets).
+        const validation = validateCellValue(rawValue);
+        const raw = validation.ok ? rawValue : null;
+
+        // D1/D3: collect the per-cell tuple regardless of null-ness (a condition on a
+        // null cell is still meaningful for conflict detection / provenance).
+        const meta = normalizedMeta.get(nKey);
+        const tuple = {};
+        if (meta && typeof meta.unit === "string" && meta.unit.trim()) tuple.unit = meta.unit.trim();
+        if (meta && typeof meta.condition === "string" && meta.condition.trim()) tuple.condition = meta.condition.trim();
+        const cellSourceHint = (meta && typeof meta.source_hint === "string" && meta.source_hint.trim())
+          ? meta.source_hint.trim()
+          : rowSourceHint;
+        if (cellSourceHint) tuple.source_hint = cellSourceHint;
+        if (rowConfidence) tuple.confidence = rowConfidence;
+        rowTuples.push(Object.keys(tuple).length > 0 ? tuple : null);
+
+        if (raw === null || raw === undefined || raw === "" || raw === CELL_NA) {
+          row.push(CELL_NA);
           perRowNullColumns.push({ column: col, columnIndex: ci });
           totalNulls++;
         } else {
@@ -279,6 +384,7 @@ export function mergeExtractionResults(extractionResults, tableSpec, paperMetada
       }
 
       rows.push(row);
+      cellTuples.push(rowTuples);
       usedPaperIds.add(result.paperId);
 
       const outRowIndex = rows.length - 1;
@@ -319,8 +425,10 @@ export function mergeExtractionResults(extractionResults, tableSpec, paperMetada
       // Recovery treats it as a deliberately empty row and does not re-search
       // a paper already judged to have no data, and so the NULL ratio gate for
       // real data rows is not skewed by placeholders.
-      const row = headers.map(() => "N/A");
+      const row = headers.map(() => CELL_NA);
       rows.push(row);
+      // Keep cellTuples aligned with rows: placeholder rows carry no tuple info.
+      cellTuples.push(headers.map(() => null));
       usedPaperIds.add(p.paperId);
     }
 
@@ -372,9 +480,13 @@ export function mergeExtractionResults(extractionResults, tableSpec, paperMetada
     details: nullDetails,
   };
 
+  // Phase 1 (D1): flag columns where differently-conditioned parameter sets were
+  // merged without a distinguishing column. Reported (not auto-split) per assumption D.
+  const conditionConflicts = detectConditionConflicts(cellTuples, headers, columnSemanticTypes);
+
   console.log(
-    `[Chat/Merge] rows=${rows.length}, cells=${totalCells}, nulls=${totalNulls}, droppedRows=${droppedRowCount}, missingPapers=${missingCount}`,
+    `[Chat/Merge] rows=${rows.length}, cells=${totalCells}, nulls=${totalNulls}, droppedRows=${droppedRowCount}, missingPapers=${missingCount}, conditionConflicts=${conditionConflicts.length}`,
   );
 
-  return { tableJson, nullSummary, reasons };
+  return { tableJson, nullSummary, reasons, cellTuples, columnSemanticTypes, conditionConflicts };
 }

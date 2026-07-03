@@ -13,6 +13,7 @@ import {
   shouldTriggerAgenticRecovery,
   uniqueStrings,
 } from "./agentic-null-recovery.mjs";
+import { buildAdsorptionPromptHint } from "./adsorption-domain.mjs";
 import { sanitizeColumnNames } from "./extraction-utils.mjs";
 import {
   buildEvidenceLocationsByPaper,
@@ -439,6 +440,12 @@ async function runPerPaperExtraction({
 
   const columnDefs = Array.isArray(tableSpec.column_definitions) ? tableSpec.column_definitions : [];
   console.log(`[SRAG-DEBUG] columnDefs: ${JSON.stringify(columnDefs)}`);
+  // Phase 1 (table-semantics-hardening D2): adsorption-domain gate. Detected once from
+  // the (fixed) table spec; when present, an AIF parameter/raw-data separation rule is
+  // appended to each per-paper extraction prompt. Empty string (no effect) otherwise,
+  // so non-adsorption papers are completely unchanged (range guard R-4).
+  const adsorptionHint = buildAdsorptionPromptHint(tableSpec);
+  if (adsorptionHint) console.log("[Chat] Stage 3b: adsorption domain detected -> injecting AIF extraction rules");
   const parsedTablesByPaper = new Map(parsedMatrices.map((pm) => [pm.paperId, pm.tables]));
 
   const extractionResults = [];
@@ -480,6 +487,9 @@ async function runPerPaperExtraction({
         continue;
       }
 
+      // Append the domain rule (empty string when not adsorption -> no-op).
+      const extractionContextText = paperContext + adsorptionHint;
+
       const t0 = Date.now();
       try {
         const timeoutController = new AbortController();
@@ -491,7 +501,7 @@ async function runPerPaperExtraction({
         try {
           extraction = await extractColumnsFromPaperFn(
             tableSpec,
-            paperContext,
+            extractionContextText,
             pMeta.title,
             timeoutController.signal,
           );
@@ -568,6 +578,14 @@ async function runStage3cMergeFallback({
   // the user via chat_generated_tables.metadata.perPaperReasons. The single-call
   // fallback path has no per-paper breakdown, so it stays an empty array there.
   let perPaperReasons = [];
+  // Phase 1 (table-semantics-hardening D1/D2/D3): per-cell tuples, column semantic
+  // types, and condition conflicts collected by the merge. The single-call fallback
+  // path has no per-cell extraction, so these stay null/empty there (documented R-5).
+  let cellTuples = null;
+  let columnSemanticTypes = Array.isArray(tableSpec?.column_semantic_types)
+    ? tableSpec.column_semantic_types
+    : null;
+  let conditionConflicts = [];
   // Preserve the per-paper merge result so that, if the single-call fallback
   // throws (e.g. DOMException TimeoutError), we can still salvage partial rows
   // instead of crashing the whole pipeline. Stays null when fallback was forced
@@ -581,6 +599,9 @@ async function runStage3cMergeFallback({
     mergedTableJson = merged.tableJson;
     nullSummary = merged.nullSummary;
     perPaperReasons = merged.reasons ?? [];
+    cellTuples = merged.cellTuples ?? null;
+    columnSemanticTypes = merged.columnSemanticTypes ?? columnSemanticTypes;
+    conditionConflicts = merged.conditionConflicts ?? [];
     extractionMode = "per_paper";
 
     if (!tableJson.rows || tableJson.rows.length === 0) {
@@ -643,6 +664,9 @@ async function runStage3cMergeFallback({
     agenticRecovery,
     tableSpecAdherence,
     perPaperReasons,
+    cellTuples,
+    columnSemanticTypes,
+    conditionConflicts,
     extractionFallbackNeeded,
   };
 }
@@ -913,6 +937,9 @@ async function persistTableReport({
   agenticRecovery,
   tableSpecAdherence,
   perPaperReasons,
+  cellTuples,
+  columnSemanticTypes,
+  conditionConflicts,
   abortSignal,
   emitComplete,
   unwrapSingleFn,
@@ -934,6 +961,13 @@ async function persistTableReport({
     // "no data found" section explaining why each empty-row paper produced no
     // data. Empty array on the single-call fallback path (no per-paper breakdown).
     perPaperReasons: Array.isArray(perPaperReasons) ? perPaperReasons : [],
+    // Phase 1 (table-semantics-hardening): per-cell tuples (unit/condition/source_hint,
+    // D1/D3), index-aligned column semantic types (D2), and condition conflicts (D1).
+    // Stored in the existing metadata JSONB (no DB migration). Null/empty on the
+    // single-call fallback path (no per-cell extraction).
+    cellTuples: Array.isArray(cellTuples) ? cellTuples : null,
+    columnSemanticTypes: Array.isArray(columnSemanticTypes) ? columnSemanticTypes : null,
+    conditionConflicts: Array.isArray(conditionConflicts) ? conditionConflicts : [],
     nullSummary,
     agenticRecovery,
     tableSpecAdherence,
@@ -1235,6 +1269,9 @@ export async function runTableConversationPipeline({
     agenticRecovery: stage3dContext.agenticRecovery,
     tableSpecAdherence: stage3cContext.tableSpecAdherence,
     perPaperReasons: stage3dContext.perPaperReasons,
+    cellTuples: stage3dContext.cellTuples,
+    columnSemanticTypes: stage3dContext.columnSemanticTypes,
+    conditionConflicts: stage3dContext.conditionConflicts,
     abortSignal,
     emitComplete,
     unwrapSingleFn,

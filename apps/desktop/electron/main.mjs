@@ -1172,21 +1172,40 @@ async function processImportPdfJob(job) {
     console.warn(`[process] Empty-table OCR fallback failed (non-fatal):`, ocrErr.message);
   }
 
-  // Mark job succeeded
+  // Audit A-R6 (pipeline-risk-audit): a 0-chunk extraction (scanned/empty PDF) would
+  // otherwise finish "succeeded" with no embedding job queued and no visible signal —
+  // a silent failure where search/chat quietly never work. Surface it as a warning on
+  // the succeeded job (reusing the existing error_message field + JOB_PROGRESS channel,
+  // no new IPC). Core "Complete" judgement (paperSignals.ts) is intentionally unchanged
+  // here (assumption F — warning-only; a status change is a separate escalation).
+  const noTextExtracted = !(extractionResult.chunkCount > 0);
+  const zeroChunkWarning = noTextExtracted
+    ? "텍스트 추출 0청크 (스캔본/빈 PDF 의심). 임베딩이 생성되지 않아 검색·채팅이 동작하지 않습니다."
+    : null;
+
+  // Mark job succeeded (with the warning attached when 0 chunks).
   await updateJobStatus(job.id, {
     status: "succeeded",
     finished_at: new Date().toISOString(),
-    error_message: null,
+    error_message: zeroChunkWarning,
   });
+
+  if (zeroChunkWarning) {
+    console.warn(`[process] A-R6: ${zeroChunkWarning} (paper ${job.paper_id})`);
+    broadcastToWindows(IPC_EVENTS.JOB_PROGRESS, {
+      jobId: job.id, paperId: job.paper_id, status: "running",
+      progress: 100, message: `⚠ ${zeroChunkWarning}`,
+    });
+  }
 
   broadcastToWindows(IPC_EVENTS.JOB_COMPLETED, {
     jobId: job.id,
     paperId: job.paper_id,
-    result: { paperId: job.paper_id, status: "succeeded", ...extractionResult },
+    result: { paperId: job.paper_id, status: "succeeded", ...extractionResult, warning: zeroChunkWarning },
   });
 
-  // Queue embedding generation
-  if (extractionResult.chunkCount > 0) {
+  // Queue embedding generation (only when there is text to embed).
+  if (!noTextExtracted) {
     await supabase.from("processing_jobs").insert({
       paper_id: job.paper_id,
       user_id: job.user_id,
