@@ -38,7 +38,7 @@ V2/
 | Supabase | 55321 | PostgreSQL + pgvector, Auth | `psql` 접속 |
 | vLLM | 8100 | 임베딩 생성 (VL 모델) | `GET /health` |
 | Ollama | 11434 | LLM 채팅, GLM-OCR, Guardian | `GET /api/tags` |
-| MinerU | 8001 | PDF 구조화 변환 | `GET /predict` (with timeout) |
+| MinerU | 8001 | PDF 구조화 변환 (3.4.2) | `GET /docs` (200) |
 | UniMERNet | 8010 | 수식 이미지 → LaTeX | `POST /predict` |
 | GROBID | 8070 | PDF → TEI XML (메타데이터+참고문헌) | `GET /api/isalive` |
 
