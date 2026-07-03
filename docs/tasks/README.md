@@ -67,6 +67,8 @@ docs/tasks/<work-slug>/
 
 - `read-only-improvement-advisor/` — 기능 개발 ledger (planned/completed/archive 풀 구조 예시).
 - `docs-cleanup/` — 문서 재편 ledger (Phase별 슬라이스 예시).
+- `pdf-zoom-app-wide-leak/` — PDF 줌이 앱 UI 전체로 새는 버그 fix ledger (소규모, 계획 작성 완료).
+- `pipeline-risk-audit/` — 핵심 파이프라인(임포트→임베딩→RAG→채팅) 위험 감사 ledger (발견 28건, 수정 승격 대기).
 
 ## 멈출 때 체크 (다음 세션을 위해)
 

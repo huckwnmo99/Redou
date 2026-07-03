@@ -210,6 +210,39 @@ function resolveRendererTarget() {
   return { type: "url", value: legacyRendererUrl };
 }
 
+// Disable Electron's built-in app-wide (webContents) zoom so Ctrl+wheel /
+// Ctrl+= outside the PDF reader can never scale the whole UI. The PDF reader
+// (`PdfReaderWorkspace`) keeps its own React `scale` zoom, which is independent
+// of webContents.zoomFactor and is unaffected by this lock.
+function lockWebContentsZoom(webContents) {
+  if (!webContents) {
+    return;
+  }
+
+  webContents.on("did-finish-load", () => {
+    if (webContents.isDestroyed()) {
+      return;
+    }
+    // Block pinch / gesture zoom.
+    webContents.setVisualZoomLevelLimits(1, 1).catch(() => {});
+    webContents.setZoomFactor(1);
+  });
+
+  // Block keyboard zoom (Ctrl/Cmd + =/+/-/0, including the reset shortcut).
+  webContents.on("before-input-event", (event, input) => {
+    if ((input.control || input.meta) && ["=", "+", "-", "0"].includes(input.key)) {
+      event.preventDefault();
+    }
+  });
+
+  // Guardrail: pin zoomFactor to 1 in case Ctrl+wheel still reaches webContents.
+  webContents.on("zoom-changed", () => {
+    if (!webContents.isDestroyed()) {
+      webContents.setZoomFactor(1);
+    }
+  });
+}
+
 function attachRendererFallback(win, loadPackagedRenderer, label) {
   const packagedRendererPath = resolvePackagedRendererPath();
   if (!packagedRendererPath) {
@@ -241,6 +274,8 @@ function createMainWindow() {
       preload: path.join(__dirname, "preload.mjs"),
     },
   });
+
+  lockWebContentsZoom(mainWindow.webContents);
 
   const rendererTarget = resolveRendererTarget();
 
@@ -554,11 +589,23 @@ async function persistV2Results({
   sections, chunks, tables, equations, figures, references,
   storedPath, mineruImages, grobid, shouldUpdatePaperMetadata = true,
 }) {
-  // Delete only the rows produced by this source file so supplementary
-  // processing cannot wipe the main PDF extraction output.
-  await supabase.from("paper_chunks").delete().eq("paper_id", paperId).eq("source_file_id", sourceFileId);
-  await supabase.from("figures").delete().eq("paper_id", paperId).eq("source_file_id", sourceFileId);
-  await supabase.from("paper_sections").delete().eq("paper_id", paperId).eq("source_file_id", sourceFileId);
+  // A-R2: Deferred delete. Instead of wiping the existing rows up front
+  // (which left the paper as an empty shell if any later insert threw), we
+  // capture the IDs of the current rows for this source file, insert all new
+  // rows alongside them, and only delete the old IDs once every insert/link
+  // has succeeded (just before the extraction_version bump below). New rows
+  // use fresh IDs, so they coexist with the old ones until the swap. This
+  // removes the partial-state window; full atomicity would need an RPC
+  // transaction (out of scope for this slice).
+  const oldSectionIds = (
+    (await supabase.from("paper_sections").select("id").eq("paper_id", paperId).eq("source_file_id", sourceFileId)).data ?? []
+  ).map((r) => r.id);
+  const oldChunkIds = (
+    (await supabase.from("paper_chunks").select("id").eq("paper_id", paperId).eq("source_file_id", sourceFileId)).data ?? []
+  ).map((r) => r.id);
+  const oldFigureIds = (
+    (await supabase.from("figures").select("id").eq("paper_id", paperId).eq("source_file_id", sourceFileId)).data ?? []
+  ).map((r) => r.id);
 
   // --- Sections ---
   const sectionIdByOrder = new Map();
@@ -678,8 +725,11 @@ async function persistV2Results({
       console.warn("[v2] Table image save failed:", err.message);
     }
   }
+  // Collect the freshly-inserted table/equation figure rows so figure_chunk_links
+  // targets only the new IDs (old rows still exist under deferred delete).
+  const insertedFigureItems = [];
   if (tables.length > 0) {
-    const { error: tabError } = await supabase.from("figures").insert(
+    const { data: tableRows, error: tabError } = await supabase.from("figures").insert(
       tables.map((t) => ({
         paper_id: paperId,
         source_file_id: sourceFileId,
@@ -693,13 +743,14 @@ async function persistV2Results({
         is_presentation_candidate: false,
         item_type: "table",
       })),
-    );
+    ).select("id, page, item_type");
     if (tabError) throw new Error(tabError.message);
+    for (const row of tableRows ?? []) insertedFigureItems.push(row);
   }
 
   // --- Equations ---
   if (equations.length > 0) {
-    const { error: eqError } = await supabase.from("figures").insert(
+    const { data: equationRows, error: eqError } = await supabase.from("figures").insert(
       equations.map((eq) => ({
         paper_id: paperId,
         source_file_id: sourceFileId,
@@ -713,20 +764,16 @@ async function persistV2Results({
         is_presentation_candidate: false,
         item_type: "equation",
       })),
-    );
+    ).select("id, page, item_type");
     if (eqError) throw new Error(eqError.message);
+    for (const row of equationRows ?? []) insertedFigureItems.push(row);
   }
 
   // --- figure_chunk_links (테이블/수식 → 가장 가까운 청크 연결) ---
   const allFigureItems = [...tables, ...equations];
   if (allFigureItems.length > 0 && chunkIdByOrder.size > 0) {
-    // 각 테이블/수식의 페이지에 해당하는 청크 찾기
-    const { data: insertedFigures } = await supabase
-      .from("figures")
-      .select("id, figure_no, page, item_type")
-      .eq("paper_id", paperId)
-      .eq("source_file_id", sourceFileId)
-      .in("item_type", ["table", "equation"]);
+    // 방금 insert한 새 테이블/수식 행만 사용 (지연 삭제로 old 행이 아직 존재)
+    const insertedFigures = insertedFigureItems;
 
     if (insertedFigures && insertedFigures.length > 0) {
       const chunksByPage = new Map();
@@ -775,6 +822,26 @@ async function persistV2Results({
       })),
     );
     if (refError) throw new Error(refError.message);
+  }
+
+  // A-R2: Deferred delete of the previous rows. All new sections/chunks/
+  // figures/tables/equations/links (and references) inserted successfully
+  // above, so it is now safe to drop the old rows we captured at entry.
+  // chunk_embeddings and figure_chunk_links hang off paper_chunks/figures
+  // via ON DELETE CASCADE, so the old links/embeddings are cleaned up with
+  // them; new rows keep fresh IDs and are unaffected. Empty arrays are
+  // skipped (no `.in()` with an empty list).
+  if (oldChunkIds.length > 0) {
+    const { error } = await supabase.from("paper_chunks").delete().in("id", oldChunkIds);
+    if (error) throw new Error(error.message);
+  }
+  if (oldFigureIds.length > 0) {
+    const { error } = await supabase.from("figures").delete().in("id", oldFigureIds);
+    if (error) throw new Error(error.message);
+  }
+  if (oldSectionIds.length > 0) {
+    const { error } = await supabase.from("paper_sections").delete().in("id", oldSectionIds);
+    if (error) throw new Error(error.message);
   }
 
   if (shouldUpdatePaperMetadata) {
@@ -1308,12 +1375,34 @@ async function processEmbeddingJob(job) {
     message: "Saving embeddings to database...",
   });
 
-  const rows = chunksToEmbed.map((chunk, i) => ({
-    chunk_id: chunk.id,
-    embedding: JSON.stringify(embeddings[i]),
-    embedding_model: MODEL_NAME,
-    embedding_dim: EMBEDDING_DIM,
-  }));
+  // Only upsert chunks whose embedding succeeded. generateEmbeddings isolates
+  // per-chunk failures (Promise.allSettled) and leaves failed slots undefined,
+  // so we skip those here instead of persisting a broken JSON.stringify(undefined).
+  const rows = chunksToEmbed
+    .map((chunk, i) => ({ chunk, embedding: embeddings[i] }))
+    .filter(({ embedding }) => embedding != null)
+    .map(({ chunk, embedding }) => ({
+      chunk_id: chunk.id,
+      embedding: JSON.stringify(embedding),
+      embedding_model: MODEL_NAME,
+      embedding_dim: EMBEDDING_DIM,
+    }));
+
+  const failedCount = chunksToEmbed.length - rows.length;
+  if (failedCount > 0) {
+    console.warn(
+      `[Embedding] ${failedCount}/${chunksToEmbed.length} chunks failed embedding, skipped`
+    );
+    // Partial-failure policy: if every chunk failed, fail the job so the
+    // re-queue path retries (chunksToEmbed only selects not-yet-embedded
+    // chunks, so successes are not re-embedded). If at least one succeeded,
+    // persist those and let the job succeed (consistent with the figure path).
+    if (rows.length === 0) {
+      throw new Error(
+        `All ${chunksToEmbed.length} chunk embeddings failed (vLLM error) — failing job for retry`
+      );
+    }
+  }
 
   // Upsert in batches of 50 to avoid payload limits
   for (let i = 0; i < rows.length; i += 50) {
@@ -1474,7 +1563,7 @@ async function processEmbeddingJob(job) {
     result: {
       paperId: job.paper_id,
       status: "succeeded",
-      embeddedCount: chunksToEmbed.length,
+      embeddedCount: rows.length,
     },
   });
 }
@@ -1968,6 +2057,8 @@ ipcMain.handle(IPC_CHANNELS.WINDOW_DETACH_PANEL, async (_event, { panelId }) => 
       preload: path.join(__dirname, "preload.mjs"),
     },
   });
+
+  lockWebContentsZoom(win.webContents);
 
   const targetUrl = `${rendererUrl}#/detached/${safePanelId}`;
   const detachedHash = `/detached/${safePanelId}`;
@@ -2556,6 +2647,7 @@ async function handleQaPipeline(convId, message, history, scopeFolderId, scopeAl
 ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, message, scopeFolderId, scopeAll, mode, userId, accessToken }) => {
   let convId = conversationId;
   let conversationType = mode || "table"; // default to table for backward compatibility
+  let abortController = null; // hoisted so finally can identity-guard the registry delete
 
   try {
     const ownerId = await resolveAuthenticatedUserId({ userId, accessToken });
@@ -2585,6 +2677,14 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
       conversationType = conv.conversation_type || "table"; // use stored type for existing conversations
     }
 
+    // In-flight guard: reject a concurrent send for the same conversation before any
+    // DB write or event. A new conversation just created above can never collide.
+    // Returning here bypasses the catch block so no user/error row is persisted and no
+    // CHAT_ERROR is emitted into the in-flight stream (avoids corrupting the ongoing UI).
+    if (chatAbortControllers.has(convId)) {
+      return { conversationId: convId, error: "A response is already being generated for this conversation." };
+    }
+
     // 2. Insert user message
     await supabase.from("chat_messages").insert({
       conversation_id: convId,
@@ -2602,7 +2702,7 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     const history = (historyRows ?? []).map((m) => ({ role: m.role, content: m.content, message_type: m.message_type }));
 
     // Setup abort controller
-    const abortController = new AbortController();
+    abortController = new AbortController();
     chatAbortControllers.set(convId, abortController);
     const emitStatus = createChatStatusEmitter({ conversationId: convId, send: broadcastToWindows });
 
@@ -2662,7 +2762,12 @@ ipcMain.handle(IPC_CHANNELS.CHAT_SEND_MESSAGE, async (_event, { conversationId, 
     }
     return { conversationId: convId, error: err.message };
   } finally {
-    chatAbortControllers.delete(convId);
+    // Identity guard: only remove our own entry. Prevents a late finally (e.g. after a
+    // rejected concurrent send, or an aborted request whose entry was already replaced/
+    // cleared by CHAT_ABORT + a fresh resend) from deleting a different request's controller.
+    if (abortController && chatAbortControllers.get(convId) === abortController) {
+      chatAbortControllers.delete(convId);
+    }
   }
 });
 

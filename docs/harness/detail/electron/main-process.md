@@ -1,5 +1,5 @@
 # Electron Main Process
-> 하네스 버전: v1.12 | 최종 갱신: 2026-06-15
+> 하네스 버전: v1.13 | 최종 갱신: 2026-07-03
 
 ## 개요
 Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처리 파이프라인 오케스트레이션, DB 프록시, 채팅 파이프라인 진입을 관장한다.
@@ -79,6 +79,11 @@ Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처
 4. `startProcessingLoop()` — 2.5초 간격 폴링 시작
 5. LLM 모델 로드: `user_workspace_preferences.llm_model` → `setActiveModel()`
 
+## 창 줌 잠금
+- `lockWebContentsZoom(webContents)` 헬퍼가 Electron 기본 webContents 줌(앱 전체 줌)을 비활성화: `setVisualZoomLevelLimits(1,1)`(핀치 차단) + `before-input-event`로 Ctrl/Cmd+`=`/`+`/`-`/`0` 키 차단 + `setZoomFactor(1)`/`zoom-changed` 1 고정.
+- 메인 창(`createMainWindow()`)과 detached 패널 창(`window:detach-panel`) 양쪽에 적용 → PDF 영역 밖/비-PDF 화면에서 Ctrl+휠·Ctrl+= 가 앱 UI를 확대하지 못함.
+- PDF 리더 자체 줌은 `PdfReaderWorkspace`의 React `scale` state 기반으로 독립이며 이 잠금과 무관(보존).
+
 ## 의존성
 - 사용: supabase, embedding-worker, pdf-heuristics, ocr-extraction, mineru-client, grobid-client, llm-chat, llm-orchestrator, llm-qa, html-table-parser, reranker-worker, **entity-extractor, graph-search, oauth-callback-server, chat/*, rag/multi-query-rag, processing/job-runner** (6월 추가/분리)
 - 사용됨: preload.mjs (renderer bridge)
@@ -86,3 +91,4 @@ Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처
 ## 현재 상태
 - 구현 완료: 전체 IPC, PDF 파이프라인 V2 단일, 채팅 테이블/Q&A, Guardian, 모델 선택, 엔티티 그래프 IPC(opt-in)
 - 채팅 파이프라인 상세는 `chat-table-pipeline-state.md`, 엔티티 그래프는 `entity-graph.md` 참고
+- `chat:send-message`는 같은 conversationId에 대해 진행 중 응답이 있으면(`chatAbortControllers.has(convId)`) 두 번째 전송을 **DB 기록·이벤트 없이 즉시 거부**(`{ conversationId, error }` 반환)한다. `finally`의 레지스트리 정리는 자기 컨트롤러일 때만(identity guard) 수행해 동시 전송·abort 후 재전송 레이스에서 abort 레지스트리 붕괴를 방지 (fix B-R1).

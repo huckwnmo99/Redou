@@ -1,5 +1,36 @@
 # Harness Version
 
+## v1.17 — 2026-07-03
+- 같은 conversationId 동시 `CHAT_SEND_MESSAGE` abort 레지스트리 붕괴 수정 (fix B-R1, `pipeline-risk-audit`). 수정 1파일(`main.mjs`, CHAT_SEND_MESSAGE 범위만). DB/IPC 채널/frontend/`CURRENT_EXTRACTION_VERSION` 무변경.
+- 4지점 변경: (0) abort 컨트롤러 변수를 핸들러 최상단 `let abortController = null`로 호이스팅(`main.mjs:2650`) — finally identity guard가 컨트롤러를 참조하려면 try 밖 스코프 필요, 기존 try 내부 `const` 선언을 상단 `let`+할당으로 전환. (1) **in-flight 거부 가드**(`main.mjs:2684`): convId 확정 직후·사용자 메시지 insert(2689) 전에 `chatAbortControllers.has(convId)`면 `{ conversationId, error: "A response is already being generated for this conversation." }`를 **직접 return**(try 안이지만 catch 미경유 → DB insert·CHAT_ERROR emit 없음). 신규 대화(방금 생성한 convId)는 항상 미충돌이라 자연 통과. (2) **finally identity guard**(`main.mjs:2768`): `if (abortController && chatAbortControllers.get(convId) === abortController) delete` — 거부 early return 시 abortController=null이라 요청1 엔트리 보존, abort 후 재전송 레이스에서 늦은 finally가 새 요청 엔트리를 지우지 않음. (3) CHAT_ABORT 무변경 — get→abort→delete 유지(취소 직후 재전송 허용), identity guard와 조합 안전 교차확인(CHAT_ABORT의 delete는 A만 제거, 늦은 요청1 finally는 get≠A로 스킵).
+- 거부 반환 형태 `{ conversationId, error }`는 공통 catch 반환(`main.mjs:2763`)과 동일 구조 → frontend 기존 에러 경로가 그대로 처리, 신규 이벤트 계약·frontend 변경 불필요([가정] 성립).
+- 사용자 가시 변화: 진행 중 대화에 재전송하면 완료 전까지 거부(이전: 조용히 이중 실행 → abort 불능 + assistant/table 중복 영속화).
+- 검증: `node --check apps/desktop/electron/main.mjs` 통과 · `node --test apps/desktop/tests/*.test.mjs` **65건/14스위트 전부 통과**(수정 전후 동일, 회귀 없음). 단위 테스트는 CHAT_SEND_MESSAGE/CHAT_ABORT 핸들러가 `main.mjs` 인라인 등록·**미export**(main.mjs에 export 전무)이고 supabase 싱글턴 강결합이라 미추가 → completed 문서에 사유 + 수동 검증 3절차(테이블 생성 중 재전송→거부·중복 없음 / 생성 중 abort→즉시 중단 / abort 직후 재전송→정상 시작) 기록. 커밋은 사용자.
+- `detail/electron/main-process.md`(v1.13): "현재 상태"에 동시 전송 거부 + finally identity guard 동작 한 줄 추가.
+
+## v1.16 — 2026-07-03
+- `persistV2Results` 재추출 delete→insert 비트랜잭션을 **지연 삭제(old-id)**로 전환 (fix A-R2, `pipeline-risk-audit`). 수정 1파일(`main.mjs`, `persistV2Results` 범위만). DB/IPC/컴포넌트/마이그레이션·`CURRENT_EXTRACTION_VERSION` 무변경.
+- 맨 앞 3개 delete(`paper_chunks`/`figures`/`paper_sections`) 제거 → 함수 진입 시 old id만 조회·보관(`oldSectionIds`/`oldChunkIds`/`oldFigureIds`, `main.mjs:600-608`). 새 행은 old와 공존시켜 전부 insert, **모든 insert·링크·references 성공 후**(버전 범프 직전, `main.mjs:827-845`) 보관한 old id만 `.in("id", oldIds)`로 삭제(빈 배열 스킵). 중간 insert 실패 시 old 보존 → 논문 "빈껍데기" 잔존 위험 제거.
+- `figure_chunk_links`가 old figure를 참조하지 않도록 tables/equations insert에 `.select("id, page, item_type")` 추가 → 링크 소스를 "DB 재조회(old+new 혼입 위험)"에서 "방금 insert한 새 행"으로 교체. 링크 생성 로직·`fig.id`/`fig.page` 접근·동작 동치.
+- [가정 검증] CASCADE 성립(`initial_schema.sql`): `chunk_embeddings.chunk_id`(:124)·`figure_chunk_links.figure_id`(:176)/`chunk_id`(:177) 전부 ON DELETE CASCADE → old chunk/figure 삭제 시 old 임베딩·링크 자동 정리. figure 임베딩은 별도 테이블 아닌 `figures.embedding` 컬럼(row 삭제로 함께 제거). `paper_chunks.section_id`는 SET NULL이나 새 chunk가 새 section만 참조하므로 old section 삭제 영향 없음.
+- 한계: 완전 원자성은 아님(old delete 3건 도중 사고 시 old+new 잠깐 중복 잔존, 재추출로 정리 — 빈껍데기보다 안전). 완전 원자성은 향후 방향 ②(Postgres RPC 트랜잭션) 별도 slice.
+- 검증: `node --check apps/desktop/electron/main.mjs` 통과 · `node --test apps/desktop/tests/*.test.mjs` **65건/14스위트 전부 통과**(회귀 없음). 단위 테스트는 `persistV2Results` 미export + `supabase` 싱글턴 강결합으로 미추가 → completed 문서에 수동 검증 절차(실패 주입 시 old 보존 / 정상 시 새 1세트만 잔존·dangling 없음) 기록. 커밋은 사용자.
+- `detail/electron/pdf-pipeline.md`: V2 실행 흐름 9번에 지연 삭제 동작 반영.
+
+## v1.15 — 2026-07-03
+- 청크 임베딩 배치 부분 실패 격리 (fix A-R1, `pipeline-risk-audit`). 수정 2파일(`embedding-worker.mjs`, `main.mjs`). DB/IPC/컴포넌트/마이그레이션·`CURRENT_EXTRACTION_VERSION` 무변경.
+- `generateEmbeddings`(embedding-worker.mjs): 배치 내 `Promise.all` → `Promise.allSettled`. fulfilled만 `results[i+j]` 채우고 `completed++`, rejected는 슬롯 undefined 유지 + `console.warn(chunk N …)` 로깅. 반환 길이는 여전히 `texts.length`(실패 인덱스=undefined). 청크 1개 vLLM 오류가 배치 전체를 reject시켜 논문 임베딩 job을 죽이던 문제 해소.
+- `processEmbeddingJob` 호출부(main.mjs): `rows` 생성 시 undefined/null 임베딩 청크 filter로 제외(성공분만 upsert, `JSON.stringify(undefined)` 방지). `failedCount` 로깅. 부분 실패 정책 — 성공 ≥1이면 job=succeeded(그림 경로와 일관), 성공 0(전부 실패)이면 throw로 job=failed→재큐. `embeddedCount`를 `chunksToEmbed.length`→실제 성공분 `rows.length`로 정정.
+- [가정 검증] `chunksToEmbed`(main.mjs:1272-1280)는 `chunk_embeddings`에서 현재 `MODEL_NAME`으로 임베딩된 청크를 `existingSet`으로 빼고 미임베딩분만 선별함을 코드로 확인 → 부분 실패 후 재큐 시 실패분만 재시도(성공분 재임베딩 없음). slice [가정] 성립.
+- 테스트: `tests/embedding-worker.test.mjs` 신설 — `globalThis.fetch` stub으로 특정 청크만 500 실패시켜 실제 `generateEmbeddings` 검증(성공분 유지·실패 슬롯 undefined·throw 안 함·onProgress 성공 개수만·전부 실패도 무throw) 3케이스. 전체 데스크탑 스위트 `node --test tests/*.test.mjs` 65건/14스위트 전부 통과.
+- `detail/electron/embedding.md`(v1.15): 청크 임베딩 흐름에 부분 실패 격리 블록 + 현재 상태 갱신(A-R4 타임아웃 미해결 cross-ref). 검증: `node --check` 2파일 통과. 커밋은 사용자.
+
+## v1.14 — 2026-06-24
+- PDF 줌 앱 전체 누수 수정 (fix: `pdf-zoom-app-wide-leak`). 수정 1파일(`main.mjs`). DB/IPC/컴포넌트/마이그레이션·`CURRENT_EXTRACTION_VERSION` 무변경.
+- `lockWebContentsZoom(webContents)` 헬퍼 추가 — Electron 기본 webContents 줌(앱 전체 줌)을 비활성화: `setVisualZoomLevelLimits(1,1)`(핀치 차단) + `before-input-event`로 Ctrl/Cmd+`=`/`+`/`-`/`0` 차단 + `setZoomFactor(1)`/`zoom-changed` 1 고정. 메인 창(`createMainWindow()`)·detached 패널 창(`window:detach-panel`) 양쪽에서 호출.
+- 원인: BrowserWindow에 줌 제어 부재 → PDF scroll container 밖/비-PDF 화면에서 Ctrl+휠·Ctrl+= 가 앱 UI 전체를 `zoomFactor`로 확대. PDF 리더 자체 scale 줌(`PdfReaderWorkspace`)은 React state 기반·독립이라 무변경·보존.
+- `detail/electron/main-process.md`: "창 줌 잠금" 섹션 추가. 검증: `node --check apps/desktop/electron/main.mjs` 통과. 커밋은 사용자.
+
 ## v1.13 — 2026-06-17
 - `detail/electron/chat-table-pipeline-state.md` 트리밍: 1234줄→270줄. 작업 과정 로그(Stage 2A tracer bullet 13개, Plan 12 Stage 3 슬라이스, fix 18/19 구현 기록, Verification Commands[ADR 0002와 중복]) 제거 → '현재 상태'만 유지(Files Read~Extraction Targets). 이력은 git history.
 - `decisions/0002-module-ownership.md` 자립화: 삭제된 codex-claude의 D8 종속 제거(D8 Mapping → Source Of Truth). 이 ADR이 `main.mjs` module ownership의 단일 진실원천.

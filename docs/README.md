@@ -17,8 +17,10 @@
 
 ## 진행 중인 작업 — [`tasks/`](tasks/) (ledger)
 각 작업의 ledger. **README 먼저 읽고** 링크된 것만 연다. ledger 운영 방식(매 작업 사이클·구조·트리거): [`tasks/README.md`](tasks/README.md).
-- [`tasks/read-only-improvement-advisor/`](tasks/read-only-improvement-advisor/) — 읽기 전용 개선 어드바이저 (활성)
-- [`tasks/docs-cleanup/`](tasks/docs-cleanup/) — 문서 재편 (이 정리 작업)
+- [`tasks/read-only-improvement-advisor/`](tasks/read-only-improvement-advisor/) — 읽기 전용 개선 어드바이저 (활성, 테스터 단계 대기)
+- [`tasks/pipeline-risk-audit/`](tasks/pipeline-risk-audit/) — 핵심 파이프라인 위험 감사 (발견 28건, 수정 승격 대기)
+- [`tasks/pdf-zoom-app-wide-leak/`](tasks/pdf-zoom-app-wide-leak/) — PDF 줌 앱 전체 누수 fix (구현 완료, /test 대기)
+- [`tasks/docs-cleanup/`](tasks/docs-cleanup/) — 문서 재편 (완료)
 - 활성 기능 계획서: [`features/new/17-read-only-improvement-advisor.md`](features/new/17-read-only-improvement-advisor.md)
 
 ## 아이디어 — [`backlog/`](backlog/)
