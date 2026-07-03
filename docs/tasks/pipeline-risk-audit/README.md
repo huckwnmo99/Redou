@@ -15,7 +15,9 @@ Redou 핵심 파이프라인(PDF 임포트→추출→임베딩→RAG 검색→�
 
 ## Next Action
 
-**A-D1/B-D1(RLS 무스코프)은 지금 보류 — 기록만.** 현재 로컬 1인 사용이라 실피해 없음. **다계정·동기화·클라우드 착수 시점에 반드시 `/develop`으로 처리**(`db:query`/`db:mutate`에 인증+owner 스코프 강제 = 앱 전역 영향, 대규모·회귀 위험). 그 외 승격 후보는 P1(A-R4 임베딩 타임아웃, B-R4 chunks 쏠림, A-D2 figure_no 충돌, B-D2 QA Guardian 등). 완료된 P0 3건은 커밋 후 `/test`·`/review`.
+**P0 3건(A-R1·A-R2·B-R1)은 `/test`(65건 통과)·`/review`(PASS) 완료 → PR #3 (https://github.com/huckwnmo99/Redou/pull/3) merge 대기 — 사용자 판단.**
+
+**A-D1/B-D1(RLS 무스코프)은 보류 — 기록만.** 현재 로컬 1인 사용이라 실피해 없음. **다계정·동기화·클라우드 착수 시점에 반드시 `/develop`으로 처리**(`db:query`/`db:mutate`에 인증+owner 스코프 강제 = 앱 전역 영향, 대규모·회귀 위험). 그 외 승격 후보는 P1(A-R4 임베딩 타임아웃, B-R4 chunks 쏠림, A-D2 figure_no 충돌, B-D2 QA Guardian 등).
 
 ## 우선순위 요약 (P0 / 상위 P1)
 
@@ -69,4 +71,4 @@ Redou 핵심 파이프라인(PDF 임포트→추출→임베딩→RAG 검색→�
 
 ## Last Updated
 
-2026-07-03 — B-R1(P0) 수정 완료(fixer): CHAT_SEND_MESSAGE 동시 전송 in-flight 거부 가드 + finally identity guard, slice planned→completed, 남은 P0 2→1건, harness main-process.md(채팅 IPC) + VERSION 범프.
+2026-07-03 — P0 3건 /test(65건)·/review(PASS) 통과, PR #3 생성(merge 대기). A-D1/B-D1은 보류(다계정 전 필수) 확정.
