@@ -47,6 +47,24 @@ Redou 핵심 파이프라인(PDF 임포트→추출→임베딩→RAG 검색→�
 - `completed/01_2026-07-02_pdf-embedding-audit.md` — 파트 A (PDF 임포트→추출→임베딩) 15건.
 - `completed/02_2026-07-02_rag-chat-audit.md` — 파트 B (RAG 검색→채팅/테이블) 13건.
 
+## E2E 실증 (2026-07-03, 헤드리스 실구동)
+
+`runTableConversationPipeline`을 실 DB+실 Ollama(gemma4:31b)+실 vLLM으로 UI 없이 직접 구동(main.mjs 배선 복제, `.tmp_e2e-table.mjs`). 논문 2편 스코프, 실사용 쿼리("흡착제/q_max/온도 비교표").
+
+- **성공**: 13.1분 완주. orchestrator 스펙 6열 → RAG(RRF+rerank) → OCR 테이블 15개 파싱 → per-paper 추출 2/2 성공(83+29행) → 병합 79행 → Stage 3d NULL 회복 2셀 → persist. 표 `44ac02a6`(대화 `a8f32c19`, 보존됨 — 앱에서 확인 가능). source_refs에 DOI·저자·페이지 근거 정상.
+- **fix 20 실증**: per-paper 추출 209s/165s — 구 60s 하드코딩이면 둘 다 타임아웃(원 버그 재현 조건: gemma4:31b)이었을 것. env 기본 240s로 성공.
+- **신규 관찰 (P2 후보)**: ①마지막 행에 LLM 파편 셀 유입(`" uma T (K) : \"308.15\", "` — cleanCellValue가 못 거름, B-R3 계열 LLM 출력 정화 이슈) ②79행 = 전 등온선 데이터점 추출(요약 아님 — 모델 행동 관찰, gemma). Guardian 검증은 시작됐으나 테스트 스크립트 조기 종료로 미완(스크립트 사유, 앱에선 정상 완료 흐름 — verification=null 잔존).
+
+### 원문 대조 검증 (2026-07-03, 실제 PDF 페이지 텍스트와 셀 단위 대조)
+
+- **수치 충실도: 탁월 (조작 0건)**. 논문2 Table 2(p.4) 등온선 21+개 점(552.91→3.4300 등) 원문과 **자릿수까지 전부 일치**(원문 "2.543" 표기까지 보존). 논문1 Table 3(p.8, ≤1000 kPa) KACa CO₂ q_m 8.69/8.07/7.39 ✓, Table 4(p.8, ≤100 kPa 저압) CO₂ 4.45·N₂ 2.56/2.49 ✓. 검증 범위에서 지어낸 수치 없음.
+- **의미 매핑 결함 4건 (신규 P1~P2 후보)**:
+  1. **파라미터 세트 혼입**: Table 3(전범위)·Table 4(저압) Langmuir q_m이 구분 열 없이 혼재 → (KACa,CO₂,293K,Langmuir)에 8.69와 4.45가 공존, 압력범위 맥락 소실. 사용자는 어느 값이 뭔지 알 수 없음.
+  2. **q_max 의미 오류**: 논문2에서 "q_max" 열에 압력별 평형 흡착량 q(P)를 채움(~50행) — 포화 용량 아님. 논문2의 진짜 파라미터(Table 4 DSL/Sips)는 미추출.
+  3. **Stage 3d 오귀속**: NULL recovery가 실험 데이터 행 2개에 DSL/Sips 모델 라벨을 채움 — 실험점엔 model이 없음(그럴듯하지만 부정확한 채움).
+  4. garbage cell(위 ①)로 KACa CH₄ 308.15K의 실값 5.05 소실 + 인접 행 Adsorbent 라벨 1건 누락.
+- 시사점: 추출은 "숫자"를 정확히 옮기나 "무엇의 숫자인지"(표 맥락·컬럼 정의)를 구분 못함 → 컬럼 스펙에 조건 열(압력범위 등) 유도 또는 표 캡션 컨텍스트 강화가 개선 방향.
+
 ## 알려진 항목 재검증 결과 (감사 부산물)
 
 - **fix 17** (`getEntityGraphEnabled` throw → QA 붕괴): **이미 해결됨** (`main.mjs:530-535` graceful degrade). → `feature-status.md`의 "📋 계획됨"이 **stale**. harness 갱신 대상.
