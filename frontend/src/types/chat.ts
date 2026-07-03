@@ -30,10 +30,24 @@ export interface ChatMessage {
   created_at: string;
 }
 
+/**
+ * Deterministic Q&A citation check (table-semantics-hardening slice 05). Recorded on
+ * assistant messages, not enforced: `outOfRange` holds cited [N] with no matching
+ * paper (range/existence failure); `ungroundedRefs` holds in-range citations whose
+ * paper is absent from the RAG evidence set (weak paperId mismatch — NOT an LLM
+ * claim-support verdict). Absent on messages produced before this slice.
+ */
+export interface QaCitationCheck {
+  citationCount: number;
+  outOfRange: number[];
+  ungroundedRefs: number[];
+}
+
 export interface ChatMessageMetadata {
   source_chunk_ids?: string[];
   referenced_paper_ids?: string[];
   table_id?: string;
+  citationCheck?: QaCitationCheck;
   [key: string]: unknown;
 }
 

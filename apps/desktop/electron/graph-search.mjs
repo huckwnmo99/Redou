@@ -1,11 +1,10 @@
 import { throwIfChatAborted } from "./chat/abort-guards.mjs";
 import { canonicalize, extractQueryEntities } from "./entity-extractor.mjs";
+import { GRAPH_RRF_WEIGHTS, GRAPH_TOP_K, RRF_K } from "./rag/config.mjs";
 
-const GRAPH_TOP_K = 18;
-
-export function rrfFusionWithGraph(baseChunks = [], graphChunks = [], mode = "qa", k = 60) {
-  const baseWeight = mode === "qa" ? 0.78 : 0.9;
-  const graphWeight = mode === "qa" ? 0.22 : 0.1;
+export function rrfFusionWithGraph(baseChunks = [], graphChunks = [], mode = "qa", k = RRF_K) {
+  const baseWeight = mode === "qa" ? GRAPH_RRF_WEIGHTS.qa.base : GRAPH_RRF_WEIGHTS.table.base;
+  const graphWeight = mode === "qa" ? GRAPH_RRF_WEIGHTS.qa.graph : GRAPH_RRF_WEIGHTS.table.graph;
   const missingRank = 1000;
 
   const baseRank = new Map();

@@ -1,5 +1,5 @@
 # LLM 모듈
-> 하네스 버전: v1.19 | 최종 갱신: 2026-07-03
+> 하네스 버전: v1.21 | 최종 갱신: 2026-07-03
 
 ## 개요
 Ollama 기반 LLM 채팅 스트리밍, 비교 테이블 생성 오케스트레이션, Q&A 응답, Granite Guardian 검증을 담당한다. 사용자가 Settings에서 모델을 변경할 수 있다.
@@ -13,7 +13,7 @@ Ollama 기반 LLM 채팅 스트리밍, 비교 테이블 생성 오케스트레�
 | `apps/desktop/electron/llm-orchestrator.mjs` | Orchestrator + Table Agent + Extraction Agent + NULL Recovery Agent | ~660 |
 | `apps/desktop/electron/llm-qa.mjs` | Q&A 시스템 프롬프트 + 응답 생성 + 출처 귀속 | ~121 |
 | `apps/desktop/electron/html-table-parser.mjs` | HTML 테이블 → headers/rows 파싱 (코드) | ~312 |
-| `apps/desktop/electron/chat/*` | 테이블 파이프라인 스테이지 분리(table-pipeline, table-extraction, agentic-null-recovery, source-evidence, status-events, abort-guards, extraction-utils) — 6월 ADR 0001. + `adsorption-domain.mjs`(7월 Phase 1, 흡착 도메인 사전) | → `chat-table-pipeline-state.md`, 하단 Phase 1 계약 |
+| `apps/desktop/electron/chat/*` | 채팅 파이프라인 모듈 분리(table-pipeline, **qa-pipeline**, table-extraction, agentic-null-recovery, source-evidence, value-backmatch, status-events, abort-guards, extraction-utils) — 6월 ADR 0001. + `adsorption-domain.mjs`(7월 Phase 1, 흡착 도메인 사전). **`qa-pipeline.mjs`=슬라이스 04에서 `main.mjs`의 `handleQaPipeline`을 DI로 추출**(`runQaConversationPipeline`, 동작 보존) | → `chat-table-pipeline-state.md`, 하단 Phase 1 계약 |
 | `apps/desktop/electron/rag/multi-query-rag.mjs` | 멀티쿼리 RAG (orchestrator에서 분리) | → `rag-pipeline.md` |
 
 ## 주요 함수/컴포넌트
@@ -40,7 +40,17 @@ Ollama 기반 LLM 채팅 스트리밍, 비교 테이블 생성 오케스트레�
 | 함수 | 역할 |
 |------|------|
 | `generateQaResponse(ragContext, history, paperMeta, signal)` | Q&A 스트리밍 응답 (streamChat 래핑) |
-| `formatSourceAttribution(text, paperMeta)` | [1], [2] 참조번호 → paperId 매핑 |
+| `formatSourceAttribution(text, paperMeta, evidenceLocationsByPaper?)` | [1], [2] 참조번호 → paperId 매핑 (+ evidence 위치 라인) |
+
+> `llm-qa.mjs`는 **프롬프트·응답·귀속 계층**만 담당한다. QA 대화 **오케스트레이션**(RAG 스코프·graph on/off 분기·evidence 조립·스트리밍·persist)은 슬라이스 04에서 `chat/qa-pipeline.mjs`의 `runQaConversationPipeline`으로 분리됨(table-pipeline과 동일 DI). 흐름·상태 이벤트는 `chat-table-pipeline-state.md` "QA Branch Flow" 참고.
+
+### chat/qa-pipeline.mjs — QA 인용 결정적 검증 (슬라이스 05)
+| 함수 | 역할 |
+|------|------|
+| `orderPaperMetadataDeterministic(paperMetadata, ragResults)` | refNo `[N]` 순서를 **결정적**으로 고정(B-D3). 정렬 기준: ① `ragResults.chunks` 첫 등장 순위(이미 rerank됨) → ② `figures` 첫 등장 순위 → ③ paperId 사전순 tiebreak. 입력 불변(새 배열 반환). paperRefMap·프롬프트 refList·귀속·persist가 이 순서를 공유 → 실행 간 재현성 + 대화 내부 일관. |
+| `checkQaCitations(text, orderedMeta, ragResults)` | `[N]` 인용의 **코드 검증**(LLM 미사용) → `{ citationCount, inRange, outOfRange, grounded, ungroundedRefs }`. `outOfRange`=존재하지 않는 [N](범위 밖), `ungroundedRefs`=범위는 맞으나 인용 논문 paperId가 RAG 근거(`chunks∪figures`) 집합에 **부재**(약한 정합 실패). **groundedness(주장 뒷받침)는 아님** — 명시 제외. |
+
+> QA 파이프라인은 `formatSourceAttribution`(범위-only) 뒤 `checkQaCitations`를 실행해 `outOfRange`/`ungroundedRefs`를 **기록만** 한다(답변 차단·텍스트 변경 없음). 결과는 assistant 메시지 `metadata.citationCheck: { citationCount, outOfRange, ungroundedRefs }`(기존 JSONB)에 저장 — 신규 대화부터 적용, 과거 metadata 미재작성. table 파이프라인이 셀 [refNo]를 코드 병합에서 부여하는 것과 대칭으로, QA도 이제 refNo 순서가 코드-결정적이다.
 
 ## LLM 에이전트 구조
 

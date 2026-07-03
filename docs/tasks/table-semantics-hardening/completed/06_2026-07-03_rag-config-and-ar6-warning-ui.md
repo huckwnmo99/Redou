@@ -1,8 +1,23 @@
 # Phase 2-5 — 부속 2건: RAG 상수 통합 + A-R6 경고 UI
 
-> 유형: 2개 fix 묶음 (소규모) | 상태: 계획 | 작성일: 2026-07-03 | 슬라이스: 06
+> 유형: 2개 fix 묶음 (소규모) | 상태: **완료(구현·검증)** | 작성일: 2026-07-03 | 완료: 2026-07-03 (fixer) | 슬라이스: 06
 
 두 개의 독립적 소규모 항목. 서로 무관하며 **병행 가능**. 각각 개별 커밋 권장.
+
+## 구현 결과 (2026-07-03, fixer)
+
+**(A) RAG 튜닝 상수 `rag/config.mjs` 통합 — 무동작 리팩터, 합격.** 신규 `apps/desktop/electron/rag/config.mjs`에 named export 12종을 계획 명세 그대로 정의(값 100% 동일). 소비처 2파일을 config import로 치환 — **상수 값·호출 형태·전달값 무변경**. [가정 A 이행] `table-extraction.mjs`의 컨텍스트 예산(OCR/MATRIX/TOTAL_BUDGET·FALLBACK_RAG_BUDGET)은 "프롬프트 예산"이라 성격이 달라 이동하지 않음(RAG 검색 상수만 config로). 이동 목록:
+- `rag/multi-query-rag.mjs`: `RRF_K`(60)·`RRF_WEIGHTS`(table 0.4/0.6·qa 0.7/0.3)·`FIGURE_RRF_WEIGHTS`(0.4/0.6)·`TABLE_BOOST`(0.005)·`RRF_RESULT_LIMIT`(40, 기존 `slice(0,40)`)·`RERANKER_TOPK`({table:15,qa:10}, 기존 모듈-지역 const 삭제)·`MATCH_CHUNK`({threshold:0.2,count:60,sectionBoost:0.08})·`MATCH_FIGURE`({threshold:0.15,count:30}). RPC 파라미터 리터럴(`match_chunks`/`match_chunks_bm25`/`match_figures`/`match_figures_bm25`)을 상수 참조로.
+- `graph-search.mjs`: `GRAPH_TOP_K`(18, 기존 파일-지역 const 삭제)·`GRAPH_RRF_WEIGHTS`(qa base0.78/graph0.22·table base0.9/graph0.1)·`RRF_K`(k 기본값). import는 `./rag/config.mjs`(graph-search가 `rag/` 밖).
+
+**(B) A-R6 경고 UI 표시 fix — 합격.** `ProcessingView.tsx`의 `JobCard`에 succeeded+error_message 경고 배너 분기를 "완료 시간" 블록 뒤·failed 배너 앞에 추가. **렌더 조건 전/후**:
+- 전: `job.status === "failed" && job.error_message`일 때만 error_message 렌더 → succeeded 경고(chunkCount0) 미표시.
+- 후: 위 분기는 무변경(danger 톤 유지) + **신규** `job.status === "succeeded" && job.error_message` 분기 → 경고 배너 렌더.
+- 색상: `--color-warning`(#c0841a, `tokens.css:19`에 기존 정의됨 → **인라인 hex 대신 토큰 재사용**) 텍스트 + `rgba(192,132,26,0.10)` 배경. failed의 danger(`#dc2626`/`rgba(220,38,38,0.10)`)와 시각적으로 구분되는 caution 톤. [가정 B 이행 확인] succeeded+error_message 조합은 `main.mjs`의 chunkCount0 경로만 생성(정상 succeeded는 `error_message: null`) → 조건이 정확히 A-R6 경고만 포착.
+
+**계획 대비**: (A) 계획 명세와 동일(값·소비처 무변경). (B) 계획이 "warning 토큰 있으면 재사용, 없으면 인라인 amber"를 제시했고 `--color-warning` 토큰이 실재함을 확인해 토큰 재사용(디자인 정합·인라인 hex 회피). `paperSignals.ts`·백엔드 경고 기록 로직 무변경(가정 F·계획 제외 준수).
+
+**검증**: `node --check` 3파일(config·multi-query-rag·graph-search) 통과. `node --test tests/*.test.mjs` **140/140 회귀 통과**(값 무변경 → `multi-query-rag.test.mjs`의 `section_boost===0.08` 직접 assert 포함 전건 동일 결과). frontend `npx tsc --noEmit`(any 0) + `npm run build`(tsc -b+vite) + `npx vitest run` **32/32** 통과. eslint는 이 체크아웃에 `eslint.config.js` 미설정이라 실행 불가(tsc가 타입 게이트, 변경은 순수 additive JSX·config import 치환). DB/IPC/`CURRENT_EXTRACTION_VERSION`/컴포넌트 계약 무변경. 브랜치 `feature/table-semantics-phase2b`(신규 브랜치·커밋 없음). 커밋은 사용자.
 
 ---
 

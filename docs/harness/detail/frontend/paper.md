@@ -1,5 +1,5 @@
 # 논문 관리 & 리더
-> 하네스 버전: v1.2 | 최종 갱신: 2026-05-30
+> 하네스 버전: v1.3 | 최종 갱신: 2026-07-03
 
 ## 개요
 논문 라이브러리 관리(그리드/리스트 뷰, 폴더, 태그), PDF 리더(연속 스크롤, 하이라이트, 줌), 논문 상세 뷰(overview/pdf/notes/figures), Figure 갤러리, 프로세싱 모니터링을 담당한다.
@@ -62,6 +62,7 @@
 - processing_jobs 테이블 실시간 표시
 - 상태별: queued, running, succeeded, failed
 - IPC 이벤트 JOB_PROGRESS/COMPLETED/FAILED 수신
+- **succeeded 경고 배너(A-R6, 슬라이스 06)**: `JobCard`가 `status==="succeeded" && error_message`이면 경고 배너를 렌더. chunkCount0(스캔본/빈 PDF) job은 succeeded로 끝나지만 `main.mjs`가 `error_message`에 경고를 기록하는데, 기존엔 `status==="failed"`일 때만 렌더해 조용한 실패였음 → 조건 확장으로 가시화. failed의 danger(`--color-danger` #dc2626)와 구분되는 `--color-warning`(#c0841a) caution 톤. 정상 succeeded는 `error_message: null`이라 이 배너 미표시
 
 ### SettingsView (디자인 킷 이식 — 리디자인 2호)
 - **2-pane 섹션 레이아웃**: 좌측 `<aside>` 224px 섹션 레일(Account/Workspace/Models/Desktop/About + lucide 아이콘, active=`--color-accent-subtle`) + 우측 스크롤 패널(maxWidth 720). `section` 상태로 전환, 기본 진입=`account` (이전 1-pane 카드 그리드 동선 제거)

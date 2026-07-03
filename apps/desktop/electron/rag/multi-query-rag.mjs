@@ -4,10 +4,20 @@ import {
   isRerankerAvailable as defaultIsRerankerAvailable,
   rerankChunks as defaultRerankChunks,
 } from "../reranker-worker.mjs";
+import {
+  FIGURE_RRF_WEIGHTS,
+  MATCH_CHUNK,
+  MATCH_FIGURE,
+  RERANKER_TOPK,
+  RRF_K,
+  RRF_RESULT_LIMIT,
+  RRF_WEIGHTS,
+  TABLE_BOOST,
+} from "./config.mjs";
 
-export function rrfFusion(vectorChunks, bm25Chunks, mode = "table", k = 60) {
-  const wBM25 = mode === "qa" ? 0.3 : 0.6;
-  const wVector = mode === "qa" ? 0.7 : 0.4;
+export function rrfFusion(vectorChunks, bm25Chunks, mode = "table", k = RRF_K) {
+  const wBM25 = mode === "qa" ? RRF_WEIGHTS.qa.bm25 : RRF_WEIGHTS.table.bm25;
+  const wVector = mode === "qa" ? RRF_WEIGHTS.qa.vector : RRF_WEIGHTS.table.vector;
   const MISSING_RANK = 1000;
 
   const vectorRankMap = new Map();
@@ -31,13 +41,12 @@ export function rrfFusion(vectorChunks, bm25Chunks, mode = "table", k = 60) {
   }
 
   scored.sort((a, b) => b._rrfScore - a._rrfScore);
-  return scored.slice(0, 40);
+  return scored.slice(0, RRF_RESULT_LIMIT);
 }
 
-export function rrfFusionFigures(vectorFigures, bm25Figures, k = 60) {
-  const wBM25 = 0.6;
-  const wVector = 0.4;
-  const TABLE_BOOST = 0.005;
+export function rrfFusionFigures(vectorFigures, bm25Figures, k = RRF_K) {
+  const wBM25 = FIGURE_RRF_WEIGHTS.bm25;
+  const wVector = FIGURE_RRF_WEIGHTS.vector;
   const MISSING_RANK = 1000;
 
   const vectorRankMap = new Map();
@@ -64,8 +73,6 @@ export function rrfFusionFigures(vectorFigures, bm25Figures, k = 60) {
   scored.sort((a, b) => b._rrfScore - a._rrfScore);
   return scored;
 }
-
-const RERANKER_TOPK = { table: 15, qa: 10 };
 
 export function createMultiQueryRag({
   supabase,
@@ -117,21 +124,21 @@ export function createMultiQueryRag({
       const promises = [
         supabase.rpc("match_chunks", {
           query_embedding: emb,
-          match_threshold: 0.2,
-          match_count: 60,
+          match_threshold: MATCH_CHUNK.threshold,
+          match_count: MATCH_CHUNK.count,
           filter_paper_ids: filterPaperIds,
           boost_section_names: null,
-          section_boost: 0.08,
+          section_boost: MATCH_CHUNK.sectionBoost,
         }),
         supabase.rpc("match_chunks_bm25", {
           query_text: bm25QueryText,
-          match_count: 60,
+          match_count: MATCH_CHUNK.count,
           filter_paper_ids: filterPaperIds,
         }),
         supabase.rpc("match_figures", {
           query_embedding: emb,
-          match_threshold: 0.15,
-          match_count: 30,
+          match_threshold: MATCH_FIGURE.threshold,
+          match_count: MATCH_FIGURE.count,
           filter_item_types: ["table", "figure", "equation"],
           filter_paper_ids: filterPaperIds,
         }),
@@ -141,7 +148,7 @@ export function createMultiQueryRag({
         promises.push(
           supabase.rpc("match_figures_bm25", {
             query_text: bm25QueryText,
-            match_count: 30,
+            match_count: MATCH_FIGURE.count,
             filter_item_types: ["table"],
             filter_paper_ids: filterPaperIds,
           }),

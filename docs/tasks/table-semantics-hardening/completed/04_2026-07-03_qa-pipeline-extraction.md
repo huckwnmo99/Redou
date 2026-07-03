@@ -1,6 +1,6 @@
 # Phase 2-3 — QA 파이프라인 분리 (동작 보존 리팩터)
 
-> 유형: feature (대규모 develop) | 상태: 계획 | 작성일: 2026-07-03 | 슬라이스: 04
+> 유형: feature (대규모 develop) | 상태: 완료 | 작성일: 2026-07-03 | 완료일: 2026-07-03 | 슬라이스: 04
 
 ## 개요
 
@@ -52,16 +52,26 @@
 
 `/develop`가 이 순서대로 실행한다.
 
-1. [ ] **모듈 생성** — `chat/qa-pipeline.mjs`에 `runQaConversationPipeline` + `defaultIntersectPaperIds`/`defaultUnwrapSingle`(재정의 or 공용). handleQaPipeline 로직을 인자 치환하며 이식.
-2. [ ] **배선 교체** — main.mjs에서 `handleQaPipeline` 삭제, 호출부를 `runQaConversationPipeline`(의존 주입)로. import 추가.
-3. [ ] **회귀 테스트 신설** — `tests/qa-pipeline.test.mjs`. fake 서비스로:
-   - graph OFF: `getEntityGraphEnabledFn → false` → `runMultiQueryRagFn` 호출(graph 미호출), 정상 완주.
-   - graph ON: `→ true` → `runGraphEnhancedRagFn` 호출, `graphing` 상태 방출.
-   - no-data: RAG가 chunks/figures 0 → no-data assistant insert + `CHAT_COMPLETE(hasTable:false)`, 스트리밍 미진입.
-   - abort: `abortSignal` 사전 fire → `throwIfChatAborted`가 AbortError, assistant 메시지 미insert.
-   - out-of-scope(선택): filterPaperIds 교집합이 산출 범위를 제한하는지(폴더 스코프).
-   - source attribution: `formatSourceAttributionFn` 결과가 persist metadata의 `referenced_paper_ids`에 반영.
-4. [ ] **동작 동치 확인** — 테스트가 handleQaPipeline의 관측 가능한 출력(이벤트 순서·persist 형태·metadata 키)을 그대로 재현.
+1. [x] **모듈 생성** — `chat/qa-pipeline.mjs`에 `runQaConversationPipeline` + `defaultIntersectPaperIds`/`defaultUnwrapSingle`(재정의, 동작 무변경 우선). handleQaPipeline 로직을 인자 치환하며 이식.
+2. [x] **배선 교체** — main.mjs에서 `handleQaPipeline` 삭제, 호출부를 `runQaConversationPipeline`(의존 주입)로. import 추가.
+3. [x] **회귀 테스트 신설** — `tests/qa-pipeline.test.mjs` (6건). fake 서비스로:
+   - graph OFF: `getEntityGraphEnabledFn → false` → `runMultiQueryRagFn` 호출(graph 미호출), 정상 완주. ✅
+   - graph ON: `→ true` → `runGraphEnhancedRagFn` 호출, `graphing` 상태 방출. ✅
+   - no-data: RAG가 chunks/figures 0 → no-data assistant insert + `emitComplete(hasTable:false)`, 스트리밍 미진입. ✅
+   - abort: `abortSignal` 사전 fire → `throwIfChatAborted`가 AbortError, assistant 메시지 미insert. ✅
+   - out-of-scope: filterPaperIds 교집합이 산출 범위를 제한(폴더 스코프). ✅
+   - source attribution: 실 `formatSourceAttribution` 결과가 persist metadata의 `referenced_paper_ids`·`source_evidence_locations`에 반영. ✅
+4. [x] **동작 동치 확인** — 테스트가 handleQaPipeline의 관측 가능한 출력(이벤트 순서·persist 형태·metadata 키)을 그대로 재현.
+
+## 구현 결과 (2026-07-03, developer)
+
+- **이동된 함수**: `handleQaPipeline`(main.mjs:2547-2663, ~116줄) → `chat/qa-pipeline.mjs`의 `export async function runQaConversationPipeline({...})`(183줄, 문서/DI 포함). 로직·조건·상태 이벤트·persist·metadata 형태 전부 동일. 전역 참조를 전부 인자로 치환(순수 이동 + DI 경계).
+- **DI 시그니처**: `{ conversationId, message, history, scopeFolderId, scopeAll, ownerPaperIds, ownerId, supabase, abortSignal, emitStatus, emitToken, emitComplete, runMultiQueryRagFn, runGraphEnhancedRagFn, getEntityGraphEnabledFn, getEntityExtractionModelFn, generateEmbeddingFn, getPaperIdsInFolderTreeFn, generateQaResponseFn, formatSourceAttributionFn, intersectPaperIdsFn=default, unwrapSingleFn=default, assembleRagContextFn=import, buildEvidenceLocationsByPaperFn=import, serializeEvidenceLocationsFn=import, extractKeyTermsFn=import }`. 순수 헬퍼 4종(assembleRagContext·buildEvidenceLocationsByPaper·serializeEvidenceLocations·extractKeyTerms)은 [가정 A]에 따라 **import 기본값 + override 가능**(table-pipeline 관례). LLM 접점(runMultiQueryRag·runGraphEnhancedRag·getEntityGraphEnabled·getEntityExtractionModel·generateEmbedding·getPaperIdsInFolderTree·generateQaResponse·formatSourceAttribution)은 주입 필수.
+- **이벤트 계약 통일(R-3)**: 원본은 내부에서 `createChatStatusEmitter`를 자체 생성했으나, table-pipeline과 동일하게 **emitStatus/emitToken/emitComplete를 주입**받도록 통일(호출부에서 `broadcastToWindows(IPC_EVENTS.CHAT_TOKEN/COMPLETE, …)` 인라인 래핑, [가정 C]). `abortController.signal` → 주입 `abortSignal`로 통일, `throwIfChatAborted` fire 지점 2곳 동일 위치 보존.
+- **default 헬퍼([가정 B])**: `defaultIntersectPaperIds`/`defaultUnwrapSingle`을 qa-pipeline.mjs에 재정의(동작 무변경 우선, 공용화는 별도 slice).
+- **main.mjs 전/후 줄수**: **3097 → 2996 (−101줄)**. handleQaPipeline 116줄 + 이 함수 전용이 된 dead import 4종(`throwIfChatAborted`·`extractKeyTerms`·`assembleRagContext`·`buildEvidenceLocationsByPaper`/`serializeEvidenceLocations`) 제거, 호출부 배선(+23줄)로 상쇄. ADR 0002 방향(main.mjs 축소) 이행.
+- **검증**: `node --check` qa-pipeline.mjs + main.mjs + qa-pipeline.test.mjs 통과. `node --test tests/*.test.mjs` **129/129**(기존 123 + 신규 QA 6, 회귀 0). frontend 무변경(순수 백엔드 리팩터, IPC 이벤트 계약 무변경). DB·새 IPC·`CURRENT_EXTRACTION_VERSION` 무변경.
+- **계획 대비 변경**: (1) 순수 헬퍼 4종을 import 기본값으로 노출(테스트 override 용이) — 가정 A 범위 내. (2) main.mjs에서 dead import 4종을 제거(내 변경으로 생긴 dead code만) — 계획 미명시였으나 수술적 정리. (3) attribution 테스트는 mock 대신 **실 `formatSourceAttribution`**로 `[1]→paperId`·evidence 매핑을 결정적으로 고정(관측 출력 동치 강화).
 
 ## 영향 범위
 

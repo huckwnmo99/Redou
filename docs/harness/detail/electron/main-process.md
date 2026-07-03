@@ -1,5 +1,5 @@
 # Electron Main Process
-> 하네스 버전: v1.13 | 최종 갱신: 2026-07-03
+> 하네스 버전: v1.14 | 최종 갱신: 2026-07-03
 
 ## 개요
 Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처리 파이프라인 오케스트레이션, DB 프록시, 채팅 파이프라인 진입을 관장한다.
@@ -91,4 +91,5 @@ Electron 앱의 진입점. 앱 라이프사이클, IPC 핸들러 등록, PDF 처
 ## 현재 상태
 - 구현 완료: 전체 IPC, PDF 파이프라인 V2 단일, 채팅 테이블/Q&A, Guardian, 모델 선택, 엔티티 그래프 IPC(opt-in)
 - 채팅 파이프라인 상세는 `chat-table-pipeline-state.md`, 엔티티 그래프는 `entity-graph.md` 참고
+- `chat:send-message`의 **QA 분기는 슬라이스 04에서 `handleQaPipeline`(구 main.mjs 인라인 ~116줄)을 `chat/qa-pipeline.mjs`의 `runQaConversationPipeline`으로 추출**(table-pipeline과 동일 DI). 핸들러는 공통 setup 후 `conversationType==="qa"`면 의존을 주입해 얇게 호출만 한다(동작 보존). 이로써 main.mjs가 −101줄(3097→2996, ADR 0002 방향).
 - `chat:send-message`는 같은 conversationId에 대해 진행 중 응답이 있으면(`chatAbortControllers.has(convId)`) 두 번째 전송을 **DB 기록·이벤트 없이 즉시 거부**(`{ conversationId, error }` 반환)한다. `finally`의 레지스트리 정리는 자기 컨트롤러일 때만(identity guard) 수행해 동시 전송·abort 후 재전송 레이스에서 abort 레지스트리 붕괴를 방지 (fix B-R1).
