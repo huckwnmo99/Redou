@@ -610,14 +610,88 @@ describe("runTableConversationPipeline", () => {
 
     await scheduledTask();
 
+    // Phase 2 slice 02: no parsed matrices in this fixture (figures: []), so the
+    // numeric cell cannot be back-matched and falls through to the Guardian — but now
+    // with a narrow MeasHalu value_fabrication claim (no unit/condition tuple here) and
+    // a method="guardian" verification record.
     assert.equal(groundednessCalls.length, 1);
-    assert.equal(groundednessCalls[0].claim, "For Material A [1], 25 mg [1], the value of Value is 25 mg");
+    assert.equal(groundednessCalls[0].claim, "For Material A, the value 25 mg for Value appears in the source");
     assert.equal(updates.some((entry) => entry.table === "chat_generated_tables" && Array.isArray(entry.data.verification)), true);
     assert.deepEqual(emitted.verificationDone, [{
       conversationId: "conv-guardian",
       tableId: "chat_generated_tables-row",
-      verification: [{ row: 0, col: 1, status: "verified", evidence: "matched" }],
+      verification: [{ row: 0, col: 1, method: "guardian", checkType: "value_fabrication", status: "verified", evidence: "matched" }],
     }]);
+  });
+
+  it("code-verifies cells found in the parsed matrix and does NOT call the Guardian for them", async () => {
+    // A paper with an OCR table (figure summary_text HTML) whose values the extraction
+    // copies into the generated table. The parsed matrix therefore contains those
+    // values, so Stage 4 back-matches them in code — the Guardian must not be asked.
+    const { supabase, updates } = createRecordingSupabase({
+      papers: [{ id: "paper-1", title: "Matrix Paper", authors: [], publication_year: 2026 }],
+      figures: [],
+    });
+    let scheduledTask = null;
+    const groundednessCalls = [];
+
+    const result = await runTableConversationPipeline({
+      supabase,
+      emitStatus: () => {},
+      emitVerificationDone: () => {},
+      scheduleImmediateFn: (callback) => { scheduledTask = callback; return "scheduled"; },
+      checkGroundednessFn: async (source, claim) => {
+        groundednessCalls.push({ source, claim });
+        return { status: "verified", evidence: "matched" };
+      },
+      abortSignal: new AbortController().signal,
+      conversationId: "conv-matrix",
+      ownerId: "user-1",
+      ownerPaperIds: ["paper-1"],
+      history: [{ role: "user", content: "compare", message_type: "text" }],
+      generateOrchestratorPlanFn: async () => ({
+        action: "generate_table",
+        keyword_hints: ["matrix"],
+        search_queries: [{ query: "matrix", intent: "primary" }],
+        table_spec: { title: "Matrix", row_axis: "Papers", column_definitions: ["Adsorbent", "q_max"] },
+      }),
+      runMultiQueryRagFn: async () => ({
+        chunks: [],
+        figures: [{
+          figure_id: "fig-1",
+          paper_id: "paper-1",
+          caption: "Table 3 Langmuir parameters",
+          summary_text: "<table><tr><th>Adsorbent</th><th>q_max</th></tr><tr><td>KACa</td><td>8.69</td></tr></table> long enough for parsing threshold",
+          page: 5,
+        }],
+      }),
+      // Code parser turns the OCR HTML into a matrix carrying 8.69 (caption -> Table 3).
+      parseAllHtmlTablesFn: () => [{ success: true, headers: ["Adsorbent", "q_max"], rows: [["KACa", "8.69"]] }],
+      extractMatrixFromHtmlFn: async () => ({ headers: [], rows: [] }),
+      // Extraction copies the matrix value 8.69 (with a source_hint pointing at Table 3).
+      extractColumnsFromPaperFn: async () => ({
+        paper_title: "Matrix Paper",
+        data_rows: [{
+          values: { Adsorbent: "KACa", q_max: "8.69" },
+          cell_meta: { q_max: { source_hint: "Table 3", unit: "mol/kg" } },
+        }],
+      }),
+      ...createStage3cDeps(),
+    });
+
+    assert.equal(result.hasTable, true);
+    await scheduledTask();
+
+    // The numeric cell (q_max=8.69) was back-matched in the Table 3 matrix -> Guardian
+    // was never called.
+    assert.equal(groundednessCalls.length, 0);
+    const verifyUpdate = updates.find((e) => e.table === "chat_generated_tables" && Array.isArray(e.data.verification));
+    assert.ok(verifyUpdate, "verification update persisted");
+    const codeCell = verifyUpdate.data.verification.find((v) => v.method === "code");
+    assert.ok(codeCell, "a code-verified cell exists");
+    assert.equal(codeCell.status, "verified");
+    assert.equal(codeCell.checkType, "backmatch");
+    assert.equal(codeCell.scope, "source_hinted");
   });
 
   it("parses OCR table matrices with code parser first and LLM fallback second", async () => {

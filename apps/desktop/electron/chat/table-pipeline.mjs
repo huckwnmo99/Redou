@@ -16,6 +16,12 @@ import {
 import { buildAdsorptionPromptHint } from "./adsorption-domain.mjs";
 import { sanitizeColumnNames } from "./extraction-utils.mjs";
 import {
+  backMatchCell,
+  buildMatrixValueIndex,
+  buildNarrowGuardianClaim,
+  pickCheckType,
+} from "./value-backmatch.mjs";
+import {
   buildEvidenceLocationsByPaper,
   enrichSourceRefsWithEvidence,
   serializeEvidenceLocations,
@@ -1051,12 +1057,89 @@ async function persistTableReport({
   };
 }
 
+/**
+ * Read a cell tuple from the 2D cellTuples array (parallel to tableJson.rows),
+ * tolerant of absent/ragged data or the fallback path where cellTuples is null.
+ */
+function getCellTupleAt(cellTuples, row, col) {
+  if (!Array.isArray(cellTuples)) return null;
+  const r = cellTuples[row];
+  if (!Array.isArray(r)) return null;
+  return r[col] ?? null;
+}
+
+/**
+ * Stage 4 pass 1 (deterministic, no LLM): collect every numeric cell, then try to
+ * re-find its value in the parsed OCR matrices (parsedMatrices). Cells found are
+ * "code-verified"; cells not found anywhere are returned as Guardian candidates.
+ *
+ * Pure/synchronous so it can be unit-tested directly.
+ *
+ * @returns {{
+ *   codeVerified: Array<{ row, col, status, method, checkType, scope }>,
+ *   guardianCandidates: Array<{ row, col, cleanValue }>,
+ *   numericCellCount: number,
+ * }}
+ */
+export function runCodeBackMatchPass({ tableJson, parsedMatrices, cellTuples }) {
+  const rows = Array.isArray(tableJson?.rows) ? tableJson.rows : [];
+  const valueIndex = buildMatrixValueIndex(parsedMatrices);
+
+  const codeVerified = [];
+  const guardianCandidates = [];
+  let numericCellCount = 0;
+
+  for (let r = 0; r < rows.length; r++) {
+    const row = Array.isArray(rows[r]) ? rows[r] : [];
+    for (let c = 0; c < row.length; c++) {
+      const cellValue = row[c];
+      if (!cellValue || cellValue === "N/A" || String(cellValue).trim() === "") continue;
+      const cleanValue = String(cellValue).replace(/\[\d+\]/g, "").trim();
+      if (!cleanValue || !/\d/.test(cleanValue)) continue;
+      numericCellCount++;
+
+      const tuple = getCellTupleAt(cellTuples, r, c);
+      const match = backMatchCell({ cellValue, sourceHint: tuple?.source_hint, valueIndex });
+      if (match.matched) {
+        codeVerified.push({
+          row: r,
+          col: c,
+          status: "verified",
+          method: "code",
+          checkType: "backmatch",
+          scope: match.scope,
+        });
+      } else {
+        guardianCandidates.push({ row: r, col: c, cleanValue });
+      }
+    }
+  }
+
+  return { codeVerified, guardianCandidates, numericCellCount };
+}
+
+/**
+ * Schedule Stage 4 cell verification as a two-pass check:
+ *   1. Code back-match (synchronous, deterministic) marks cells found in the parsed
+ *      matrices as code-verified \u2014 these skip the Guardian entirely.
+ *   2. The Guardian (LLM) only re-checks cells that back-matching could not confirm,
+ *      each with a narrow MeasHalu-typed claim built from the cell's tuple.
+ *
+ * Each verification record carries its author: `method: "code" | "guardian"` and a
+ * `checkType`. The setImmediate scheduling, combinedSource assembly, sampling/batching,
+ * emitVerificationDone event, and non-blocking try/catch are all preserved (the Stage 4
+ * renderer-facing contract is unchanged; only the payload gains optional fields).
+ *
+ * (Formerly scheduleGuardianVerification \u2014 renamed for the two-pass design.)
+ */
 function scheduleGuardianVerification({
   supabase,
   conversationId,
   tableId,
   tableJson,
   ragResults,
+  parsedMatrices,
+  cellTuples,
   emitStatus,
   emitVerificationDone,
   checkGroundednessFn,
@@ -1065,55 +1148,60 @@ function scheduleGuardianVerification({
   scheduleImmediateFn(async () => {
     try {
       emitStatus?.({ stage: "verifying", message: "\uB370\uC774\uD130 \uAC80\uC99D \uC911..." });
-      console.log("[Chat] Stage 4: Guardian - verifying data...");
+      console.log("[Chat] Stage 4: verifying data (code back-match + Guardian)...");
 
+      // Pass 1: deterministic code back-match against the parsed matrices.
+      const { codeVerified, guardianCandidates, numericCellCount } = runCodeBackMatchPass({
+        tableJson,
+        parsedMatrices,
+        cellTuples,
+      });
+      console.log(
+        `[Chat] Stage 4: ${numericCellCount} numeric cells -> ${codeVerified.length} code-verified, ${guardianCandidates.length} to Guardian`,
+      );
+
+      // Pass 2: Guardian (LLM) only for cells back-matching could not confirm.
       const allSourceTexts = [
         ...ragResults.figures.filter((f) => f.summary_text).map((f) => `${f.caption ?? ""}\n${f.summary_text}`.slice(0, 1000)),
         ...ragResults.chunks.slice(0, 20).map((c) => c.text.slice(0, 800)),
       ];
       const combinedSource = allSourceTexts.join("\n\n").slice(0, 12000);
 
-      const cellsToVerify = [];
-      for (let r = 0; r < tableJson.rows.length; r++) {
-        for (let c = 0; c < tableJson.rows[r].length; c++) {
-          const cellValue = tableJson.rows[r][c];
-          if (!cellValue || cellValue === "N/A" || cellValue.trim() === "") continue;
-          const cleanValue = cellValue.replace(/\[\d+\]/g, "").trim();
-          if (!cleanValue || !/\d/.test(cleanValue)) continue;
-          cellsToVerify.push({ row: r, col: c, cleanValue });
-        }
+      const maxVerify = 50;
+      const sampled = guardianCandidates.length > maxVerify
+        ? guardianCandidates.filter((_, i) => i % Math.ceil(guardianCandidates.length / maxVerify) === 0)
+        : guardianCandidates;
+      if (guardianCandidates.length > 0) {
+        console.log(`[Chat] Guardian: ${guardianCandidates.length} unmatched cells -> sampling ${sampled.length}`);
       }
 
-      const maxVerify = 50;
-      const sampled = cellsToVerify.length > maxVerify
-        ? cellsToVerify.filter((_, i) => i % Math.ceil(cellsToVerify.length / maxVerify) === 0)
-        : cellsToVerify;
-      console.log(`[Chat] Guardian: ${cellsToVerify.length} numeric cells -> sampling ${sampled.length}`);
-
       const batchSize = 5;
-      const verification = [];
+      const guardianVerification = [];
       for (let i = 0; i < sampled.length; i += batchSize) {
         const batch = sampled.slice(i, i + batchSize);
         const results = await Promise.all(
           batch.map((cell) => {
-            const identParts = tableJson.headers.slice(0, 2)
-              .map((h, idx) => tableJson.rows[cell.row]?.[idx])
-              .filter(Boolean)
-              .join(", ");
-            const claim = identParts
-              ? `For ${identParts}, the value of ${tableJson.headers[cell.col]} is ${cell.cleanValue}`
-              : `The value of ${tableJson.headers[cell.col]} is ${cell.cleanValue}`;
+            const tuple = getCellTupleAt(cellTuples, cell.row, cell.col);
+            const checkType = pickCheckType(tuple);
+            const claim = buildNarrowGuardianClaim(
+              { headers: tableJson.headers, row: tableJson.rows[cell.row] ?? [], col: cell.col, cleanValue: cell.cleanValue },
+              tuple,
+              checkType,
+            );
             return checkGroundednessFn(combinedSource, claim)
-              .then((res) => ({ row: cell.row, col: cell.col, ...res }))
-              .catch(() => ({ row: cell.row, col: cell.col, status: "unverified", evidence: "error" }));
+              .then((res) => ({ row: cell.row, col: cell.col, method: "guardian", checkType, ...res }))
+              .catch(() => ({ row: cell.row, col: cell.col, method: "guardian", checkType, status: "unverified", evidence: "error" }));
           }),
         );
-        verification.push(...results);
+        guardianVerification.push(...results);
       }
 
+      const verification = [...codeVerified, ...guardianVerification];
       await supabase.from("chat_generated_tables").update({ verification }).eq("id", tableId);
       emitVerificationDone?.({ conversationId, tableId, verification });
-      console.log(`[Chat] Verification done: ${verification.filter((v) => v.status === "verified").length}/${verification.length} verified`);
+      console.log(
+        `[Chat] Verification done: ${verification.filter((v) => v.status === "verified").length}/${verification.length} verified (code ${codeVerified.length} / guardian ${guardianVerification.length})`,
+      );
     } catch (err) {
       console.error("[Chat] Verification error (non-fatal):", err.message);
     }
@@ -1283,6 +1371,8 @@ export async function runTableConversationPipeline({
     tableId: persistenceResult.tableId,
     tableJson: persistenceResult.tableJson,
     ragResults: ragContext.ragResults,
+    parsedMatrices: parsedContext.parsedMatrices,
+    cellTuples: stage3dContext.cellTuples,
     emitStatus,
     emitVerificationDone,
     checkGroundednessFn,
