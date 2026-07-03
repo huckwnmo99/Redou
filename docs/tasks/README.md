@@ -69,7 +69,7 @@ docs/tasks/<work-slug>/
 - `docs-cleanup/` — 문서 재편 ledger (Phase별 슬라이스 예시).
 - `pdf-zoom-app-wide-leak/` — PDF 줌이 앱 UI 전체로 새는 버그 fix ledger (소규모, 계획 작성 완료).
 - `pipeline-risk-audit/` — 핵심 파이프라인(임포트→임베딩→RAG→채팅) 위험 감사 ledger (발견 28건, 수정 승격 대기).
-- `table-semantics-hardening/` — 테이블 의미 보존 강화 ledger (D1~D4 결함 봉쇄, Phase 1 계획 완료·대규모 develop 대기).
+- `table-semantics-hardening/` — 테이블 의미 보존 강화 ledger (D1~D4 봉쇄. Phase 1 구현·E2E 재실증 통과, PR #4 merge 대기. Phase 2/3 로드맵 보유).
 
 ## 멈출 때 체크 (다음 세션을 위해)
 
