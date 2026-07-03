@@ -1,7 +1,7 @@
 # Redou Context Index
 
 Status: canonical entrypoint
-Last updated: 2026-05-08
+Last updated: 2026-06-16
 
 This file is intentionally thin. It points agents to the canonical project language and decisions without duplicating the definitions.
 
@@ -39,21 +39,17 @@ Current Stage 0 decisions:
 
 ## Agent Coordination
 
-Project agent rules and current work state:
+Project agent rules, workflow, and role split:
 
-- `AGENTS.md`
+- `CLAUDE.md` (repo root) — orchestrator + subagent model (`planner` / `developer` / `fixer` / `tester` / `reviewer`), workflow, and absolute rules.
+- `.claude/agents/` — subagent definitions.
 
-Codex-Claude exchange folder:
+Current work state:
 
-- `docs/agents/codex-claude/`
+- `docs/tasks/<work>/README.md` — per-work ledger.
+- `docs/harness/main/feature-status.md` — system feature status (SSoT).
 
-Accepted Codex-Claude decisions:
-
-- `docs/agents/codex-claude/decisions.md`
-
-Open questions:
-
-- `docs/agents/codex-claude/open-questions.md`
+Codex is not part of the workflow. Implementation, verification, and review are all handled by Claude subagents.
 
 ## Current Refactor Rule
 

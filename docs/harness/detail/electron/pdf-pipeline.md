@@ -1,5 +1,5 @@
 # PDF Pipeline
-> 하네스 버전: v2.0 | 최종 갱신: 2026-04-21
+> 하네스 버전: v2.1 | 최종 갱신: 2026-07-03
 
 ## 개요
 현재 Electron PDF 처리는 V2 단일 파이프라인이다. 구조 추출은 MinerU가 담당하며, MinerU가 없거나 MinerU 추출이 실패하면 PDF 임포트 작업은 실패한다. GROBID는 메타데이터와 참고문헌 품질을 높이는 선택 서비스이며, 미가용 시 MinerU 결과만 저장하는 degraded mode로 진행한다. V1 휴리스틱 구조 추출, Tesseract OCR 폴백, V1 figure/table/equation 후보 추출 함수는 더 이상 파이프라인의 일부가 아니다.
@@ -39,7 +39,7 @@
 6. `processWithMineruGrobid()`는 `parsePdf()`를 반드시 실행하고, `grobidAvailable`이 true일 때만 `extractMetadataAndReferences()`를 실행한다. false이면 `Promise.resolve(null)`을 사용해 120초 GROBID 대기를 만들지 않는다.
 7. MinerU 결과는 `parseMineruResult()`로 sections, chunks, figures, tables, equations로 정규화된다.
 8. `mergeMetadata()`가 GROBID metadata가 있으면 우선 사용하고, 없으면 MinerU/기존 paper/fallback title 기준으로 paper metadata를 구성한다.
-9. `persistV2Results()`가 기존 extraction 산출물을 지운 뒤 V2 결과를 저장한다. figure 이미지는 MinerU 이미지 저장을 우선하고, 누락된 figure에 대해서만 `extractFigureImagesFromPdf()`를 보강용으로 사용한다.
+9. `persistV2Results()`가 V2 결과를 저장한다. 재추출 시 **지연 삭제(A-R2)**: 함수 진입 시 기존 `paper_chunks`/`figures`/`paper_sections`의 old id만 조회·보관하고, 새 행을 old와 공존시켜 전부 insert한 뒤 모든 insert·링크가 성공하면 그 시점에 old id만 삭제한다(중간 실패 시 old 보존 → "빈껍데기" 방지, 완전 원자성은 아님). old chunk/figure 삭제 시 `chunk_embeddings`·`figure_chunk_links`는 ON DELETE CASCADE로 함께 정리되고, `figure_chunk_links`는 새로 insert한 figure id로만 생성한다. figure 이미지는 MinerU 이미지 저장을 우선하고, 누락된 figure에 대해서만 `extractFigureImagesFromPdf()`를 보강용으로 사용한다.
 10. 저장 후 빈 table body가 있으면 `enhanceEmptyTablesWithOcr()`가 GLM-OCR로 table HTML/plain text를 보강한다. 이 단계는 V2 후처리이며 구조 추출 폴백이 아니다.
 11. chunk가 하나 이상이면 `generate_embeddings` job을 큐에 추가한다.
 12. `processEmbeddingJob()`가 chunk, paper, figure/table/equation embedding을 생성한다.

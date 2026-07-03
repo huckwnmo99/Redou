@@ -17,22 +17,23 @@
 
 ## 진행 중인 작업 — [`tasks/`](tasks/) (ledger)
 각 작업의 ledger. **README 먼저 읽고** 링크된 것만 연다. ledger 운영 방식(매 작업 사이클·구조·트리거): [`tasks/README.md`](tasks/README.md).
-- [`tasks/read-only-improvement-advisor/`](tasks/read-only-improvement-advisor/) — 읽기 전용 개선 어드바이저 (활성)
-- [`tasks/docs-cleanup/`](tasks/docs-cleanup/) — 문서 재편 (이 정리 작업)
+- [`tasks/read-only-improvement-advisor/`](tasks/read-only-improvement-advisor/) — 읽기 전용 개선 어드바이저 (활성, 테스터 단계 대기)
+- [`tasks/pipeline-risk-audit/`](tasks/pipeline-risk-audit/) — 핵심 파이프라인 위험 감사 (발견 28건, 수정 승격 대기)
+- [`tasks/pdf-zoom-app-wide-leak/`](tasks/pdf-zoom-app-wide-leak/) — PDF 줌 앱 전체 누수 fix (구현 완료, /test 대기)
+- [`tasks/docs-cleanup/`](tasks/docs-cleanup/) — 문서 재편 (완료)
 - 활성 기능 계획서: [`features/new/17-read-only-improvement-advisor.md`](features/new/17-read-only-improvement-advisor.md)
 
 ## 아이디어 — [`backlog/`](backlog/)
 구현 전 아이디어 목록. `/plan` 후보.
 
 ## 에이전트 — [`agents/`](agents/)
-- `agents/codex-claude/` — Claude↔Codex 파일 교환 (README, decisions, open-questions)
 - `agents/redou-spec-loop.md` — 스펙 루프
 
 ## 보관 — [`archive/`](archive/)
 완료/레거시 문서를 **이력용으로 보존**(현행 아님). → [`archive/README.md`](archive/README.md)
 
 ## 워크플로우
-루트 [`../CLAUDE.md`](../CLAUDE.md) — 역할 분리(Claude=오케스트레이터, Codex=개발자), 워크플로우, 절대 규칙.
+루트 [`../CLAUDE.md`](../CLAUDE.md) — 역할 분리(메인 Claude=오케스트레이터, 서브에이전트 planner/developer/fixer/tester/reviewer=실행), 워크플로우, 절대 규칙.
 
 ## 빠른 참조 — 상황별 "어디 보지?"
 | 상황 | 먼저 볼 곳 |

@@ -5,15 +5,13 @@ Date: 2026-05-08
 
 ## Context
 
-`apps/desktop/electron/main.mjs` is currently too broad. Codex-Claude decision D8 states that `main.mjs` should own only lifecycle, IPC registration, client initialization, and whitelist definitions.
+`apps/desktop/electron/main.mjs` is currently too broad. It should own only lifecycle, IPC registration, client initialization, and whitelist definitions.
 
 Without a module ownership rule, future fixes will continue adding domain logic back into `main.mjs`, undoing the refactor.
 
-## D8 Mapping
+## Source Of Truth
 
-This ADR is the canonical implementation detail for decision D8 in `docs/agents/codex-claude/decisions.md`.
-
-Future changes to `main.mjs` scope should update the accepted decision first, then this ADR. If they disagree, D8 is the higher-level source of truth and this ADR should be corrected.
+This ADR is the canonical source of truth for `main.mjs` module ownership. Future changes to `main.mjs` scope should update this ADR first.
 
 ## Decision
 

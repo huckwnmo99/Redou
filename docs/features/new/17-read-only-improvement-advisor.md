@@ -448,7 +448,7 @@ Mitigations:
 1. Should the first UI live in Settings or a dedicated Advisor view?
 2. Should suggestions be computed on demand or cached for a day?
 3. Should dismissed suggestions persist before the event-log phase?
-4. Should "Create task" write to the codex-claude exchange, a local markdown file, or a future issue tracker?
+4. Should "Create task" write to a local markdown file or a future issue tracker?
 5. Which analyzer should be first: processing health, RAG quality, or table quality?
 
 ## Recommended First Slice

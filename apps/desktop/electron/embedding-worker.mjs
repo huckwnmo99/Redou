@@ -73,11 +73,13 @@ export async function generateEmbedding(text, type = "document") {
 
 /**
  * Generate embeddings for an array of texts with concurrency control.
- * Calls onProgress(completed, total) periodically.
+ * Calls onProgress(completed, total) periodically. Per-chunk failures are
+ * isolated (Promise.allSettled): failed slots are left undefined instead of
+ * rejecting the whole batch, so the caller must skip undefined entries.
  * @param {string[]} texts
  * @param {((done: number, total: number) => void) | undefined} onProgress
  * @param {"query" | "document" | "passage"} type
- * @returns {Promise<number[][]>}
+ * @returns {Promise<Array<number[] | undefined>>} — length === texts.length; undefined at failed indices
  */
 export async function generateEmbeddings(texts, onProgress, type = "document") {
   const role = type === "query" ? "query" : "document";
@@ -86,16 +88,30 @@ export async function generateEmbeddings(texts, onProgress, type = "document") {
 
   for (let i = 0; i < texts.length; i += CONCURRENCY_LIMIT) {
     const batch = texts.slice(i, i + CONCURRENCY_LIMIT);
-    const promises = batch.map((text, j) =>
-      callVllmSingle({
-        role,
-        content: [{ type: "text", text }],
-      }).then((emb) => {
-        results[i + j] = emb;
-        completed++;
-      })
+    const settled = await Promise.allSettled(
+      batch.map((text) =>
+        callVllmSingle({
+          role,
+          content: [{ type: "text", text }],
+        })
+      )
     );
-    await Promise.all(promises);
+
+    // Isolate per-chunk failures: keep successful embeddings, leave failed
+    // slots undefined so the caller can skip them (mirrors figure embedding
+    // path which try/catches each item). A single reject no longer discards
+    // the whole batch.
+    settled.forEach((outcome, j) => {
+      if (outcome.status === "fulfilled") {
+        results[i + j] = outcome.value;
+        completed++;
+      } else {
+        console.warn(
+          `[embedding] chunk ${i + j} embedding failed, skipping:`,
+          outcome.reason?.message ?? outcome.reason
+        );
+      }
+    });
 
     if (onProgress) {
       onProgress(completed, texts.length);
