@@ -1,5 +1,5 @@
 # RAG 파이프라인
-> 하네스 버전: v1.2 | 최종 갱신: 2026-07-03
+> 하네스 버전: v1.3 | 최종 갱신: 2026-07-03
 
 ## 개요
 채팅(테이블 생성/Q&A) 시 관련 논문 데이터를 검색하는 Hybrid Search + RRF Fusion + Reranker 파이프라인. 검색 결과를 LLM 컨텍스트로 조립한다.
@@ -7,18 +7,24 @@
 ## 핵심 파일
 | 파일 | 역할 | 줄 수 |
 |------|------|-------|
-| `apps/desktop/electron/main.mjs` | RAG 함수들 + Stage 3d NULL Recovery | 채팅 파이프라인 구간 |
+| `apps/desktop/electron/rag/multi-query-rag.mjs` | 멀티쿼리 RAG(`createMultiQueryRag`) + RRF fusion(청크/figure) + reranker 적용 | ~230 |
+| `apps/desktop/electron/rag/config.mjs` | **RAG 튜닝 상수 단일 모듈**(B-M2, 슬라이스 06) — RRF 가중·match_threshold/count·section_boost·TABLE_BOOST·RERANKER_TOPK·RRF_RESULT_LIMIT·GRAPH_TOP_K·graph 가중을 named export로 중앙화. `multi-query-rag.mjs`·`graph-search.mjs`가 소비 | ~55 |
+| `apps/desktop/electron/graph-search.mjs` | Graph-enhanced RAG(`runGraphEnhancedRag`) + `rrfFusionWithGraph` (Q&A opt-in) | ~200 |
+| `apps/desktop/electron/main.mjs` | Stage 3d NULL Recovery 오케스트레이션 + 채팅 파이프라인 배선 | 채팅 파이프라인 구간 |
 | `apps/desktop/electron/reranker-worker.mjs` | Cross-encoder reranker | ~147 |
 | `apps/desktop/electron/embedding-worker.mjs` | 쿼리 임베딩 생성 | ~143 |
 
 ## 주요 함수
 
+> 상수는 전부 `rag/config.mjs`에서 참조(슬라이스 06 중앙화). 아래 가중/topK/threshold 값은 config의 named export.
+
 | 함수 | 위치 | 역할 | 입출력 |
 |------|------|------|--------|
-| `runMultiQueryRag(queries, hints, filterIds, mode)` | main.mjs:2823 | 멀티쿼리 RAG 진입점 | → {chunks, figures} |
-| `rrfFusion(vectorChunks, bm25Chunks, mode, k)` | main.mjs:2728 | 청크 RRF 병합 | table: BM25 60%+Vector 40%, qa: BM25 30%+Vector 70% |
-| `rrfFusionFigures(vectorFigs, bm25Figs, k)` | main.mjs:2764 | Figure RRF 병합 | BM25 60%+Vector 40%, TABLE_BOOST=0.005 |
-| `rerankChunksIfAvailable(query, chunks, mode)` | main.mjs:2804 | Reranker 적용 | table: top-15, qa: top-10 |
+| `runMultiQueryRag(queries, hints, filterIds, mode)` | rag/multi-query-rag.mjs (`createMultiQueryRag` 내부) | 멀티쿼리 RAG 진입점. RPC 파라미터는 `MATCH_CHUNK`/`MATCH_FIGURE` 참조 | → {chunks, figures} |
+| `rrfFusion(vectorChunks, bm25Chunks, mode, k)` | rag/multi-query-rag.mjs | 청크 RRF 병합. `RRF_WEIGHTS`(table: BM25 60%+Vector 40%, qa: BM25 30%+Vector 70%)·`RRF_RESULT_LIMIT`(40)·`RRF_K`(60) | 상위 40 청크 |
+| `rrfFusionFigures(vectorFigs, bm25Figs, k)` | rag/multi-query-rag.mjs | Figure RRF 병합. `FIGURE_RRF_WEIGHTS`(BM25 60%+Vector 40%)·`TABLE_BOOST`(0.005) | 전체 반환 |
+| `rerankChunksIfAvailable(query, chunks, mode)` | rag/multi-query-rag.mjs | Reranker 적용. `RERANKER_TOPK` | table: top-15, qa: top-10 |
+| `rrfFusionWithGraph(baseChunks, graphChunks, mode, k)` | graph-search.mjs | 그래프 RRF 병합. `GRAPH_RRF_WEIGHTS`(qa base 78%/graph 22%)·`GRAPH_TOP_K`(18)·`RRF_K`(60) | 상위 18 청크 |
 | `assembleRagContext(chunks, figures, refMap, matrices, budget?)` | chat/table-extraction.mjs | 전체 RAG 컨텍스트 조립 | → string (3섹션: 파싱TSV + OCR HTML + 텍스트). `budget?={ocr,matrix,total}` 미지정 시 기본(OCR 70K/MATRIX 35K/TOTAL 120K). Stage 3c fallback만 `FALLBACK_RAG_BUDGET`(OCR 30K/MATRIX 20K/TOTAL 60K) 전달 |
 | `assemblePerPaperContext({chunks, figures, tables, title})` | main.mjs:3027 | 논문별 RAG 컨텍스트 (SRAG용) | 예산: 30K chars/논문 |
 | `mergeExtractionResults(results, spec, meta, refMap)` | chat/table-extraction.mjs | SRAG 병합 (코드 전용) | → **{tableJson, nullSummary, reasons, cellTuples, columnSemanticTypes, conditionConflicts}**. 데이터 0행 스코프 논문은 전 셀 N/A placeholder 행 생성(+`usedPaperIds` 등록 → references 포함). `reasons[…]`=per-paper `extraction.notes`(fix 19). **Phase 1**(table-semantics-hardening): 셀 채우기 직전 `validateCellValue` 적용(파편→N/A, D4) + `cellTuples[r][c]`(unit/condition/source_hint, D1/D3, rows와 정렬·placeholder null) + `columnSemanticTypes`(spec 병렬 배열, D2) + `conditionConflicts`(`detectConditionConflicts`: parameter 열 상이 condition 2종+, D1) |
@@ -112,6 +118,8 @@ searchQueries[] (Orchestrator 출력)
 
 ## RRF 가중치
 
+> 값 출처: `rag/config.mjs` `RRF_WEIGHTS`(슬라이스 06 중앙화). 아래는 이동 전과 동일한 값.
+
 | 모드 | BM25 가중 | Vector 가중 | 비고 |
 |------|-----------|------------|------|
 | table | 0.6 | 0.4 | 키워드 정확도 중시 (수치 데이터) |
@@ -124,6 +132,7 @@ searchQueries[] (Orchestrator 출력)
 ## 현재 상태
 - 구현 완료: Hybrid Search, RRF, Reranker, 컨텍스트 조립, SRAG 병합, Stage 3d Agentic NULL Recovery
 - SRAG nullSummary 데이터는 Stage 3d 재검색과 `agenticRecovery` metadata 기록에 사용됨
+- **RAG 튜닝 상수 중앙화(슬라이스 06, B-M2)**: RRF 가중·match_threshold/count·section_boost·TABLE_BOOST·RERANKER_TOPK·RRF_RESULT_LIMIT·GRAPH_TOP_K·graph 가중이 `rag/config.mjs` 단일 모듈에 named export로 모임. `multi-query-rag.mjs`·`graph-search.mjs`가 소비. 무동작 리팩터(값·동작 무변경) — 튜닝·감사 시 config 한 곳만 보면 됨. env 노출은 미포함(후속 선택)
 
 ### 알려진 이슈
 

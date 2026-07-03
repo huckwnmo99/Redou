@@ -253,6 +253,23 @@ function JobCard({ job, order, locale }: { job: ProcessingJob; order?: number; l
         </div>
       ) : null}
 
+      {/* A-R6: a 0-chunk (scanned/empty PDF) job still finishes "succeeded" but the
+          backend records a warning in error_message. Surface it in a caution (amber)
+          tone — distinct from the danger tone used for failed jobs — so the silent
+          failure is visible. */}
+      {job.status === "succeeded" && job.error_message ? (
+        <div style={{
+          fontSize: 11.5,
+          color: "var(--color-warning)",
+          background: "rgba(192,132,26,0.10)",
+          padding: "6px 10px",
+          borderRadius: "var(--radius-sm)",
+          lineHeight: 1.5,
+        }}>
+          {job.error_message}
+        </div>
+      ) : null}
+
       {job.status === "failed" && job.error_message ? (
         <div style={{
           fontSize: 11.5,
