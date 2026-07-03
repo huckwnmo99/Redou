@@ -76,7 +76,7 @@ Redou 테이블 파이프라인(chat-table)의 **의미 매핑 결함 4건(D1~D4
 
 - **Phase 1 (지금, 이 ledger 대상)**: 스키마·계약 보강 — **코드만, 외부 라이브러리 0개**. 셀 튜플·열 의미 타입·조건 충돌 감지·셀 밸리데이터·흡착 도메인 사전·임포트 청크 0 경고.
 - **Phase 2 (다음)**: Guardian 재설계(SCITAB 표-주장 대조 + MeasHalu 환각 유형 체크 + 값 역매칭) + `rag-table-eval` 확장(충실성·충돌해소 축, ADR 0007) + ground-truth 축적 포맷.
-- **Phase 3 (도구 시험, 사용자 채택 확정)**: **로컬 MinerU 3.4 업그레이드 선행**(A/B 기준선) → **docling**(표+bbox provenance ①, 그림 분류·설명 ③, 수식 보강 ④ — 비동기 job, backlog/18) 및 **LangExtract**(Stage 3b 대안 추출기, ~150KB·Ollama 백엔드) 각각 **독립 A/B 후 도입**. ②스캔 OCR 폴백은 MinerU 3.4 확인 후 재평가.
+- **Phase 3 (도구 시험, 사용자 채택 확정) → 별도 ledger [`../tool-ab-adoption/`](../tool-ab-adoption/README.md)로 분리**: **로컬 MinerU 3.4 업그레이드 선행**(A/B 기준선) → **docling**(표+bbox provenance ①, 그림 분류·설명 ③, 수식 보강 ④ — 비동기 job, backlog/18) 및 **LangExtract**(Stage 3b 대안 추출기, ~150KB·Ollama 백엔드) 각각 **독립 A/B 후 조건부 도입**. ②스캔 OCR 폴백은 MinerU 3.4 확인 후 재평가. **A/B 심판 = 이 ledger의 `table_fidelity` eval(슬라이스 03) + 검증 주체 분포(슬라이스 02).** 실행 이미지 실측 MinerU 2.7.6(2026-07-04).
 - **장기 보류**: 측정 튜플 저장소 전환(경로 C — 병합 제거), 로컬 모델 파인튜닝(Dagdelen — 지금은 데이터 축적만).
 
 ## 사용자 결정 기록

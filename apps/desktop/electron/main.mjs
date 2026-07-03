@@ -111,7 +111,9 @@ let entityExtractionInFlight = false;
 // Bump this number whenever extraction logic changes (new item types, better parsing, etc.)
 // Papers with extraction_version < CURRENT_EXTRACTION_VERSION will be auto-requeued on startup.
 // v25: V2 single pipeline (MinerU + GROBID). V1 heuristic fallback removed.
-const CURRENT_EXTRACTION_VERSION = 25;
+// v26: MinerU 3.4.2 upgrade — new content_list types handled (chart→figures,
+//      list→body[ref_text excluded], header/footer/page_number/page_footnote ignored).
+const CURRENT_EXTRACTION_VERSION = 26;
 const DB_QUERY_TABLES = new Set([
   "app_users",
   "papers",

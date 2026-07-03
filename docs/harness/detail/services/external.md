@@ -1,5 +1,5 @@
 # 외부 서비스
-> 하네스 버전: v1.0 | 최종 갱신: 2026-04-10
+> 하네스 버전: v1.2 | 최종 갱신: 2026-07-04
 
 ## 개요
 Redou가 의존하는 로컬 서비스 6개. 모두 Docker 또��� 로컬 프로세스로 실행. 인터넷 불필요 (HuggingFace 모델 초기 다운로드 제외).
@@ -42,13 +42,17 @@ Redou가 의존하는 로컬 서비스 6개. 모두 Docker 또��� 로컬 �
 ### 4. MinerU (PDF 구조화)
 | 항목 | 값 |
 |------|------|
-| 포트 | 8001 |
+| 버전 | **3.4.2** (2.7.6→3.4 업그레이드, 2026-07-04. `Dockerfile.mineru` 핀 `mineru[core]>=3.4,<3.5`) |
+| 포트 | 8001 (호스트) → 8000 (컨테이너 내부) |
 | URL | `http://localhost:8001` (REDOU_MINERU_URL) |
-| API | `POST /predict` (multipart PDF) |
-| Health check | `isMineruAvailable()` — /predict에 타임아웃 요청 |
-| 용도 | PDF → 마크다��� + 구조화 JSON + 이미지 (Pipeline V2) |
-| 코드 참조 | mineru-client.mjs:22 |
-| 비고 | 미가용 시 PDF 임포트/추출 실패 |
+| API | `POST /file_parse` (multipart/form-data, PDF). 3.4 추가 경로: `/tasks`, `/tasks/{id}`, `/tasks/{id}/result`, **`/health`**(신규) |
+| Health check | `isMineruAvailable()` — `GET /docs` 200 (mineru-client.mjs:24). 3.4는 별도 `GET /health`도 제공(현 코드 미사용, `/docs`로 확인) |
+| backend enum | 3.4에서 `["pipeline","vlm-engine","hybrid-engine","vlm-http-client","hybrid-http-client"]` — 클라이언트가 쓰는 `"pipeline"` 유효(무변경) |
+| 실행 이미지 | 로컬 빌드 `mineru:latest`/`mineru:3.4` (Dockerfile.mineru), 컨테이너 `mineru-api` (compose.mineru.yaml `api` 프로필) |
+| 용도 | PDF → 마크다운 + 구조화 JSON (content_list) + 이미지 (Pipeline V2) |
+| content_list 타입 | 3.4 세분화: text/table/equation/image + `chart`·`list`·`header`·`footer`·`page_number`·`page_footnote`(신규)·discarded. 파서 매핑은 `pdf-pipeline.md` 참조 |
+| 코드 참조 | mineru-client.mjs:45 (health), :62 (parsePdf `/file_parse`), :115 (parseMineruResult 3.4 매핑) |
+| 비고 | 미가용 시 PDF 임포트/추출 실패. 재검증 스크립트 `scripts/verify-mineru-api.mjs`(3.4.2 Check 1·2·3 전부 PASS) |
 
 ### 5. UniMERNet (수식 OCR, 현재 V2 파이프라인 미사용)
 | 항목 | 값 |

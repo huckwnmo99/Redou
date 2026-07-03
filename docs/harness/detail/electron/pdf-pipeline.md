@@ -1,14 +1,33 @@
 # PDF Pipeline
-> 하네스 버전: v2.1 | 최종 갱신: 2026-07-03
+> 하네스 버전: v2.2 | 최종 갱신: 2026-07-04
 
 ## 개요
-현재 Electron PDF 처리는 V2 단일 파이프라인이다. 구조 추출은 MinerU가 담당하며, MinerU가 없거나 MinerU 추출이 실패하면 PDF 임포트 작업은 실패한다. GROBID는 메타데이터와 참고문헌 품질을 높이는 선택 서비스이며, 미가용 시 MinerU 결과만 저장하는 degraded mode로 진행한다. V1 휴리스틱 구조 추출, Tesseract OCR 폴백, V1 figure/table/equation 후보 추출 함수는 더 이상 파이프라인의 일부가 아니다.
+현재 Electron PDF 처리는 V2 단일 파이프라인이다. 구조 추출은 MinerU **3.4.2**가 담당하며, MinerU가 없거나 MinerU 추출이 실패하면 PDF 임포트 작업은 실패한다. GROBID는 메타데이터와 참고문헌 품질을 높이는 선택 서비스이며, 미가용 시 MinerU 결과만 저장하는 degraded mode로 진행한다. V1 휴리스틱 구조 추출, Tesseract OCR 폴백, V1 figure/table/equation 후보 추출 함수는 더 이상 파이프라인의 일부가 아니다.
+
+## MinerU 3.4 content_list 타입 처리
+MinerU 3.4.2는 2.7.6 대비 `content_list` 요소 타입을 더 세분화한다(실측 2026-07-04). `parseMineruResult`(`mineru-client.mjs`)가 타입별로 다음과 같이 매핑한다.
+
+| 3.4 요소 타입 | 처리 | 근거 |
+|---------------|------|------|
+| `text`(text_level) | 섹션 헤딩 | 기존과 동일 |
+| `text`(no level) | 본문 문단 → 섹션 rawText·chunks | 기존과 동일 |
+| `table` | `parseTables` (table_body HTML·caption·footnote) | 기존과 동일 |
+| `equation` | `parseEquations` (el.text의 `$$…$$`). 신규 `text_format=latex` 필드는 미사용(el.text가 계약) | 기존 계약 유지 |
+| `image` | `parseFigures` → figures. 신규 `image_footnote` 필드는 미사용 | 기존 계약 유지 |
+| `chart` **(3.4 신규)** | `parseFigures`가 image와 함께 수용 → `item_type: figure`. caption은 `chart_caption`, 없으면 `content`(구조화 텍스트)를 검색용 캡션 대체로 | chart도 `img_path` 보유한 그림형 요소. 실측 265요소 중 38건 chart — 미처리 시 전부 유실 |
+| `list` **(3.4 신규)** | `list_items[]`를 줄바꿈 조인해 본문으로 수용. **단 `sub_type === "ref_text"`는 제외** | 목록=결론·절차 등 실질 본문. ref_text는 서지목록이라 GROBID→`paper_references` 소유(실측: 본 논문 list 2건 전부 ref_text=68항목 → 본문 주입 시 임베딩/검색 오염) |
+| `header`/`footer`/`page_number`/`page_footnote` **(3.4 신규)** | **명시적 무시**(`IGNORED_BOILERPLATE_TYPES` 상수 + 주석) | 러닝헤드·꼬리말·페이지번호·코레스폰딩저자 각주 = 검색/임베딩 가치 없음. 묵시 무시와 구분해 명시화 |
+| `discarded` | 스킵 | 기존과 동일 |
+
+- 검증: `parseMineruResult` 단위 테스트(`tests/mineru-client.test.mjs`, 7건)가 실 3.4.2 응답 축약 fixture(`tests/fixtures/mineru-34-content-list.json`)로 위 매핑을 고정 — chart→figures 편입, non-ref list→본문, ref_text 제외, boilerplate 무시를 각각 assert.
+- API 계약 재검증: `scripts/verify-mineru-api.mjs`가 3.4.2에서 Check 1·2·3 전부 PASS(backend enum `["pipeline","vlm-engine","hybrid-engine","vlm-http-client","hybrid-http-client"]`에 `"pipeline"` 유효 → `main.mjs`의 `backend="pipeline"` 무변경). 스크립트의 기대 타입/필드 상수는 파서와 동기됨.
+- `CURRENT_EXTRACTION_VERSION` 25→**26**: 3.4 산출물 변화(chart 편입·list 본문·boilerplate 정리) 반영 → 기동 시 구버전 논문 자동 재큐(`requeueOutdatedPapers`).
 
 ## 핵심 파일
 | 파일 | 역할 | 현재 줄 수 |
 |------|------|------------|
 | `apps/desktop/electron/main.mjs` | 작업 큐, V2 파이프라인 오케스트레이션, DB 저장, embedding 큐 등록 | 3519 |
-| `apps/desktop/electron/mineru-client.mjs` | MinerU health check, PDF 구조 추출, MinerU 결과 파싱, 이미지 저장 | 456 |
+| `apps/desktop/electron/mineru-client.mjs` | MinerU health check, PDF 구조 추출, MinerU 결과 파싱(3.4 타입 매핑), 이미지 저장 | 515 |
 | `apps/desktop/electron/grobid-client.mjs` | GROBID health check, TEI 메타데이터/참고문헌 파싱, 기존 논문 링크 | 297 |
 | `apps/desktop/electron/pdf-heuristics.mjs` | 임포트 전 PDF 메타데이터 미리보기와 V2 figure 이미지 보강만 유지 | 1280 |
 | `apps/desktop/electron/ocr-extraction.mjs` | MinerU가 비워 둔 table body에 대한 GLM-OCR 보강만 유지 | 226 |
@@ -16,7 +35,7 @@
 ## main.mjs 주요 함수
 | 함수/상수 | 줄 | 역할 |
 |-----------|----|------|
-| `CURRENT_EXTRACTION_VERSION` | 99 | 현재 추출 버전. 낮은 버전의 기존 논문은 재처리 대상 |
+| `CURRENT_EXTRACTION_VERSION` | 116 | 현재 추출 버전 **26**(MinerU 3.4). 낮은 버전의 기존 논문은 재처리 대상 |
 | `mergeMetadata(...)` | 413 | GROBID metadata, MinerU section title, 기존 paper row를 병합 |
 | `persistV2Results(...)` | 424 | V2 결과를 `paper_sections`, `paper_chunks`, `figures`, `paper_references`, `papers`, `paper_summaries`에 저장 |
 | `upsertPaperSummaryV2(...)` | 687 | V2 section 결과 기반 시스템 요약 생성/갱신 |
@@ -56,11 +75,11 @@
 ## 보조 모듈 함수
 | 함수 | 줄 | 역할 |
 |------|----|------|
-| `isMineruAvailable()` | mineru-client.mjs:22 | MinerU API health check |
-| `parsePdf(...)` | mineru-client.mjs:39 | MinerU PDF 구조 추출 요청 |
-| `parseMineruResult(...)` | mineru-client.mjs:92 | MinerU 응답을 Redou V2 구조로 변환 |
-| `saveFigureImages(...)` | mineru-client.mjs:392 | MinerU figure 이미지 저장 |
-| `saveTableImages(...)` | mineru-client.mjs:430 | MinerU table 이미지 저장 |
+| `isMineruAvailable()` | mineru-client.mjs:45 | MinerU API health check |
+| `parsePdf(...)` | mineru-client.mjs:62 | MinerU PDF 구조 추출 요청 |
+| `parseMineruResult(...)` | mineru-client.mjs:115 | MinerU 응답을 Redou V2 구조로 변환(3.4 타입 매핑) |
+| `saveFigureImages(...)` | mineru-client.mjs:451 | MinerU figure 이미지 저장 |
+| `saveTableImages(...)` | mineru-client.mjs:489 | MinerU table 이미지 저장 |
 | `isGrobidAvailable()` | grobid-client.mjs:21 | GROBID `/api/isalive` health check |
 | `extractMetadataAndReferences(...)` | grobid-client.mjs:37 | GROBID TEI metadata/reference 추출 |
 | `linkReferencesToExistingPapers(...)` | grobid-client.mjs:262 | 참고문헌과 기존 paper 매칭 |
