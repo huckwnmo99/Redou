@@ -69,7 +69,8 @@ docs/tasks/<work-slug>/
 - `docs-cleanup/` — 문서 재편 ledger (Phase별 슬라이스 예시).
 - `pdf-zoom-app-wide-leak/` — PDF 줌이 앱 UI 전체로 새는 버그 fix ledger (소규모, 계획 작성 완료).
 - `pipeline-risk-audit/` — 핵심 파이프라인(임포트→임베딩→RAG→채팅) 위험 감사 ledger (발견 28건, 수정 승격 대기).
-- `table-semantics-hardening/` — 테이블 의미 보존 강화 ledger (D1~D4 봉쇄. Phase 1 구현·E2E 재실증 통과, PR #4 merge 대기. Phase 2/3 로드맵 보유).
+- `table-semantics-hardening/` — 테이블 의미 보존 강화 ledger (D1~D4 봉쇄. Phase 1·2 완료, PR merge 대기. Phase 3 도구 시험은 아래 ledger로 분리).
+- `tool-ab-adoption/` — 도구 A/B 도입 ledger (MinerU 3.4 업그레이드 → docling·LangExtract 독립 A/B 후 조건부 채택. "시험은 확정, 전면 채택은 측정이 결정" 게이트 원칙. 계획 수립 완료).
 
 ## 멈출 때 체크 (다음 세션을 위해)
 

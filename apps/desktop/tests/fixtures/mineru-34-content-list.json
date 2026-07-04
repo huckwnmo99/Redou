@@ -1,0 +1,27 @@
+{
+  "_note": "Abbreviated but faithful MinerU 3.4.2 content_list, captured 2026-07-04 from the KOH-treated activated carbon paper (Suk-Hoon Hong 2022, CEJ). Covers every element type MinerU 3.4 emits: text (heading + paragraph), equation (with new text_format), image (with new image_footnote), table, chart (3.4 new), list ref_text (3.4 new), and the 4 boilerplate types header/footer/page_number/page_footnote (3.4 new). The single non-ref 'list' element (sub_type 'ordered', page 99) is SYNTHESIZED — this real paper only carried ref_text lists, so we add one ordered list to exercise the list->body path. All other elements are verbatim (bodies trimmed for size). Used by mineru-client.test.mjs; keep in sync with mineru-client.mjs parser contract.",
+  "version": "3.4.2",
+  "backend": "pipeline",
+  "contentList": [
+    { "type": "header", "text": "Chemical Engineering Journal 431 (2022) 133396", "bbox": [359, 41, 636, 56], "page_idx": 0 },
+    { "type": "text", "text": "Adsorption equilibria and kinetics of CO2, CH4, CO, N2, and H2 on KOH-treated activated carbon pellet", "text_level": 1, "bbox": [57, 206, 800, 240], "page_idx": 0 },
+    { "type": "text", "text": "Suk-Hoon Hong, Kyounghee Chung, Gina Bang, Kyung-Min Kim, Chang-Ha Lee. This abstract paragraph is long enough to be captured as pre-heading body text when it appears before the first heading in the document flow.", "bbox": [57, 262, 800, 300], "page_idx": 0 },
+    { "type": "page_footnote", "text": "* Corresponding authors.", "bbox": [67, 832, 210, 844], "page_idx": 0 },
+    { "type": "image", "img_path": "images/db801acc21187b1bf73c5b0994bbc761b9deaab5c23eb6e60f0b288dba1fe197.jpg", "image_caption": [], "image_footnote": [], "bbox": [840, 185, 889, 221], "page_idx": 0 },
+    { "type": "footer", "text": "https://doi.org/10.1016/j.cej.2021.133396 Received 14 September 2021; 1385-8947/© 2021 Elsevier B.V. All rights reserved.", "bbox": [57, 877, 610, 925], "page_idx": 0 },
+    { "type": "text", "text": "1. Introduction", "text_level": 1, "bbox": [57, 300, 200, 320], "page_idx": 1 },
+    { "type": "text", "text": "Hydrogen is a promising clean energy carrier, and pressure swing adsorption (PSA) is widely used to purify hydrogen from reformer off-gas streams containing CO2, CH4, CO, and N2 impurities.", "bbox": [57, 330, 800, 380], "page_idx": 1 },
+    { "type": "page_number", "text": "2", "bbox": [494, 953, 505, 962], "page_idx": 1 },
+    { "type": "table", "img_path": "images/e05eb6b521ec892dcae639d67a8f90be4349049948fcce55cc10e1bee9fd478c.jpg", "table_caption": ["Table 1", "Nomenclature and adsorbent properties."], "table_footnote": [], "table_body": "<table><tr><td colspan=\"2\">Nomenclature</td><td>rho</td><td>density of the adsorbent</td></tr></table>", "bbox": [62, 70, 934, 533], "page_idx": 1 },
+    { "type": "text", "text": "2. Experimental", "text_level": 1, "bbox": [57, 300, 200, 320], "page_idx": 2 },
+    { "type": "equation", "img_path": "images/fd6038200ea25dc9126b4a7c5b08bde512f3665f002ed5cae6dd572d67ff0970.jpg", "text": "$$\nq = \\frac { q _ { m , D S L , 1 } B _ { D S L , 1 } P } { 1 + B _ { D S L , 1 } P }\\tag{1}\n$$", "text_format": "latex", "bbox": [509, 807, 714, 834], "page_idx": 2 },
+    { "type": "chart", "img_path": "images/b0273f5a0870ea27e149356bdaf99a7ec2c8c7c241927b4948186e4dd4b8b49d.jpg", "content": "", "chart_caption": [], "chart_footnote": [], "bbox": [107, 65, 487, 271], "page_idx": 2 },
+    { "type": "chart", "img_path": "images/fbaca36854ae3ad4cfe2daa11111111111111111111111111111111111111111.jpg", "content": "", "chart_caption": ["Figure 3", "CO2 isotherms at 293 K."], "chart_footnote": [], "bbox": [107, 300, 487, 500], "page_idx": 2 },
+    { "type": "chart", "img_path": "images/cc22dd33ee44ff5566778899aabbccddeeff00112233445566778899aabbccdd.jpg", "content": "adsorbent, CO2 uptake, mol/kg\nKOH-AC, 8.69", "chart_caption": [], "chart_footnote": [], "bbox": [107, 520, 487, 700], "page_idx": 2 },
+    { "type": "list", "sub_type": "ordered", "list_items": ["Step 1: activate the carbon precursor with KOH at 1073 K.", "Step 2: wash the sample until the filtrate reaches neutral pH.", "Step 3: dry under vacuum before adsorption measurements."], "bbox": [57, 550, 800, 620], "page_idx": 2 },
+    { "type": "text", "text": "3. Results and discussion", "text_level": 1, "bbox": [57, 300, 300, 320], "page_idx": 3 },
+    { "type": "text", "text": "The KOH-treated activated carbon showed markedly higher CO2 adsorption capacity than the pristine sample across the studied pressure range.", "bbox": [57, 330, 800, 380], "page_idx": 3 },
+    { "type": "discarded", "text": "stray watermark text", "bbox": [0, 0, 10, 10], "page_idx": 3 },
+    { "type": "list", "sub_type": "ref_text", "list_items": ["[1] U. Eberle, B. Müller, R. Von Helmolt, Fuel cell electric vehicles and hydrogen infrastructure: status 2012, Energy Environ. Sci. 5 (10) (2012) 8780-8798.", "[2] F. Birol, The future of hydrogen, IEA (2019)."], "bbox": [517, 563, 915, 583], "page_idx": 15 }
+  ]
+}

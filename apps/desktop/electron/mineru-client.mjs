@@ -2,17 +2,40 @@
  * MinerU API 클라이언트.
  * PDF → 마크다운 + 구조화 JSON (bbox 포함) + 이미지.
  *
- * Docker: 로컬 빌드 mineru:latest (Dockerfile.mineru)
+ * Docker: 로컬 빌드 mineru:latest (Dockerfile.mineru), MinerU 3.4.2
  * API: POST /file_parse (multipart/form-data)
  * Port: 8001 (default, 내부 8000)
  *
- * content_list 요소 타입:
- *   text (text_level=1 → heading), text (no level → paragraph),
- *   table, equation, image, discarded
+ * content_list 요소 타입 (MinerU 3.4.2, 실 응답 실측 2026-07-04):
+ *   text (text_level → heading, 없으면 paragraph), equation (text_format=latex),
+ *   image (image_caption/image_footnote/img_path), table (table_body/…),
+ *   chart (img_path + content + chart_caption/chart_footnote) — 3.4 신규,
+ *   list (list_items[] + sub_type) — 3.4 신규,
+ *   header/footer/page_number/page_footnote — 3.4 신규(페이지 보일러플레이트),
+ *   discarded.
+ * 처리 방침: chart→figure 경로, list→본문(ref_text 제외), 보일러플레이트→명시적 무시.
+ * (equation.text_format·image.image_footnote는 신규 필드지만 기존 파서가 읽는
+ *  el.text / el.image_caption 계약은 그대로라 파싱 무영향.)
  */
 
 import path from "node:path";
 import fs from "node:fs/promises";
+
+/**
+ * 페이지 보일러플레이트 요소 타입 — 본문/그림/표/수식이 아닌 러닝헤드·꼬리말·
+ * 페이지 번호·각주(코레스폰딩 저자 등). MinerU 3.4가 새로 분류해 준다.
+ * 실측(2022 CEJ 논문): header="Chemical Engineering Journal 431 (2022) …"(저널
+ * 러닝헤드), footer=copyright/DOI 줄, page_number="2", page_footnote=
+ * "* Corresponding authors." → 전부 검색/임베딩 가치 없음 → **의도적 무시**.
+ * (묵시 무시가 아니라 명시적 스킵으로 두어, 향후 이 중 하나를 본문에 넣고 싶으면
+ *  여기서 빼면 된다.)
+ */
+const IGNORED_BOILERPLATE_TYPES = new Set([
+  "header",
+  "footer",
+  "page_number",
+  "page_footnote",
+]);
 
 const MINERU_BASE = process.env.REDOU_MINERU_URL || "http://localhost:8001";
 const MINERU_TIMEOUT_MS = 600_000; // 10분 (대형 논문)
@@ -104,6 +127,20 @@ export function parseMineruResult(mineruResult) {
 
 // ── 섹션 파싱 ──
 
+/**
+ * MinerU 3.4 `list` 요소를 본문 텍스트로 환원. `list_items[]`를 줄바꿈으로 조인.
+ * 단, `sub_type === "ref_text"`(참고문헌 목록)는 **본문에서 제외**한다 — 참고문헌은
+ * GROBID→`paper_references` 경로가 소유하며, 68개 인용 문자열을 본문 청크로 넣으면
+ * 임베딩/검색을 오염시킨다(실측: 이 논문의 list 2건 전부 ref_text = 서지 68항목).
+ * 그 외 sub_type(결론·절차 등 실질 목록 본문)은 유실 없이 본문으로 수용한다.
+ * @returns {string} 본문에 넣을 텍스트(제외 대상이거나 비어 있으면 "").
+ */
+function listElementToBodyText(el) {
+  if (el.sub_type === "ref_text") return ""; // 참고문헌 → GROBID 소유, 본문 제외
+  const items = Array.isArray(el.list_items) ? el.list_items : [];
+  return items.map((s) => (typeof s === "string" ? s : String(s ?? ""))).join("\n").trim();
+}
+
 function parseSections(contentList) {
   const sections = [];
   let currentSection = null;
@@ -111,6 +148,7 @@ function parseSections(contentList) {
 
   for (const el of contentList) {
     if (el.type === "discarded") continue;
+    if (IGNORED_BOILERPLATE_TYPES.has(el.type)) continue; // header/footer/page_number/page_footnote 명시적 무시
 
     // text_level가 있으면 헤딩
     if (el.type === "text" && el.text_level) {
@@ -131,8 +169,14 @@ function parseSections(contentList) {
         pageEnd: el.page_idx ?? null,
         rawText: "",
       };
-    } else if (el.type === "text" && !el.text_level) {
-      const text = el.text || "";
+    } else {
+      // 본문 텍스트: text 문단(text_level 없음) 또는 list(ref_text 제외).
+      // 두 경로 모두 현재 섹션 rawText로 흘려보낸다(3.4 list 본문 유실 방지).
+      let text = "";
+      if (el.type === "text" && !el.text_level) text = el.text || "";
+      else if (el.type === "list") text = listElementToBodyText(el);
+      if (!text) continue;
+
       if (currentSection) {
         currentSection.rawText += (currentSection.rawText ? "\n" : "") + text;
         if (el.page_idx != null) currentSection.pageEnd = el.page_idx;
@@ -244,17 +288,28 @@ function parseEquations(contentList) {
 
 // ── 그림 파싱 ──
 
+/**
+ * `image`와 MinerU 3.4 신규 `chart`를 모두 그림으로 수용한다.
+ * chart도 `img_path`를 갖는 그림형 요소라 기존 image 경로에 준해 처리한다.
+ * 캡션은 image는 `image_caption[]`, chart는 `chart_caption[]`를 쓰고, chart에
+ * 캡션이 없고 구조화 `content`(예: 차트 데이터 텍스트)가 있으면 그것을 캡션 대체로
+ * 삼아 검색 가능하게 남긴다(그림 자체는 유실 없이 figures로 저장).
+ */
 function parseFigures(contentList, images) {
   const figures = [];
   let figCounter = 0;
 
   for (const el of contentList) {
-    if (el.type !== "image") continue;
+    if (el.type !== "image" && el.type !== "chart") continue;
     figCounter++;
 
-    // 캡션 (배열 형태)
-    const captionArr = el.image_caption || [];
-    const caption = Array.isArray(captionArr) ? captionArr.join(" ") : String(captionArr);
+    // 캡션 (배열 형태) — image_caption 또는 chart_caption
+    const captionArr = (el.type === "chart" ? el.chart_caption : el.image_caption) || [];
+    let caption = Array.isArray(captionArr) ? captionArr.join(" ") : String(captionArr);
+    // 캡션 없는 chart는 구조화 content를 캡션 대체로(검색 텍스트 보존)
+    if (!caption.trim() && el.type === "chart" && typeof el.content === "string") {
+      caption = el.content;
+    }
 
     // 그림 번호
     const numMatch = caption.match(/(?:Figure|Fig\.?)\s+(\d+)/i);
@@ -339,6 +394,10 @@ function buildRawText(contentList) {
   for (const el of contentList) {
     if (el.type === "text") {
       texts.push(el.text || "");
+    } else if (el.type === "list") {
+      // 3.4 list 본문(ref_text 제외)도 rawText에 포함 (섹션 파싱과 대칭)
+      const listText = listElementToBodyText(el);
+      if (listText) texts.push(listText);
     }
   }
   return texts.join("\n");
