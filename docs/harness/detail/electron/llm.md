@@ -1,5 +1,5 @@
 # LLM 모듈
-> 하네스 버전: v1.21 | 최종 갱신: 2026-07-03
+> 하네스 버전: v1.28 | 최종 갱신: 2026-07-04
 
 ## 개요
 Ollama 기반 LLM 채팅 스트리밍, 비교 테이블 생성 오케스트레이션, Q&A 응답, Granite Guardian 검증을 담당한다. 사용자가 Settings에서 모델을 변경할 수 있다.
@@ -120,6 +120,60 @@ E2E 원문 대조에서 확인된 의미 매핑 결함 D1~D4를 **외부 라이�
 ### 프론트 (`types/chat.ts`, `ChatTableReport.tsx`)
 - `CellTuple`/`ConditionConflict`/`ColumnSemanticType` 타입 + `ChatTableMetadata`에 `cellTuples?`/`columnSemanticTypes?`/`conditionConflicts?` 추가(any 0).
 - 렌더: 셀에 튜플 있으면 `title` hover로 unit·condition·source_hint 노출(검증 title과 결합). 충돌 열 헤더에 경고 아이콘(AlertTriangle)+툴팁. 표 본체(rows 스칼라)·검증 셀색·references·"데이터 없음" 섹션 전부 보존.
+
+## D-a 커버리지 스펙 계약 (table-semantics-hardening Phase 2.5 슬라이스 08, 2026-07-04)
+
+최대 결손 D-a(반복 조건 세트를 다 담지 못함 — "논문당 한 세트만 추출")를 **스키마·프롬프트·결정적 카운터**로만 겨냥. 스테이지·LLM 호출 증가 없음(기존 3b 프롬프트 강화만). `CURRENT_EXTRACTION_VERSION`/DB/IPC 무변경(채팅 경로).
+
+### completeness enum (`llm-orchestrator.mjs`)
+- `ORCHESTRATOR_SCHEMA.table_spec.completeness` (신규, 선택) — enum `all_sets|representative`. 옵셔널·하위호환(`table_spec.required` 없음, 최상위는 여전히 `action`만 required). `column_semantic_types`와 동일한 옵셔널 병렬 확장 패턴.
+- 오케스트레이터 프롬프트: column 규칙 9 + 말미 규칙 7 + few-shot 예시 2(등온선)에 `completeness: "all_sets"` 주석. 의미 = 사용자가 "대표만/하나만"이라 **명시하지 않는 한** `all_sets`(모든 조건 세트를 각각 행으로).
+- **소비처 폴백**: `extractColumnsFromPaper`가 `tableSpec.completeness ?? "all_sets"`로 읽어 specSection에 `완전성:` 1줄 주입(별도 배선 없음 — completeness는 `plan.table_spec`에 실려 이미 전달됨). `representative`면 "대표 세트 1개만" 안내로 축소.
+
+### 세트 열거 추출 프롬프트 (`EXTRACTION_AGENT_SYSTEM_PROMPT` 규칙 5)
+- 규칙 5를 "여러 조건이면 여러 행" → **"세트 열거 후 세트마다 정확히 1행"**으로 강화. 값 쓰기 전 조건 세트(온도×압력범위×모델×물질)를 먼저 모두 세고, 세트마다 1행, 압력 범위가 다르면 별개의 세트=별개의 행, notes에 세트 수 기재.
+- **단위 발명 방지**(기준선 스펙 표류 대응): 규칙 5에 "원본 라벨·단위 그대로(mmol/g vs mg/g 발명 금지)" 서브라인 추가.
+- 흡착 힌트(`ADSORPTION_EXTRACTION_HINT`, 도메인 게이트 내)에도 "압력 범위별 세트를 각각 행으로" 1줄 보강(비흡착 무영향).
+
+### 병합 커버리지 카운터 (`chat/table-extraction.mjs` `mergeExtractionResults`)
+- `reasons[]` 원소에 `extractedRowCount`(placeholder 제외 실 기여 행 수) + `distinctConditionCount`(그 논문 행들의 cellTuples에서 나온 서로 다른 condition 개수, `normalizeConditionKey` 재사용 — 세트 커버리지 프록시) 부가.
+- `[Chat/Merge]` 로그에 `coverage=[{refNo,rows,conditions}]` 추가(관측만).
+- **동작 무변경**: 카운터는 기록만. rows/tableJson/nullSummary/cellTuples 산출은 그대로.
+
+## D-b 조건 열 파생(pivot) + D-f 범위 표기 계약 (table-semantics-hardening Phase 2.5 슬라이스 09, 2026-07-04)
+
+두 결함을 한 슬라이스로. **D-b**: `detectConditionConflicts`가 조건 혼재를 잡기만 하고 표에 반영 안 하던 것을, cellTuples에 이미 저장된 condition을 **결정적 코드로 "측정 조건" 열로 파생**(tidy-data pivot, LLM 0회). **D-f**: 온도의존 파라미터가 범위(303–343 K)로 피팅됐는데 단일 값이 없어 N/A 되던 것을 **범위 표기 규약**(프롬프트 1줄)으로 회복. `CURRENT_EXTRACTION_VERSION`/DB/IPC 무변경(채팅 경로, metadata JSONB 재사용).
+
+### 조건 열 파생 — `deriveConditionColumns` (`chat/table-extraction.mjs`, 신규 export·순수 함수)
+- 입력: `{ headers, rows, cellTuples, columnSemanticTypes, conditionConflicts, nullDetails }`. `conditionConflicts`가 비어 있지 않을 때만 동작. 인자 배열을 **in-place 변형**하고 (파생 시) 새 `columnSemanticTypes`를 반환(무파생 시 원본 참조 그대로).
+- 혼재 감지된 열마다(가정 B: 열별 전용 파생 1개) 원열 **바로 뒤**에 `측정 조건 (${원열명})` 열 삽입. 각 행 값 = `cellTuples[r][원열].condition`(없으면 `N/A`), 파생 셀 튜플에도 condition 기록(hover 정합), semanticType = `"condition"`.
+- **원자적 인덱스 shift**: 삽입 위치 이상인 모든 `conditionConflicts[].columnIndex`·`conditionConflicts[].derivedColumnIndex`·`nullDetails[].columnIndex`를 +1. 충돌은 **높은 인덱스부터**(right-to-left) 처리해 미처리 인덱스 무효화 방지. 파생 열 자체는 nullSummary 대상 아님(condition, parameter 아님 — 가정 A: Stage 3d 회수 대상 아님).
+- 각 conflict에 `derivedColumnIndex` 부여(렌더러가 "자동 파생" 배지 달 근거).
+- **중복 가드(가정 C)**: 파생 **이름이 이미 존재하면** skip. `"condition"` 의미 타입 기준이 **아님** — 정체성 열(흡착제/가스/모델)도 "condition"이라 타입 기준이면 모든 흡착 pivot을 잘못 억제(D-b 무력화).
+- 배선: `mergeExtractionResults` 말미(nullSummary·conditionConflicts 산출 후)에 후처리로 호출. `tableJson.headers`/`rows`·`nullSummary.details`는 동일 배열 참조라 in-place splice가 그대로 전파. 반환 `columnSemanticTypes`는 파생 반영본. `[Chat/Merge]` 로그에 `derivedConditionCols` 카운트 추가.
+- **프론트 무수정 자동 정합**: `ChatTableReport.tsx`는 `headers.map`으로 렌더 + `conflictByColumnIndex.get(i)`로 배지 매칭 → 인덱스가 원자 shift돼 있으면 파생 열이 자동 렌더되고 배지가 올바른 헤더에 붙음. CSV 내보내기(`main.mjs` CHAT_EXPORT_CSV)도 `headers`/`rows` 일반 순회라 파생 열 자동 포함. 타입만 `frontend/src/types/chat.ts` `ConditionConflict.derivedColumnIndex?`(옵셔널) 추가.
+
+### D-f 범위 표기 규약 (프롬프트 + dash 정규화)
+- `EXTRACTION_AGENT_SYSTEM_PROMPT` 규칙 4(수치 원본 유지)에 서브불릿: 온도(또는 압력) **범위에서 피팅된 값**이면 조건 열에 null 대신 `303–343` 형식(대시 하나) + `cell_meta.condition`에 "fitted over 303–343 K" 기록. 출력 예시에 범위 few-shot 1행(T (K)="303–343" + cell_meta.condition) 추가.
+- `ADSORPTION_EXTRACTION_HINT`(도메인 게이트 내)에도 온도 범위 피팅 파라미터(ΔH·Arrhenius류) 범위 표기 1줄(비흡착 무영향).
+- **dash 정규화**: `normalizeConditionKey`에 `.replace(/[‒–—―−]/g, "-")`(en/em/figure/minus dash → hyphen) 추가 → "303-343K" vs "303–343 K"가 동일 키(파생·충돌 감지 시 중복 조건 방지).
+- `cleanCellValue`(persist 포맷)·`validateCellValue`(밸리데이터)는 범위(en-dash/hyphen)를 **훼손·거부하지 않음** — 소수점 규칙이 대시에 안 걸리고, 따옴표·중괄호·kv콜론·60자 초과 없음. 단위 테스트로 고정.
+
+## cell_meta 붕괴 재분해 계약 (table-semantics-hardening Phase 2.5 슬라이스 10-A, 2026-07-04)
+
+per-paper 추출 LLM(gemma 관측)이 일부 행에서 여러 메타를 `cell_meta[col].unit` 문자열에 `key: value, key: value` blob으로 뭉쳐 `condition` 필드가 부재하던 결손(실측: DB `chat_generated_tables.metadata->cellTuples`, `{"unit":"unit: mmol/g, condition: at 293.15 K, pressure <= 1000 kPa",…}`)을 **결정적 코드로 재분해**. condition이 살아나야 슬라이스 09 pivot이 "측정 조건" 열을 만들고 fidelity eval이 오귀속하지 않는다. `CURRENT_EXTRACTION_VERSION`/DB/IPC 무변경(채팅 경로). 함께 per-paper 타임아웃 기본값을 240→300s로 올려(fix 20 권장 상한) 08의 풍부한 출력(37행)이 240s 초과로 논문 전체 abort되던 것을 방지.
+
+### `normalizeCellMeta(meta)` (`chat/table-extraction.mjs`, 신규 export·순수 함수)
+- 알려진 키 = `unit`/`condition`/`source_hint`/`source`(source→source_hint 별칭). `unit`/`condition`/`source_hint` 문자열 필드가 **알려진 라벨로 시작**(`^\s*(known)\s*:`)할 때만 붕괴로 판정 — 정상 값(`"mmol/g"`·`"1:2"` 비율·`"12:30"`)은 라벨로 시작 안 하므로 무변경.
+- 붕괴 시 전역 라벨 매처(`/(unit|condition|source_hint|source)\s*:/gi`)로 세그먼트 분할, 각 세그먼트를 해당 필드로. **알려지지 않은 라벨은 경계 아님** → `pressure <=` 는 앞 condition 세그먼트에 붙어 조건 통째 보존. 재분해 대상 필드는 덮어쓰고, **다른 필드는 비어 있을 때만** 채움(옳은 값 무클로버). 같은 키 중복 시 첫 세그먼트 우선. null/비객체 무변경.
+- **배선**: `mergeExtractionResults`의 cell_meta 수용 루프 `normalizedMeta.set(normalizeColumnKey(k), normalizeCellMeta(v))`(값 객체당 1회) — 이후 tuple/`detectConditionConflicts`/`deriveConditionColumns`(09 pivot)/eval 전부 정상 condition을 본다. `llm-orchestrator.mjs` 파싱부는 스키마 강제(format)만 하고 blob 내용을 몰라 부적합 → merge 수용부가 정답(실사).
+- **보수적 경계**: 두 번째 관측 붕괴 형태 `"mmol/g} , 100 kPa"`(키 라벨 없음)는 재분해하지 않음 — 값 열은 D4 `validateCellValue`가 계속 방어. 테스트로 고정.
+
+### per-paper 타임아웃 기본값 (`chat/table-pipeline.mjs`)
+- `PER_PAPER_TIMEOUT_MS = parseInt(process.env.REDOU_PER_PAPER_TIMEOUT_MS, 10) || 300000`(240000→300000). fix 20 권장 상한 = 내부 `ollamaSignal`(300s) 정합. env 오버라이드·`setTimeout` 배선·AbortController·`NULL_RECOVERY_TIMEOUT_MS`(30000) 무변경.
+
+### 프롬프트 붕괴 방지 1줄 (`llm-orchestrator.mjs`, 계획 여유 항목)
+- `EXTRACTION_AGENT_SYSTEM_PROMPT` 규칙 12 서브불릿: "각 정보는 별도 키(unit/condition/source_hint)로 나눠 쓰고, unit에 여러 정보를 한 문자열로 뭉치지 말 것." 정규화(결정적 사후 봉쇄)와 함께 이중 방어(빈도 자체 감소). few-shot·스키마는 이미 올바른 키 형태라 무변경.
 
 ## Stage 4 검증 2단계 계약 (table-semantics-hardening Phase 2 슬라이스 02, 2026-07-03)
 

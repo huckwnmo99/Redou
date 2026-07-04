@@ -144,6 +144,44 @@ function cellValueAt(row, columnIndex) {
   return cells[columnIndex];
 }
 
+// Slice 09 pivots a mixed "parameter" column into a first-class derived column
+// named "측정 조건 (<source header>)" placed immediately after its source column.
+// A ground-truth conditionMixedColumn is therefore also "handled" (D1) when such a
+// derived column exists for it — not only when metadata.conditionConflicts lists it.
+// This regex identifies the derived-column header shape.
+const DERIVED_CONDITION_HEADER_RE = /^측정\s*조건\s*\(/;
+
+function isDerivedConditionHeader(header) {
+  return DERIVED_CONDITION_HEADER_RE.test(normalizeEvalString(header));
+}
+
+// Find the derived condition column that slice 09 would emit for a ground-truth
+// column: the "측정 조건 (…)" header sitting immediately after the source column
+// (matched tolerantly via columnAliasKey). Returns its index or -1.
+function findDerivedConditionColumnIndex(headers, columnName) {
+  const list = headers ?? [];
+  const sourceIndex = findColumnIndex(list, columnName);
+  if (sourceIndex < 0) return -1;
+  const nextIndex = sourceIndex + 1;
+  return isDerivedConditionHeader(list[nextIndex]) ? nextIndex : -1;
+}
+
+// The fraction of rows whose derived condition cell is actually filled (a real
+// condition, not the N/A sentinel or blank). Slice 09 fills each derived cell from
+// cellTuples[r][srcCol].condition, so an empty derived column means the pivot ran
+// but carried no condition — that must NOT earn conflict credit (benchmark parity:
+// detection is cell-level, not just "a column exists").
+function derivedConditionFillRate(rows, derivedIndex) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (derivedIndex < 0 || list.length === 0) return 0;
+  let filled = 0;
+  for (const row of list) {
+    const value = normalizeEvalString(stripCitationTags(cellValueAt(row, derivedIndex)));
+    if (value !== "" && value.toUpperCase() !== "N/A") filled += 1;
+  }
+  return filled / list.length;
+}
+
 function conditionTokenPresent(text, condition) {
   const normalized = normalizeFidelityToken(condition);
   if (!normalized) return true;
@@ -170,12 +208,37 @@ function rowCarriesCondition(row, rowIndex, condition, cellTuples) {
   return false;
 }
 
-export function evaluateTableFidelityCase(groundTruth, tableRow) {
+// Normalize an options.scope value (string | string[] | undefined) into a
+// Set of requested scope labels, or null when no scope was requested (grade
+// against every ground-truth cell, i.e. current behavior).
+function normalizeScopeRequest(scope) {
+  if (scope === undefined || scope === null) return null;
+  const list = Array.isArray(scope) ? scope : [scope];
+  const cleaned = list.map((value) => String(value ?? "").trim()).filter(Boolean);
+  return cleaned.length === 0 ? null : new Set(cleaned);
+}
+
+// options.scope (optional): grade only ground-truth cells whose `scope` label is
+// in the requested set. Omitting options keeps the current whole-fixture scoring
+// bit-for-bit. `scoped` in the return describes the filter and whether it left
+// any cells to grade (applicable) so the fixture aggregator can skip N/A blocks.
+export function evaluateTableFidelityCase(groundTruth, tableRow, options = {}) {
   const paperId = groundTruth?.paperId ?? null;
   const headers = tableRow?.headers ?? [];
   const rows = tableRow?.rows ?? [];
   const cellTuples = tableRow?.metadata?.cellTuples ?? null;
-  const groundTruthCells = groundTruth?.groundTruthCells ?? [];
+  const allGroundTruthCells = groundTruth?.groundTruthCells ?? [];
+
+  const requestedScope = normalizeScopeRequest(options?.scope);
+  const groundTruthCells =
+    requestedScope === null
+      ? allGroundTruthCells
+      : allGroundTruthCells.filter((cell) => requestedScope.has(cell.scope));
+  const scoped = {
+    requested: requestedScope === null ? null : [...requestedScope],
+    matchedCells: groundTruthCells.length,
+    applicable: requestedScope === null ? true : groundTruthCells.length > 0,
+  };
 
   const groundTruthValues = new Set(
     groundTruthCells.map((cell) => normalizeEvalString(cell.value)),
@@ -235,27 +298,48 @@ export function evaluateTableFidelityCase(groundTruth, tableRow) {
     }
   }
 
-  // Conflict handling: did metadata.conditionConflicts flag the columns the
-  // fixture marks as inherently condition-mixed (same parameter, two conditions)?
-  const expectedConflictColumns = (groundTruth?.conditionMixedColumns ?? []).map((entry) =>
-    columnAliasKey(entry.column),
-  );
+  // Conflict handling: was each fixture-marked condition-mixed column (same
+  // parameter, two conditions, D1) actually *handled* by the pipeline? Slice 09
+  // handles a mix in one of two ways, and this scorer credits BOTH:
+  //   (a) metadata.conditionConflicts lists the column (it was detected), OR
+  //   (b) a derived "측정 조건 (…)" column exists for it AND that derived column is
+  //       actually filled with conditions (slice 09's pivot produced disambiguating
+  //       cells). Detection alone with an empty derived column earns no credit —
+  //       matching the benchmark's cell-level judgement (a pivot that carries no
+  //       condition did not disambiguate anything).
+  // Per-column credit in [0,1] (detection = 1.0, else the derived fill rate). The
+  // score is the mean credit; `detected` counts columns credited above a small
+  // threshold so a fully-empty pivot never registers as handled.
+  const CONDITION_CREDIT_THRESHOLD = 0.5;
   const reportedConflicts = tableRow?.metadata?.conditionConflicts ?? [];
   const reportedConflictColumns = new Set(
     reportedConflicts.map((conflict) => columnAliasKey(conflict.column)),
   );
-  const detectedConflictColumns = expectedConflictColumns.filter((column) =>
-    reportedConflictColumns.has(column),
+  const conflictColumnCredits = (groundTruth?.conditionMixedColumns ?? []).map((entry) => {
+    const columnKey = columnAliasKey(entry.column);
+    const detected = reportedConflictColumns.has(columnKey);
+    const derivedIndex = findDerivedConditionColumnIndex(headers, entry.column);
+    const fillRate = derivedConditionFillRate(rows, derivedIndex);
+    // Detection is full credit; a derived-only path is credited by how much of the
+    // pivot is actually populated (empty pivot -> 0).
+    return Math.max(detected ? 1 : 0, fillRate);
+  });
+  const detectedConflictColumns = conflictColumnCredits.filter(
+    (credit) => credit >= CONDITION_CREDIT_THRESHOLD,
   );
+  const conflictCreditSum = conflictColumnCredits.reduce((sum, credit) => sum + credit, 0);
 
   const fidelityTotal = groundTruthCells.length;
   const fidelityScore = fidelityTotal === 0 ? 1 : matchedCells.length / fidelityTotal;
-  const conflictExpected = expectedConflictColumns.length;
-  const conflictScore = conflictExpected === 0 ? 1 : detectedConflictColumns.length / conflictExpected;
+  const conflictExpected = (groundTruth?.conditionMixedColumns ?? []).length;
+  // Score is the mean per-column credit (detection or derived fill), so a fully
+  // pivoted-and-filled column scores like a detected one, and an empty pivot scores 0.
+  const conflictScore = conflictExpected === 0 ? 1 : conflictCreditSum / conflictExpected;
 
   return {
     mode: "table_fidelity",
     paperId,
+    scoped,
     fidelity: {
       matched: matchedCells.length,
       total: fidelityTotal,
@@ -291,6 +375,14 @@ export async function loadFidelityGroundTruth(fileName) {
 export function assertFidelityGroundTruthShape(groundTruth) {
   assert.equal(groundTruth?.schemaVersion, "table-fidelity-v0", "fidelity fixture must be table-fidelity-v0");
   assert.ok(Array.isArray(groundTruth?.papers), "fidelity fixture must include papers[]");
+  // scopeVocabulary is optional (backward-compatible); when present it must be a
+  // string[] enumerating the scope labels cells may carry.
+  if (groundTruth.scopeVocabulary !== undefined) {
+    assert.ok(Array.isArray(groundTruth.scopeVocabulary), "scopeVocabulary must be a string[]");
+    for (const label of groundTruth.scopeVocabulary) {
+      assert.equal(typeof label, "string", "scopeVocabulary entries must be strings");
+    }
+  }
   for (const paper of groundTruth.papers) {
     assert.equal(typeof paper.paperId, "string", "paper.paperId is required");
     assert.ok(Array.isArray(paper.groundTruthCells), `${paper.paperId}: groundTruthCells[] is required`);
@@ -298,32 +390,43 @@ export function assertFidelityGroundTruthShape(groundTruth) {
       assert.ok(Array.isArray(cell.identity) && cell.identity.length > 0, `${paper.paperId}: cell.identity[] is required`);
       assert.equal(typeof cell.column, "string", `${paper.paperId}: cell.column is required`);
       assert.ok(cell.value !== undefined && cell.value !== null, `${paper.paperId}: cell.value is required`);
+      // scope is optional; when present it must be a string (free-form label).
+      if (cell.scope !== undefined) {
+        assert.equal(typeof cell.scope, "string", `${paper.paperId}: cell.scope must be a string when present`);
+      }
     }
   }
 }
 
 // Score a whole fidelity fixture against a map of persisted tables keyed by
 // paperId (typically one merged multi-paper table applied to each paper block).
-export function evaluateTableFidelityFixture(groundTruth, tableByPaperId) {
+// options.scope (optional) is passed to each case; overall aggregation counts
+// only `applicable` blocks so a paper left with no in-scope golden cells (or a
+// paper outside the fixture / a nonexistent scope) does not drag the overall
+// fidelity down to 0%.
+export function evaluateTableFidelityFixture(groundTruth, tableByPaperId, options = {}) {
   assertFidelityGroundTruthShape(groundTruth);
   const reports = (groundTruth.papers ?? []).map((paper) => {
     const tableRow =
       typeof tableByPaperId === "function"
         ? tableByPaperId(paper.paperId)
         : tableByPaperId?.[paper.paperId];
-    return evaluateTableFidelityCase(paper, tableRow ?? {});
+    return evaluateTableFidelityCase(paper, tableRow ?? {}, options);
   });
-  const matched = reports.reduce((sum, report) => sum + report.fidelity.matched, 0);
-  const total = reports.reduce((sum, report) => sum + report.fidelity.total, 0);
+  const applicableReports = reports.filter((report) => report.scoped?.applicable !== false);
+  const matched = applicableReports.reduce((sum, report) => sum + report.fidelity.matched, 0);
+  const total = applicableReports.reduce((sum, report) => sum + report.fidelity.total, 0);
   return {
     schemaVersion: groundTruth.schemaVersion,
     fixture: groundTruth.fixture ?? null,
+    scope: normalizeScopeRequest(options?.scope) === null ? null : [...normalizeScopeRequest(options?.scope)],
     overall: {
       fidelity: total === 0 ? 1 : matched / total,
       matched,
       total,
-      misattribution: reports.reduce((sum, report) => sum + report.misattribution.count, 0),
-      fabrication: reports.reduce((sum, report) => sum + report.fabrication.count, 0),
+      applicablePapers: applicableReports.length,
+      misattribution: applicableReports.reduce((sum, report) => sum + report.misattribution.count, 0),
+      fabrication: applicableReports.reduce((sum, report) => sum + report.fabrication.count, 0),
     },
     reports,
   };
