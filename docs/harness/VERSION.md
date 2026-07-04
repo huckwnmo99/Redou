@@ -1,5 +1,17 @@
 # Harness Version
 
+## v1.24 — 2026-07-04
+- `tool-ab-adoption` 슬라이스 02 **Phase A**(빌드 비의존 구현, developer). docling(IBM/LF AI, MIT) 표-파싱 **측정 전용 사이드카** + MinerU 3.4 vs docling **A/B 하네스** 신설. **프로덕션 파이프라인(main.mjs·mineru-client.mjs·DB·IPC·`CURRENT_EXTRACTION_VERSION`) 완전 무변경** — 슬라이스 02는 도입 판단용 측정 슬라이스. docker build/run·13분 fidelity E2E는 미실행(Phase B 오케스트레이터). 커밋 없음(브랜치 `feature/tool-ab-02-docling`).
+- **docling 사이드카**(신규 `apps/docling-server/`, ocr-server 선례 복제):
+  - `Dockerfile.docling` — `nvidia/cuda:12.8.0-cudnn-runtime` + torch cu128(Blackwell) + `pip install -r requirements.txt`(docling>=2.108,<3) + build-time `docling-tools models download`(레이아웃+TableFormer 오프라인 프리다운로드) + `uvicorn docling-server:app :8011`.
+  - `docling-server.py` — FastAPI(lifespan `DocumentConverter` 로드, ocr-server server.py 스타일). `POST /parse`(multipart PDF) → 표 중심 JSON: 표별 `{num_rows,num_cols,caption,caption_ref("Table N"),page,html,cells[{text,row,col,row_span,col_span,column_header,row_header,bbox}],cells_with_bbox}` + `equations[{latex,page}]` + `num_figures` + `processing_time_ms`. `/health`. docling API 버전 드리프트에 `getattr`/try-except 방어(DocumentStream import 폴백 포함).
+  - `requirements.txt`(docling+fastapi+uvicorn+python-multipart) + `compose.docling.yaml`.
+  - **compose는 별도 파일**(`compose.mineru.yaml`·`docker-compose.yml` 무침범): `docling`(기본 CPU — ocr-server가 GPU 1장 점유 중이라 경합 회피) + `docling-gpu`(profile `gpu` 옵션), 포트 8011, healthcheck, `restart:no`(A/B 임시 서비스, 상시화는 슬라이스 03 결정).
+- **docling-client 어댑터**(`apps/desktop/electron/docling-client.mjs`, 측정 전용): `isDoclingAvailable()`(`/health`)·`parsePdfDocling(pdfBuffer)` → mineru-client 대칭 shape(tables/equations/numFigures/processingTime). **프로덕션 import 무배선**(main.mjs 미참조).
+- **A/B 하네스**(`apps/desktop/scripts/ab-docling-tables.mjs`, 수동·CI-off, verify-mineru-api/e2e-table-fidelity 스크립트 관례): `paper_files.stored_path`에서 논문 5편(앞 2편=골든 fixture) PDF를 로드 → MinerU 3.4(`parsePdf`+`parseMineruResult`)와 docling 양쪽 파싱해 **5축 대조** — ①표 구조(행/열 + 파서 간 셀텍스트 Jaccard + **골든 43셀 값 재발견율**[파서 상한]) ②수식 LaTeX(개수+샘플) ③캡션 연결("Table N" ref 공유) ④셀 bbox 존재율(docling 셀별 vs MinerU 0) ⑤파싱 시간. **사전 정의 게이트**(docling이 {표구조|셀bbox|캡션} 중 ≥1 명확 우위 + 골든 비열세 −10%p 이내 → `VERDICT: PASS/HOLD`) 출력. 골든 fixture(`adsorption-groundtruth-v0.json` 43셀)를 `loadFidelityGroundTruth`로 축①에 연동. 생성-테이블 fidelity 정량 심판은 기존 `e2e-table-fidelity.mjs`(동일 fixture·LLM)가 병행 담당.
+- **자기검증**: `node --check` 2파일(docling-client·ab-docling-tables) PASS, `python -m py_compile docling-server.py` PASS, `docker compose -f compose.docling.yaml config` YAML VALID, `node --test` **148 pass/0 fail**(프로덕션 무변경 회귀). docling은 컨테이너 전용 의존이라 로컬 미설치 → 서버 API 표면은 런타임 미검증(Phase B build+run에서 실증), 방어적 코딩으로 대응.
+- harness: `detail/services/external.md`(v1.3, docling 사이드카 항목 7번 추가 + 환경변수 `REDOU_DOCLING_URL` + 가용성 `isDoclingAvailable()`), `feature-status.md` 도구도입 행 슬라이스 02 Phase A 반영. **미변경(스코프 외)**: `overview.md` 서비스 표는 docling이 측정 전용·비상시 서비스라 프로덕션 의존성 목록에 미추가(03 채택 시 편입).
+
 ## v1.23 — 2026-07-04
 - `tool-ab-adoption` 슬라이스 01 **Phase B**(3.4 스키마 드리프트 대응 + 버전 범프, fixer). 오케스트레이터가 MinerU **3.4.2** 컨테이너를 띄우고 `verify-mineru-api.mjs` Check 3에서 신규 요소 타입 6종·신규 필드 7종을 실측한 뒤, 파서를 국소 대응하고 `CURRENT_EXTRACTION_VERSION`을 범프. **수정 범위**: `mineru-client.mjs`(+테스트·fixture)·`main.mjs`(버전 상수)·`verify-mineru-api.mjs`(계약 미러 동기)·harness·ledger. docker/컨테이너 무변경. 커밋 없음(브랜치 main 유지).
 - **파서 3.4 매핑**(`mineru-client.mjs` `parseMineruResult`, 실 3.4.2 응답 265요소 기반, 추측 아님):
