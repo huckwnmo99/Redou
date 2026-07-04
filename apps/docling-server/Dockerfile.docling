@@ -1,0 +1,33 @@
+# Docling table-parse sidecar (tool-ab-adoption slice 02).
+# Structure mirrors apps/ocr-server/Dockerfile: CUDA runtime base + torch cu128
+# (Blackwell sm_120) + requirements + build-time model prefetch + uvicorn.
+# MEASUREMENT-ONLY: this image is only spun up for the MinerU-vs-docling A/B.
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu22.04
+
+WORKDIR /app
+
+# System dependencies (docling needs OpenGL/glib for its layout backend).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.10 python3-pip python3.10-venv \
+    libgl1-mesa-glx libglib2.0-0 git curl \
+    && ln -sf /usr/bin/python3.10 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/*
+
+# PyTorch with CUDA 12.8 (Blackwell sm_120), same channel as ocr-server.
+RUN pip install --no-cache-dir \
+    torch torchvision --index-url https://download.pytorch.org/whl/cu128
+
+# docling + FastAPI stack.
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Pre-download docling models (layout + TableFormer) so /parse runs offline.
+# docling-tools ships with the docling package.
+RUN docling-tools models download
+
+# Copy the sidecar server.
+COPY docling-server.py .
+
+EXPOSE 8011
+
+CMD ["uvicorn", "docling-server:app", "--host", "0.0.0.0", "--port", "8011"]

@@ -1,8 +1,8 @@
 # 외부 서비스
-> 하네스 버전: v1.2 | 최종 갱신: 2026-07-04
+> 하네스 버전: v1.3 | 최종 갱신: 2026-07-04
 
 ## 개요
-Redou가 의존하는 로컬 서비스 6개. 모두 Docker 또��� 로컬 프로세스로 실행. 인터넷 불필요 (HuggingFace 모델 초기 다운로드 제외).
+Redou가 의존하는 로컬 서비스 6개(프로덕션) + docling 표-파싱 사이드카 1개(**측정 전용·비상시**, tool-ab-adoption 슬라이스 02). 모두 Docker 또는 로컬 프로세스로 실행. 인터넷 불필요 (HuggingFace 모델 초기 다운로드 제외).
 
 ## 서비스 상세
 
@@ -76,6 +76,20 @@ Redou가 의존하는 로컬 서비스 6개. 모두 Docker 또��� 로컬 �
 | 코드 참조 | grobid-client.mjs:21 |
 | 비고 | 미가용 시 메타데이터/참고문헌 일부 누락 degraded mode로 진행 |
 
+### 7. docling 표-파싱 사이드카 (측정 전용 · 비상시, tool-ab-adoption 슬라이스 02)
+| 항목 | 값 |
+|------|------|
+| 상태 | **측정 전용** — MinerU 3.4 vs docling 표 A/B에만 사용. **프로덕션 import 파이프라인 무배선**(main.mjs 미참조). 채택/상시화는 슬라이스 03 게이트 결과에 따름 |
+| 포트 | 8011 |
+| URL | `http://localhost:8011` (REDOU_DOCLING_URL) |
+| 이미지 | 로컬 빌드 `docling-table-sidecar:latest` (`apps/docling-server/Dockerfile.docling`, docling>=2.108,<3) |
+| API | `POST /parse` (multipart PDF) → 표 중심 JSON(표별 셀 grid + **셀별 bbox** + 캡션 + caption_ref + HTML + 수식 LaTeX + figure 수 + 파싱시간) |
+| Health check | `isDoclingAvailable()` — `GET /health` (docling-client.mjs) |
+| 실행 | `docker compose -f apps/docling-server/compose.docling.yaml up -d docling`(기본 CPU) / `--profile gpu up docling-gpu`(GPU 옵션). **별도 compose 파일**(compose.mineru.yaml·docker-compose.yml 무침범), `restart:no` A/B 임시 |
+| 용도 | docling DoclingDocument 표 구조(TableFormer 셀 bbox)를 MinerU와 대조(도입 판단) |
+| 코드 참조 | docling-client.mjs (isDoclingAvailable/parsePdfDocling), scripts/ab-docling-tables.mjs (5축 A/B + 게이트) |
+| 비고 | GPU 1장을 ocr-server/MinerU가 점유 중이라 기본 CPU 실행. A/B 기간에만 기동 후 해제 |
+
 ## 환경변수 요약
 | 변수 | 기본값 | 서비스 |
 |------|--------|--------|
@@ -87,6 +101,7 @@ Redou가 의존하는 로컬 서비스 6개. 모두 Docker 또��� 로컬 �
 | `REDOU_LLM_CTX` | `131072` | Ollama (컨텍스트 윈도우) |
 | `REDOU_MINERU_URL` | `http://localhost:8001` | MinerU |
 | `REDOU_GROBID_URL` | `http://localhost:8070` | GROBID |
+| `REDOU_DOCLING_URL` | `http://localhost:8011` | docling 사이드카 (측정 전용) |
 | `REDOU_RENDERER_URL` | `http://127.0.0.1:4173` | 프론트엔드 |
 
 ## 서비스 가용��� 확인 (코드 기반)
@@ -98,9 +113,11 @@ Redou가 의존하는 로컬 서비스 6개. 모두 Docker 또��� 로컬 �
 | `isOllamaAvailable()` | ocr-extraction.mjs:81 | Ollama (GLM-OCR) |
 | `isMineruAvailable()` | mineru-client.mjs:22 | MinerU |
 | `isGrobidAvailable()` | grobid-client.mjs:21 | GROBID |
+| `isDoclingAvailable()` | docling-client.mjs | docling 사이드카 (측정 전용) |
 
 ## 의존성
 - 필수: Supabase (데이터 저장), vLLM (임베딩), MinerU (V2 PDF 파이프라인)
 - 강력 권장: Ollama (채��/OCR)
 - 선택: GROBID (메타데이터 품질 향상)
 - 보류/미사용: UniMERNet (현재 V2 PDF 파이프라인 호출자 없음)
+- 측정 전용(비상시): docling 사이드카 (tool-ab-adoption 슬라이스 02 A/B 기간에만 기동, 프로덕션 무배선)

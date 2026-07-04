@@ -19,7 +19,7 @@
 
 ## Current Status
 
-- Status: **슬라이스 01 완료 (2026-07-04)** — MinerU 2.7.6→3.4.2 업그레이드 + 재추출 + 3.4 기준선 확보. 다음: 슬라이스 02(docling A/B).
+- Status: **슬라이스 01·02 완료 (2026-07-04)** — docling 2.109 사이드카 빌드·기동 후 표 A/B 실측 → **GATE PASS** (docling 명확 우위: 셀 bbox 100% vs 0%·캡션 연결 16 vs 14 / 골든 43셀 재발견 **동률 100%=100%** / 수식 0은 하이브리드 계획상 무관 / 파싱 149s는 CPU 실행 탓 — GPU 프로필 미사용). **핵심 해석: 승리 축은 provenance/UX이지 값 품질이 아님** — 상세는 `completed/02` Phase B 기록.
 - **완료(2026-07-04)**: MinerU **2.7.6→3.4.2** 업그레이드. 실 3.4.2 응답 265요소 실측 → 파서 3.4 대응(`chart`→figures, `list`→본문[ref_text 제외], `header`/`footer`/`page_number`/`page_footnote`→명시 무시) + `CURRENT_EXTRACTION_VERSION` 25→26 범프 + 신규 테스트 7건(147/147). `mineru-client.mjs`·`main.mjs`(1줄)·`verify-mineru-api.mjs`(계약 동기) 수정, docker·커밋 없음(브랜치 main).
 - 실측(3.4.2, 2026-07-04): backend enum 3.4에서 5종(`pipeline` 유효) → backend 값 무변경. 기존 계약(8필드·`/file_parse`·table_body/caption/img_path/image_caption·el.text) 전부 PASS, 신규 타입 6종·필드 7종만 추가. 신규 API 경로 `/health`·`/tasks*`(현 코드 미사용).
 - fidelity 기준선: 2.7.6 = **44.2%**(19/43) → **3.4.2 = 67.4%(29/43), +23.2%p** (동일 gemma4:31b·fixture. 논문1 40.7→77.8% — 조건 세트 양쪽 추출. misattr·fabrication 0 유지. 검증 130/132=code 130/Guardian 2. 런 변동 ±2~3%p를 크게 상회 = 파서 효과 확실). **A/B(02·04)의 공정 기준선 = 이 67.4%.**
@@ -29,7 +29,7 @@
 
 ## Next Action
 
-**슬라이스 01 커밋·리뷰(/test→/review→PR) 후 02(docling 사이드카 + 표 A/B, 게이트 산출) 진입.** A/B 기준선 = 3.4.2 fidelity 67.4%.
+슬라이스 02까지 커밋·리뷰(/test→/review→PR, 브랜치 `feature/tool-ab-02-docling`). **03(docling 채택, 대규모)은 게이트 PASS로 열렸으나 착수 시점은 사용자 결정 대기** — 기대 효과가 값 품질(동률)이 아닌 provenance/UX(셀 좌표 점프·캡션·조건 대조)임을 명시한 상태에서, 경량 품질 개선 트랙(5회 테스트+리서치, backlog/20 예정) 및 04(LangExtract A/B)와 순서 조율.
 
 이후 순서: 02(docling 사이드카 + 표 A/B, **게이트 산출**) → [게이트 승리 시] 03(docling 채택 구현) / 04(LangExtract A/B, 02·03과 독립·병행 가능) → [게이트 승리 시] 05(LangExtract 채택 구현).
 
@@ -71,13 +71,15 @@
 
 ## In Progress
 
-- (없음)
+- `planned/02_2026-07-04_docling-sidecar-table-ab.md` — **Phase A 완료(2026-07-04, developer)**: docling 사이드카 정의 3종(`apps/docling-server/`: `Dockerfile.docling`·`docling-server.py`·`requirements.txt`) + 별도 `compose.docling.yaml`(포트 8011, 기본 CPU/GPU 프로필) + `electron/docling-client.mjs`(측정 전용, mineru 대칭) + `scripts/ab-docling-tables.mjs`(5축 A/B: 표구조·수식·캡션·셀bbox·시간 + 골든 43셀 재발견 + 게이트 verdict). 자기검증: node --check 2 PASS, py_compile PASS, compose config VALID, 기존 테스트 148 pass/0 fail(프로덕션 무변경). **docker build/run·fidelity E2E 미실행 = Phase B(오케스트레이터)**. 커밋 없음(브랜치 `feature/tool-ab-02-docling`).
 
 ## Completed
 
 - `completed/01_2026-07-04_mineru-34-upgrade.md` — MinerU 2.7.6→**3.4.2** (2026-07-04). Phase A(핀·harness 정정·검증 스크립트·컨테이너 실사) + Phase B(스키마 드리프트 대응: chart→figures·list→본문[ref_text 제외]·boilerplate 명시 무시, 범프 25→26, 테스트 147/147) + Phase C(재추출 5편 v26 실패 0, **3.4 기준선 fidelity 67.4% [+23.2%p]**, 스캔 확인은 샘플 부재로 보류).
 
 ## Last Updated
+
+2026-07-04 — developer: 슬라이스 02 **Phase A**(빌드 비의존 구현). docling 표-파싱 사이드카(`apps/docling-server/`: `Dockerfile.docling`[cuda12.8+torch cu128+docling>=2.108+`docling-tools models download`+uvicorn 8011], `docling-server.py`[FastAPI lifespan, `POST /parse` multipart→표 중심 JSON{셀 grid+셀별 bbox+캡션+caption_ref+수식 LaTeX+figure수+시간}, `/health`, docling API 드리프트 방어], `requirements.txt`) + `compose.docling.yaml`(**별도 파일**, 기존 compose 무침범; `docling` CPU 기본 + `docling-gpu` profile, 포트 8011, `restart:no` A/B 임시). 어댑터 `electron/docling-client.mjs`(`isDoclingAvailable`/`parsePdfDocling`, mineru-client 대칭, 프로덕션 무배선). A/B `scripts/ab-docling-tables.mjs`(`paper_files.stored_path`에서 5편 PDF 로드 → MinerU 3.4 vs docling **5축**[표구조+파서간 Jaccard+골든43셀재발견 / 수식 / 캡션 ref / 셀bbox / 시간] + **사전정의 게이트**[docling {표구조|bbox|캡션} ≥1 명확우위 + 골든 비열세 → PASS/HOLD verdict 출력]). 골든 fixture(`adsorption-groundtruth-v0.json` 43셀) 축①에 연동. **프로덕션(main.mjs·mineru-client.mjs·DB·IPC) 완전 무변경**. 자기검증: `node --check` 2파일 PASS + `python -m py_compile` PASS + `docker compose config` VALID + `node --test` **148 pass/0 fail**. docker build/run·13분 fidelity E2E 미실행(Phase B 오케스트레이터). 커밋 없음(브랜치 `feature/tool-ab-02-docling`). harness: external.md docling 항목 추가·VERSION 범프. Next=Phase B(build→run→A/B→verdict→`completed/02`).
 
 2026-07-04 — fixer: 슬라이스 01 **Phase B**(3.4 스키마 드리프트 대응 + 범프). MinerU 3.4.2 라이브 응답 265요소 실측 후 `mineru-client.mjs` `parseMineruResult` 국소 확장: `chart`(38건)→figures(chart_caption/content 폴백), `list`→본문 수용하되 `sub_type=ref_text`(서지 68항목, GROBID 소유) 제외, `header`/`footer`/`page_number`/`page_footnote`→`IGNORED_BOILERPLATE_TYPES`로 명시 무시. `equation.text_format`·`image.image_footnote`·backend enum(5종, "pipeline" 유효)은 기존 계약 불변이라 무수정. `CURRENT_EXTRACTION_VERSION` 25→26(`main.mjs:116`). 신규 `tests/mineru-client.test.mjs` 7건 + fixture(실 응답 축약) → `node --test` **147/147**. `verify-mineru-api.mjs` 계약 미러 동기 + 3.4.2 Check 1·2·3 라이브 PASS. harness VERSION v1.23, pdf-pipeline.md v2.2, external.md v1.2, feature-status v1.23. docker·커밋 없음(브랜치 main). Next=오케스트레이터 재추출→3.4 기준선 재측정→스캔 확인.
 
