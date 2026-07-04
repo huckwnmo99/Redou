@@ -1,0 +1,59 @@
+# Docling table-parse sidecar — TEMPORARY, A/B-only (tool-ab-adoption slice 02).
+#
+# Kept in a SEPARATE compose file (does not touch compose.mineru.yaml or
+# docker-compose.yml). Spin up only for the MinerU-3.4-vs-docling A/B, tear down
+# after. Adoption / always-on is decided by slice 03, not here.
+#
+# Default service `docling` runs on CPU to AVOID contending with the single GPU
+# already held by ocr-server / MinerU (see slice 02 assumption). If you have GPU
+# headroom, use the `docling-gpu` service (profile: gpu) instead.
+#
+# Build + run (from apps/docling-server), CPU:
+#   docker compose -f compose.docling.yaml build docling
+#   docker compose -f compose.docling.yaml up -d docling
+# GPU variant:
+#   docker compose -f compose.docling.yaml --profile gpu up -d --build docling-gpu
+#
+# Health: curl -f http://localhost:8011/health
+services:
+  docling:
+    build:
+      context: .
+      dockerfile: Dockerfile.docling
+    image: docling-table-sidecar:latest
+    container_name: redou-docling
+    ports:
+      - "8011:8011"
+    # CPU by default (no GPU reservation) to sidestep GPU contention.
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8011/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+
+  # Optional GPU variant — only if the box has spare VRAM alongside MinerU/OCR.
+  docling-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.docling
+    image: docling-table-sidecar:latest
+    container_name: redou-docling-gpu
+    profiles: ["gpu"]
+    ports:
+      - "8011:8011"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8011/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s

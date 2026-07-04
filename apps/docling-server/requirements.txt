@@ -1,0 +1,8 @@
+# Docling table-parse sidecar (tool-ab-adoption slice 02, measurement-only).
+# torch is installed separately in Dockerfile.docling (cu128 for Blackwell),
+# mirroring apps/ocr-server. docling pulls layout/TableFormer model weights,
+# which are pre-downloaded at build time (see Dockerfile.docling).
+docling>=2.108,<3
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
