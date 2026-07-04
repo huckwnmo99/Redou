@@ -227,3 +227,9 @@ Stage 4 검증(`scheduleGuardianVerification`)을 **결정적 코드 역매칭 �
 2. ~~**Orchestrator clarify 과다**~~ — 프롬프트에서 "반드시 clarify" 강제 삭제, 포괄적 요청 시 합리적 기본값으로 진행하도록 변경, 2회 이상 clarify 시 진행 가드레일 추가. main.mjs에 코드 가드레일(history에서 3회 이상 clarify면 강제 generate_table) 추가.
 3. ~~**LLM 한글 출력 인코딩 깨짐**~~ — EXTRACTION_AGENT_SYSTEM_PROMPT / TABLE_AGENT_SYSTEM_PROMPT에서 notes 필드 영어 작성 강제. paper_title도 원본 영어 제목 사용 명시.
 4. ~~**Guardian 검증 0/42**~~ — checkGroundedness()를 표준 Ollama /api/chat 프로토콜로 전환 (role: "system" + role: "user"). combinedSource 길이 최적화 (figure 1000자, chunk 800자, 전체 12000자). claim에 식별 열(Adsorbent, Gas 등) 포함.
+
+## Phase 2.5 슬라이스 10 계약 (2026-07-05)
+
+- **10-B (eval)**: fidelity 채점기의 conflictHandling이 `conditionConflicts` 등재 **또는** 파생 조건 열의 행별 채움율로 크레딧 (`eval-runner.mjs` — 빈 pivot 0점, `CONDITION_CREDIT_THRESHOLD`=0.5).
+- **10-C (추출 출력 계약)**: cell_meta는 **parameter 열에만** 발행하되 그 셀의 `condition`은 **필수**(unit·source_hint 동반 — 역매칭에 필요). 생성 상한 `num_predict` = `REDOU_EXTRACT_NUM_PREDICT`(기본 8192, invalid→기본 폴백; HARD-stop이라 절단 리스크는 코드 주석 참조).
+- **10-D (열 이름 접지)**: `chat/column-grounding.mjs`(순수 함수)만 존재 — **파이프라인 미배선(데드코드)**. 배선·persist는 후속 라운드(MAPE 스펙 어휘 제약과 병행) 예정.

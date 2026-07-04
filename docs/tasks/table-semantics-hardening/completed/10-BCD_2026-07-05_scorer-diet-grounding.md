@@ -6,7 +6,7 @@
 
 - **B 채점기 파생 열 크레딧** — `eval-runner.mjs:315-337`: conditionMixedColumns 열마다 `max(감지 여부, 파생 열 행별 채움율)`로 크레딧. `findDerivedConditionColumnIndex` + `derivedConditionFillRate` 신설. 빈 pivot=0점(느슨화 방지). 리서치 권장안(벤치마크의 cell-level 판정 정합) 그대로.
 - **C 출력 다이어트** — `llm-orchestrator.mjs`: `resolveExtractNumPredict`(`REDOU_EXTRACT_NUM_PREDICT` env, invalid 폴백, HARD-stop 리스크 주석) + 추출 호출 options 배선(:643). 프롬프트 규칙 12를 "cell_meta는 parameter 열 + 비자명 조건만"으로 축소.
-- **D 열 이름 사후 스냅** — 신규 `chat/column-grounding.mjs`(순수 함수) + `table-pipeline.mjs` 배선 + `metadata.columnGrounding` 기록 + `types/chat.ts` 타입. 보수적 대조(정규화 키), 애매하면 교체 없이 플래그만. 프롬프트 규칙 7 방어선 1줄.
+- **D 열 이름 사후 스냅** — ⚠️ **정정(2026-07-05 리뷰 발견)**: 신규 `chat/column-grounding.mjs`(순수 함수)와 단위 테스트까지만 구현됨. **`table-pipeline.mjs` 배선·`metadata.columnGrounding` persist·타입은 미완(데드코드)** — fixer 보고 유실 시 오케스트레이터 검증이 모듈 존재만 확인하고 배선을 놓침. 프로덕션에서 실행되지 않으므로 측정(72.1%)·동작 오염 없음. **배선은 다음 라운드 1번(MAPE 스펙 어휘 제약)과 함께 처리.**
 
 ## 검증 (오케스트레이터)
 
