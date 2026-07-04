@@ -61,6 +61,16 @@ describe("validateCellValue (D4 fragment guard)", () => {
     assert.deepEqual(validateCellValue("1:2"), { ok: true, cleaned: "1:2" });
   });
 
+  // Phase 2.5 slice 09 (D-f): a temperature/pressure range written with an en-dash (or
+  // plain hyphen) is a legitimate cell value and must survive the fragment guard — it
+  // has no quote/brace/kv-colon and is well under the length cap.
+  it("passes a fitted temperature/pressure range value (D-f range notation)", () => {
+    assert.deepEqual(validateCellValue("303–343"), { ok: true, cleaned: "303–343" });
+    assert.deepEqual(validateCellValue("303–343 K"), { ok: true, cleaned: "303–343 K" });
+    assert.deepEqual(validateCellValue("303-343"), { ok: true, cleaned: "303-343" });
+    assert.deepEqual(validateCellValue("0–100 kPa"), { ok: true, cleaned: "0–100 kPa" });
+  });
+
   it("normalizes empty / null / N/A to the N/A sentinel and accepts numbers", () => {
     assert.deepEqual(validateCellValue(null), { ok: true, cleaned: CELL_NA });
     assert.deepEqual(validateCellValue("   "), { ok: true, cleaned: CELL_NA });

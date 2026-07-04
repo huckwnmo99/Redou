@@ -219,12 +219,94 @@ export function normalizeFallbackTableToSpec(tableJson, tableSpec) {
   };
 }
 
+// Phase 2.5 slice 10-A (measured defect: cell_meta key collapse). The per-paper
+// extraction LLM (observed with gemma) sometimes stuffs several meta fields into the
+// `unit` string as an embedded "key: value, key: value" blob instead of using the
+// separate keys, e.g. real DB row:
+//   { unit: "unit: mmol/g, condition: at 293.15 K, pressure <= 1000 kPa", ... }
+// The `condition` field is then absent, which silently defeats the slice-09 condition
+// pivot (no condition to pivot) and misleads fidelity eval / D-f range recording.
+//
+// `normalizeCellMeta` deterministically re-splits such a blob back into unit /
+// condition / source_hint using ONLY the known key labels, and is deliberately
+// conservative:
+//   - It only acts when a string field *starts* with a known label (`unit:` /
+//     `condition:` / `source_hint:` / `source:`). A normal value ("mmol/g",
+//     "at 293 K") never starts with a known label, so it is returned unchanged.
+//   - Segments are split on the known labels only. An unknown label such as
+//     "pressure <=" is NOT a boundary, so it stays glued to the preceding segment
+//     (here the condition keeps "at 293.15 K, pressure <= 1000 kPa" intact).
+//   - A re-split value is written into a target field only if that field is still
+//     empty, so a correctly-populated field is never overwritten.
+// It is a pure function (no LLM, no stage) exported for unit testing.
+const KNOWN_META_KEYS = ["unit", "condition", "source_hint", "source"];
+// Match the START of a string that opens with a known key label, e.g. "unit:" /
+// "source_hint :". Anchored so only a leading label triggers re-splitting.
+const LEADING_META_LABEL_RE = /^\s*(unit|condition|source_hint|source)\s*:/i;
+// Global label matcher used to carve a collapsed blob into labelled segments.
+const META_LABEL_G_RE = /(unit|condition|source_hint|source)\s*:/gi;
+
+function reSplitCollapsedMeta(raw) {
+  const str = String(raw);
+  const segments = {};
+  const matches = [...str.matchAll(META_LABEL_G_RE)];
+  if (matches.length === 0) return segments;
+  for (let i = 0; i < matches.length; i++) {
+    const m = matches[i];
+    const key = m[1].toLowerCase() === "source" ? "source_hint" : m[1].toLowerCase();
+    const valueStart = m.index + m[0].length;
+    const valueEnd = i + 1 < matches.length ? matches[i + 1].index : str.length;
+    let value = str.slice(valueStart, valueEnd).trim();
+    // Drop a trailing comma/semicolon that separated this segment from the next.
+    value = value.replace(/[,;]\s*$/, "").trim();
+    // First label wins for a given field (do not clobber an earlier segment).
+    if (value && !(key in segments)) segments[key] = value;
+  }
+  return segments;
+}
+
+/**
+ * Re-split a collapsed cell_meta object whose `unit`/`condition`/`source_hint`
+ * string field embeds several "key: value" pairs (slice 10-A). Returns a new object;
+ * a well-shaped meta object is returned as-is (shallow copy). Conservative: only the
+ * three string fields are inspected, only known labels split, and a field is filled
+ * only when it was empty.
+ *
+ * @param {unknown} meta — a cell_meta value object, or null/undefined.
+ * @returns {Record<string, unknown> | null}
+ */
+export function normalizeCellMeta(meta) {
+  if (!meta || typeof meta !== "object") return meta ?? null;
+  const out = { ...meta };
+  for (const field of ["unit", "condition", "source_hint"]) {
+    const value = out[field];
+    if (typeof value !== "string") continue;
+    if (!LEADING_META_LABEL_RE.test(value)) continue; // not collapsed — leave untouched
+    const parts = reSplitCollapsedMeta(value);
+    for (const key of KNOWN_META_KEYS) {
+      const targetKey = key === "source" ? "source_hint" : key;
+      const parsed = parts[targetKey];
+      if (!parsed) continue;
+      const existing = out[targetKey];
+      const existingEmpty = typeof existing !== "string" || existing.trim() === "";
+      // Overwrite the field being re-split (its own value was the collapsed blob);
+      // for the OTHER fields, fill only when they were empty.
+      if (targetKey === field || existingEmpty) out[targetKey] = parsed;
+    }
+  }
+  return out;
+}
+
 // Phase 1 (table-semantics-hardening D1): normalize a per-cell condition string so
 // that trivially different spellings ("at 293 K" vs "293K") are treated as equal and
 // do not raise a false conflict.
+// Phase 2.5 slice 09 (D-f): also fold en-dash / em-dash / minus-sign into a plain
+// hyphen so a range written "303–343 K" and "303-343K" collapse to one key (a
+// range value must not read as two distinct conditions during pivot / conflict).
 function normalizeConditionKey(condition) {
   return String(condition ?? "")
     .toLowerCase()
+    .replace(/[‒–—―−]/g, "-")
     .replace(/\s+/g, "")
     .replace(/[.,;]+/g, "")
     .trim();
@@ -280,6 +362,97 @@ export function detectConditionConflicts(cellTuples, headers, semanticTypes) {
   return conflicts;
 }
 
+/**
+ * Phase 2.5 slice 09 (D-b): derive a "measurement condition" column from the per-cell
+ * condition metadata for each column flagged as mixing conditions (tidy-data pivot).
+ * The condition is already stored on cellTuples[r][c].condition; detectConditionConflicts
+ * tells us *which* columns mix conditions. Rather than leaving that provenance buried in
+ * a hover tooltip, we promote it to a first-class column so the mixed values become
+ * disambiguated rows/cells the reader (and CSV export) can see.
+ *
+ * The insertion is atomic across every index-aligned structure: for each derived column
+ * placed immediately AFTER its source column, we splice headers / rows / cellTuples /
+ * columnSemanticTypes together and shift every later columnIndex (in conditionConflicts
+ * and nullSummary.details) by +1. Conflicts are processed right-to-left so an earlier
+ * insertion never invalidates a not-yet-processed index. The frontend renders the new
+ * column automatically (headers.map + columnIndex-keyed conflict badge) — no UI change.
+ *
+ * Duplicate guard [assumption C]: skip a conflict whose derived header name already
+ * exists in `headers` (e.g. a prior pivot or an orchestrator-provided column of the same
+ * name) so the pivot never double-represents the same condition. We key on the derived
+ * NAME, not the "condition" semantic type — identity columns (adsorbent/gas/model) are
+ * also typed "condition", so a type-based guard would wrongly suppress every adsorption
+ * pivot (defeating D-b, the very case this targets).
+ *
+ * Mutates the passed arrays in place and returns the (possibly new) columnSemanticTypes.
+ *
+ * @param {object} args
+ * @param {string[]} args.headers
+ * @param {string[][]} args.rows
+ * @param {Array<Array<object|null>>} args.cellTuples
+ * @param {Array<string|null>|null} args.columnSemanticTypes
+ * @param {Array<{column: string, columnIndex: number, conditions: string[]}>} args.conditionConflicts
+ * @param {Array<{columnIndex: number}>} args.nullDetails
+ * @returns {Array<string|null>|null} columnSemanticTypes (unchanged reference when no pivot)
+ */
+export function deriveConditionColumns({ headers, rows, cellTuples, columnSemanticTypes, conditionConflicts, nullDetails }) {
+  if (!Array.isArray(conditionConflicts) || conditionConflicts.length === 0) return columnSemanticTypes;
+
+  // Work on a concrete semantic-types array so derived columns can be tagged "condition"
+  // index-aligned with headers, even if the spec omitted the array entirely.
+  let semanticTypes = Array.isArray(columnSemanticTypes)
+    ? columnSemanticTypes.slice()
+    : headers.map(() => null);
+  let derivedAny = false;
+
+  // Process conflicts high-index first so each splice leaves lower indices valid.
+  const ordered = [...conditionConflicts].sort((a, b) => b.columnIndex - a.columnIndex);
+  for (const conflict of ordered) {
+    const srcIndex = conflict.columnIndex;
+    if (typeof srcIndex !== "number" || srcIndex < 0 || srcIndex >= headers.length) continue;
+
+    // Duplicate guard (assumption C): if a column with the derived name already exists,
+    // skip — the condition is already represented (avoids double-representation).
+    const derivedHeader = `측정 조건 (${headers[srcIndex]})`;
+    if (headers.includes(derivedHeader)) continue;
+
+    const insertAt = srcIndex + 1;
+
+    // New header names the derived column after its source column.
+    headers.splice(insertAt, 0, derivedHeader);
+    semanticTypes.splice(insertAt, 0, "condition");
+    derivedAny = true;
+
+    // Each row gets the source cell's condition string (N/A when the cell had none).
+    // The derived cell also carries a tuple so its condition is available on hover.
+    for (let ri = 0; ri < rows.length; ri++) {
+      const srcTuple = cellTuples[ri]?.[srcIndex];
+      const condition = srcTuple && typeof srcTuple.condition === "string" && srcTuple.condition.trim()
+        ? srcTuple.condition.trim()
+        : "";
+      rows[ri].splice(insertAt, 0, condition || CELL_NA);
+      const derivedTuple = condition ? { condition } : null;
+      if (Array.isArray(cellTuples[ri])) cellTuples[ri].splice(insertAt, 0, derivedTuple);
+    }
+
+    // Shift every later columnIndex so downstream (frontend badge, null details) stays aligned.
+    conflict.derivedColumnIndex = insertAt;
+    for (const c of conditionConflicts) {
+      if (c !== conflict && typeof c.columnIndex === "number" && c.columnIndex >= insertAt) c.columnIndex += 1;
+      if (c !== conflict && typeof c.derivedColumnIndex === "number" && c.derivedColumnIndex >= insertAt) c.derivedColumnIndex += 1;
+    }
+    if (Array.isArray(nullDetails)) {
+      for (const d of nullDetails) {
+        if (typeof d.columnIndex === "number" && d.columnIndex >= insertAt) d.columnIndex += 1;
+      }
+    }
+  }
+
+  // When nothing was derived, hand back the original reference untouched so callers see
+  // no spurious change to columnSemanticTypes.
+  return derivedAny ? semanticTypes : columnSemanticTypes;
+}
+
 export function mergeExtractionResults(extractionResults, tableSpec, paperMetadata, paperRefMap) {
   const headers = Array.isArray(tableSpec.column_definitions) ? tableSpec.column_definitions.slice() : [];
   const normalizedHeaders = headers.map((h) => normalizeColumnKey(h));
@@ -300,6 +473,11 @@ export function mergeExtractionResults(extractionResults, tableSpec, paperMetada
   // Per-paper extraction notes, indexed by paperId, so we can surface "why a
   // paper produced no data" to the user (see docs/features/fix/19-...).
   const notesByPaperId = new Map();
+  // Phase 2.5 slice 08 (D-a coverage): per-paper coverage observation. For each paper,
+  // count the real (non-placeholder) rows it contributed and the number of DISTINCT
+  // measurement conditions those rows carry (a proxy for how many parameter/condition
+  // sets were captured). Recorded on reasons[] only — never changes rows/tableJson.
+  const coverageByPaperId = new Map(); // paperId -> { rows, conditionKeys:Set }
   let totalNulls = 0;
   let totalCells = 0;
   let droppedRowCount = 0;
@@ -329,7 +507,11 @@ export function mergeExtractionResults(extractionResults, tableSpec, paperMetada
       const normalizedMeta = new Map();
       if (cellMeta) {
         for (const [k, v] of Object.entries(cellMeta)) {
-          if (v && typeof v === "object") normalizedMeta.set(normalizeColumnKey(k), v);
+          // Slice 10-A: re-split a collapsed meta blob (several "key: value" pairs
+          // stuffed into `unit`) back into unit/condition/source_hint so the condition
+          // pivot (slice 09) and fidelity eval see the condition. No-op on well-shaped
+          // meta.
+          if (v && typeof v === "object") normalizedMeta.set(normalizeColumnKey(k), normalizeCellMeta(v));
         }
       }
       // Row-level source_hint applies to any cell lacking its own (D3 provenance).
@@ -387,6 +569,20 @@ export function mergeExtractionResults(extractionResults, tableSpec, paperMetada
       cellTuples.push(rowTuples);
       usedPaperIds.add(result.paperId);
 
+      // D-a coverage: tally this real row + its distinct conditions for the paper.
+      let coverage = coverageByPaperId.get(result.paperId);
+      if (!coverage) {
+        coverage = { rows: 0, conditionKeys: new Set() };
+        coverageByPaperId.set(result.paperId, coverage);
+      }
+      coverage.rows++;
+      for (const tuple of rowTuples) {
+        const cond = tuple && typeof tuple.condition === "string" ? tuple.condition.trim() : "";
+        if (!cond) continue;
+        const key = normalizeConditionKey(cond);
+        if (key) coverage.conditionKeys.add(key);
+      }
+
       const outRowIndex = rows.length - 1;
       for (const nullCol of perRowNullColumns) {
         nullDetails.push({
@@ -432,12 +628,19 @@ export function mergeExtractionResults(extractionResults, tableSpec, paperMetada
       usedPaperIds.add(p.paperId);
     }
 
+    const coverage = coverageByPaperId.get(p.paperId);
     reasons.push({
       paperId: p.paperId,
       paperTitle: p.title,
       refNo: refNo ? String(refNo) : "",
       hadRows,
       failed,
+      // D-a coverage counters (observation only — do not affect rows/tableJson).
+      // extractedRowCount: real rows this paper contributed (placeholders excluded).
+      // distinctConditionCount: distinct measurement conditions across those rows,
+      // a proxy for how many condition/parameter sets were captured for the paper.
+      extractedRowCount: coverage ? coverage.rows : 0,
+      distinctConditionCount: coverage ? coverage.conditionKeys.size : 0,
       note: hadRows
         ? note
         : note || (failed ? `Extraction failed: ${failedByPaperId.get(p.paperId) || "unknown error"}` : "No matching data found in this paper"),
@@ -484,9 +687,30 @@ export function mergeExtractionResults(extractionResults, tableSpec, paperMetada
   // merged without a distinguishing column. Reported (not auto-split) per assumption D.
   const conditionConflicts = detectConditionConflicts(cellTuples, headers, columnSemanticTypes);
 
+  // Phase 2.5 slice 09 (D-b): pivot the buried per-cell condition into a first-class
+  // "measurement condition" column for each flagged column. This is a末尾 post-processing
+  // step: it runs after nullSummary/conditionConflicts are built and atomically shifts
+  // every later columnIndex (conditionConflicts + nullDetails). tableJson.headers/rows
+  // and nullSummary.details are the same array references, so the in-place splices flow
+  // through. Only fires when a conflict exists and no explicit condition column is present.
+  const finalSemanticTypes = deriveConditionColumns({
+    headers,
+    rows,
+    cellTuples,
+    columnSemanticTypes,
+    conditionConflicts,
+    nullDetails,
+  });
+
+  // D-a coverage observation: per-paper real rows + distinct conditions captured.
+  const coverage = reasons
+    .filter((r) => r.hadRows)
+    .map((r) => ({ refNo: r.refNo || null, rows: r.extractedRowCount, conditions: r.distinctConditionCount }));
+
+  const derivedConditionCols = conditionConflicts.filter((c) => typeof c.derivedColumnIndex === "number").length;
   console.log(
-    `[Chat/Merge] rows=${rows.length}, cells=${totalCells}, nulls=${totalNulls}, droppedRows=${droppedRowCount}, missingPapers=${missingCount}, conditionConflicts=${conditionConflicts.length}`,
+    `[Chat/Merge] rows=${rows.length}, cells=${totalCells}, nulls=${totalNulls}, droppedRows=${droppedRowCount}, missingPapers=${missingCount}, conditionConflicts=${conditionConflicts.length}, derivedConditionCols=${derivedConditionCols}, coverage=${JSON.stringify(coverage)}`,
   );
 
-  return { tableJson, nullSummary, reasons, cellTuples, columnSemanticTypes, conditionConflicts };
+  return { tableJson, nullSummary, reasons, cellTuples, columnSemanticTypes: finalSemanticTypes, conditionConflicts };
 }
