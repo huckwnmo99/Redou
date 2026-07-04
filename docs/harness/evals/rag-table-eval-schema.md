@@ -158,9 +158,12 @@ ground-truth cells taken directly from the source PDF tables**. Unlike
 reports **scores** so it can grade extraction changes and Phase 3 A/B swaps
 (docling / LangExtract). It reuses `normalizeEvalString`; no live services.
 
-Runner: `evaluateTableFidelityCase(groundTruthBlock, tableRow)` and
-`evaluateTableFidelityFixture(groundTruth, tableByPaperId)` in
-`apps/desktop/tests/integration/support/eval-runner.mjs`.
+Runner: `evaluateTableFidelityCase(groundTruthBlock, tableRow, options?)` and
+`evaluateTableFidelityFixture(groundTruth, tableByPaperId, options?)` in
+`apps/desktop/tests/integration/support/eval-runner.mjs`. The optional third
+`options.scope` argument restricts grading to a golden-cell subset (see
+"Query-scoped grading" below); omitting it keeps the whole-fixture scoring
+bit-for-bit (backward-compatible).
 
 Ground-truth fixture schema `table-fidelity-v0`
 (`apps/desktop/tests/fixtures/evals/adsorption-groundtruth-v0.json`):
@@ -190,7 +193,13 @@ Cell fields:
 | `column` | string | Target column; matched tolerantly (separators/case stripped, substring fallback) so `q_m` binds to `q_m (mol/kg)`. |
 | `value` | string | Exact expected value; compared after `normalizeEvalString` + citation-tag strip. |
 | `unit` / `condition` | string? | Documentation + condition disambiguation (which pressure range / temperature the value belongs to). |
+| `scope` | string? | Optional scenario label (from the fixture's `scopeVocabulary`) used for query-scoped grading — see below. Current values: `full_range` (≤1000 / ~600 kPa) and `low_pressure` (≤100 / ~100 kPa). |
 | `sourceTable` | string? | Provenance (`Table 3` / `Table 4`) for auditability. |
+
+The fixture may also carry a top-level `scopeVocabulary: string[]` enumerating
+the scope labels its cells use. All scope fields are optional and
+backward-compatible: a fixture with no scope tags validates and scores exactly
+as before.
 
 Report axes (per paper block):
 
@@ -208,11 +217,39 @@ Report axes (per paper block):
   `conditionMixedColumns` (D1 detection surfaced by Phase 1).
 - **missing** `{count, cells}` — ground-truth cells with no matching value at all.
 
+Each case report also carries `scoped: { requested, matchedCells, applicable }`
+describing the scope filter that was applied (`requested` is `null` when no scope
+was requested).
+
+### Query-scoped grading (`options.scope`)
+
+When a query targets one scenario (e.g. "low pressure only") and the pipeline
+correctly extracts just that subset, grading against the **whole** fixture
+under-scores it (a faithful low-pressure table looks ~50% because the full-range
+golden cells it never asked for count as missing). `options.scope`
+(`string | string[]`) fixes this:
+
+- `evaluateTableFidelityCase(gt, row, { scope: "low_pressure" })` filters
+  `groundTruthCells` to cells whose `scope` label is in the requested set, then
+  runs the existing identity/value/condition/fabrication logic unchanged. So the
+  low-pressure-only table is graded against only the low-pressure golden cells
+  (a fair 4/4 instead of 4/8).
+- The report's `scoped.applicable` is `false` when the filter left no cells (a
+  paper outside the requested scope, or a nonexistent scope). In the fixture
+  aggregator, **non-applicable blocks are excluded from the overall** so a
+  fixture-external / out-of-scope paper does not drag the overall fidelity down
+  to 0%. `overall.applicablePapers` reports how many blocks were counted.
+- Omitting `options` (or passing `{}`) grades every cell — identical to the
+  legacy two-argument call.
+
 Scoring is non-binary by design (ADR 0007: "Future runners may report scores
 separately from pass/fail"). A regression gate (e.g. fidelity must not drop) is
 optional and, if used, should run on a **deterministic synthetic `tableRow`** —
 the live E2E table output is non-deterministic (local LLM), so it is for
-**recording the current score**, not for CI gating.
+**recording the current score**, not for CI gating. Because the LLM varies
+~23%p run-to-run, `e2e-table-fidelity.mjs` records a **median over
+`REDOU_E2E_RUNS` runs**, not a single number, and reports a run that ends in
+clarify/no-data as `[CLARIFY]` (excluded from the sample) rather than a failure.
 
 ## Normalization Rules
 

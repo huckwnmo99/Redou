@@ -96,6 +96,22 @@ It is **manual and CI-off** (many minutes, real services, non-deterministic
 LLM). The deterministic regression tests live in
 `apps/desktop/tests/table-fidelity.test.mjs` on fixed synthetic tables.
 
+Measurement protocol env (the LLM varies ~23%p run-to-run, so a single run
+cannot judge a before/after change):
+
+- `REDOU_E2E_RUNS` — number of pipeline runs (default 1, recommend 3). Runs the
+  pipeline N times (fresh conversation each) and reports the **median** overall
+  fidelity plus min/max/spread. Example:
+  `REDOU_E2E_RUNS=3 node scripts/e2e-table-fidelity.mjs`.
+- `REDOU_E2E_SCOPE` — optional scope label (e.g. `low_pressure`, comma-separated
+  for several). When the query targets one scenario, grades against just that
+  golden subset (see the schema doc's "Query-scoped grading").
+
+A run that ends in **clarify / no-data** (the pipeline returns `hasTable:false`
+and persists an assistant message instead of a table) is reported as `[CLARIFY]`
+and **excluded from the fidelity sample** — it is "not measurable", not "0%
+fidelity". The script exits 0 even if every run clarifies.
+
 ## First Corpus
 
 The first corpus is `golden-path`.
