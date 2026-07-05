@@ -12,8 +12,27 @@
 // Config (owner id, paper ids, query) is a top block below; override via env:
 //   REDOU_E2E_OWNER_ID, REDOU_E2E_PAPER_IDS (comma-separated), REDOU_E2E_QUERY.
 //
+// Measurement protocol env (slice 07):
+//   REDOU_E2E_RUNS   number of pipeline runs (default 1, recommended 3). Runs the
+//                    pipeline N times (a fresh conversation each) and reports the
+//                    MEDIAN overall fidelity + min/max/spread — the local LLM
+//                    varies ~23%p run-to-run, so a single run can't judge a change.
+//   REDOU_E2E_SCOPE  optional scope label (e.g. "low_pressure" or "full_range",
+//                    comma-separated for several). When the query targets one
+//                    scenario (e.g. "low pressure only"), the fidelity is graded
+//                    against just that subset of golden cells (see the fixture's
+//                    scopeVocabulary), avoiding an unfair penalty from cells the
+//                    query never asked for.
+//
+// A run that ends in clarify / no-data (the pipeline returns hasTable:false and
+// persists an assistant message instead of a table) is reported as [CLARIFY],
+// NOT a failure: it is "not measurable", not "0% fidelity", so it is excluded
+// from the fidelity sample. If every run clarifies, the script still exits 0.
+//
 // Usage (from apps/desktop):
 //   node scripts/e2e-table-fidelity.mjs
+//   REDOU_E2E_RUNS=3 node scripts/e2e-table-fidelity.mjs
+//   REDOU_E2E_RUNS=3 REDOU_E2E_SCOPE=low_pressure node scripts/e2e-table-fidelity.mjs
 // ============================================================================
 import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
@@ -43,6 +62,15 @@ const PAPER_IDS = (process.env.REDOU_E2E_PAPER_IDS ?? [
 const QUERY = process.env.REDOU_E2E_QUERY
   ?? "각 논문의 흡착제와 흡착 용량(q_max), 온도 조건을 비교 테이블로 정리해줘";
 const GROUND_TRUTH_FIXTURE = "adsorption-groundtruth-v0.json";
+
+// Measurement protocol (slice 07): N runs -> median fidelity; optional scope
+// restricts grading to a golden-cell subset when the query targets one scenario.
+const RUNS = Math.max(1, parseInt(process.env.REDOU_E2E_RUNS ?? "1", 10) || 1);
+const SCOPE = (process.env.REDOU_E2E_SCOPE ?? "")
+  .split(",")
+  .map((label) => label.trim())
+  .filter(Boolean);
+const SCOPE_OPTION = SCOPE.length > 0 ? { scope: SCOPE } : {};
 
 const SUPABASE_URL = process.env.REDOU_SUPABASE_URL ?? "http://127.0.0.1:55321";
 const SUPABASE_SERVICE_KEY = process.env.REDOU_SUPABASE_SERVICE_KEY ?? "";
@@ -80,13 +108,25 @@ async function getPaperIdsInFolderTree() {
   return [];
 }
 
-async function main() {
-  console.log(`${ts()} [E2E] LLM model: ${getActiveModel()}`);
+// Median of a numeric sample. For an even count we take the LOWER middle
+// (conservative) so a fidelity median is never inflated above an observed run.
+function median(values) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor((sorted.length - 1) / 2);
+  return sorted[mid];
+}
+
+// One pipeline run against a fresh conversation. Returns a structured outcome so
+// main() can collect a median over N runs and treat clarify as "not measurable"
+// rather than a failure. Does NOT call process.exit (main owns the exit code).
+async function runOnce(runIndex) {
+  const runLabel = RUNS > 1 ? ` run ${runIndex}/${RUNS}` : "";
   const conv = unwrapSingle(await supabase
     .from("chat_conversations")
     .insert({
       owner_user_id: OWNER_ID,
-      title: "[E2E-fidelity] " + new Date().toISOString().slice(0, 16),
+      title: "[E2E-fidelity" + runLabel + "] " + new Date().toISOString().slice(0, 16),
       phase: "follow_up",
       scope_folder_id: null,
       scope_all: true,
@@ -95,7 +135,7 @@ async function main() {
     .select("id")
     .single(), "conversation insert");
   const convId = conv.id;
-  console.log(`${ts()} [E2E] conversation: ${convId}`);
+  console.log(`${ts()} [E2E]${runLabel} conversation: ${convId}`);
 
   unwrapSingle(await supabase
     .from("chat_messages")
@@ -122,8 +162,8 @@ async function main() {
   const emitStatus = createChatStatusEmitter({ conversationId: convId, send });
   const { runMultiQueryRag, runPaperScopedRecoverySearch } = createMultiQueryRag({ supabase });
 
-  console.log(`${ts()} [E2E] running table pipeline (${PAPER_IDS.length} papers, real LLM)...`);
-  await runTableConversationPipeline({
+  console.log(`${ts()} [E2E]${runLabel} running table pipeline (${PAPER_IDS.length} papers, real LLM)...`);
+  const outcome = await runTableConversationPipeline({
     supabase,
     emitStatus,
     emitToken: () => {},
@@ -151,16 +191,43 @@ async function main() {
     unwrapSingleFn: unwrapSingle,
   });
 
+  // Clarify / no-data: the pipeline persisted an assistant message instead of a
+  // table (hasTable:false). This is a legitimate app response (library-scope
+  // clarification), not a fidelity failure — report it and exclude it from the
+  // fidelity sample. resolve the verification promise so nothing hangs.
+  if (!outcome || outcome.hasTable === false) {
+    verificationResolve(null);
+    let clarifyMsg = "";
+    if (outcome?.messageId) {
+      const { data: msgRow } = await supabase
+        .from("chat_messages")
+        .select("content")
+        .eq("id", outcome.messageId)
+        .limit(1);
+      clarifyMsg = msgRow?.[0]?.content ?? "";
+    }
+    console.log(`\n${ts()} [CLARIFY]${runLabel} no table generated (hasTable:false) — excluded from fidelity sample.`);
+    if (clarifyMsg) console.log(`   message: ${clarifyMsg.slice(0, 200).replace(/\s+/g, " ")}`);
+    console.log(`   cleanup: DELETE FROM chat_conversations WHERE id='${convId}';`);
+    return { outcome: "clarify", convId, message: clarifyMsg };
+  }
+
   const { data: tables, error: tblErr } = await supabase
     .from("chat_generated_tables")
     .select("id, table_title, headers, rows, source_refs, metadata, created_at")
     .eq("conversation_id", convId)
     .order("created_at", { ascending: false });
-  if (tblErr) { console.error(`${ts()} [E2E] table query error:`, tblErr.message); process.exit(1); }
+  if (tblErr) {
+    verificationResolve(null);
+    console.error(`${ts()} [E2E] table query error:`, tblErr.message);
+    throw new Error(`table query failed: ${tblErr.message}`);
+  }
   if (!tables || tables.length === 0) {
-    console.error(`${ts()} [E2E] FAIL: no generated table persisted`);
+    // hasTable was true but nothing is persisted — a genuine defect, not clarify.
+    verificationResolve(null);
+    console.error(`${ts()} [E2E] FAIL: hasTable:true but no generated table persisted`);
     console.log(`[E2E] cleanup: DELETE FROM chat_conversations WHERE id='${convId}';`);
-    process.exit(1);
+    throw new Error("hasTable:true but no table persisted");
   }
 
   const tbl = tables[0];
@@ -194,16 +261,19 @@ async function main() {
 
   // ---- table_fidelity scoring against the hand-verified ground truth ----
   // All papers are asked for in one merged table, so the same persisted table is
-  // scored against each paper's ground-truth block.
+  // scored against each paper's ground-truth block. SCOPE_OPTION (if set) grades
+  // only the golden-cell subset the query targeted.
   const groundTruth = await loadFidelityGroundTruth(GROUND_TRUTH_FIXTURE);
-  const result = evaluateTableFidelityFixture(groundTruth, () => table);
+  const result = evaluateTableFidelityFixture(groundTruth, () => table, SCOPE_OPTION);
 
-  console.log(`\n===== TABLE FIDELITY REPORT =====`);
+  console.log(`\n===== TABLE FIDELITY REPORT${runLabel} =====`);
   console.log(`fixture: ${result.fixture} (${result.schemaVersion})`);
+  if (result.scope) console.log(`scope: ${result.scope.join(", ")} (grading golden subset)`);
   console.log(`overall fidelity: ${(result.overall.fidelity * 100).toFixed(1)}% (${result.overall.matched}/${result.overall.total})`);
   console.log(`overall misattribution: ${result.overall.misattribution} | fabrication: ${result.overall.fabrication}`);
   for (const report of result.reports) {
-    console.log(`\n-- ${report.paperId}`);
+    const scopeNote = report.scoped?.applicable === false ? " [N/A: no in-scope golden cells]" : "";
+    console.log(`\n-- ${report.paperId}${scopeNote}`);
     console.log(`   fidelity: ${(report.fidelity.score * 100).toFixed(1)}% (${report.fidelity.matched}/${report.fidelity.total})`);
     console.log(`   misattribution: ${report.misattribution.count} | fabrication: ${report.fabrication.count} | missing: ${report.missing.count}`);
     console.log(`   conflictHandling: ${report.conflictHandling.detected}/${report.conflictHandling.expected}`);
@@ -215,6 +285,48 @@ async function main() {
     }
   }
   console.log(`\ncleanup: DELETE FROM chat_conversations WHERE id='${convId}';`);
+  return { outcome: "fidelity", convId, fidelity: result.overall.fidelity, result };
+}
+
+async function main() {
+  console.log(`${ts()} [E2E] LLM model: ${getActiveModel()}`);
+  console.log(`${ts()} [E2E] protocol: RUNS=${RUNS}${SCOPE.length ? ` SCOPE=${SCOPE.join(",")}` : ""}`);
+
+  const fidelitySamples = [];
+  let clarifyCount = 0;
+  const cleanupIds = [];
+
+  for (let runIndex = 1; runIndex <= RUNS; runIndex += 1) {
+    const runResult = await runOnce(runIndex);
+    if (runResult?.convId) cleanupIds.push(runResult.convId);
+    if (runResult?.outcome === "fidelity") {
+      fidelitySamples.push(runResult.fidelity);
+    } else {
+      clarifyCount += 1;
+    }
+  }
+
+  console.log(`\n===== PROTOCOL SUMMARY (RUNS=${RUNS}) =====`);
+  if (SCOPE.length) console.log(`scope: ${SCOPE.join(", ")}`);
+  console.log(`fidelity samples: ${fidelitySamples.length} | clarify/no-data: ${clarifyCount}`);
+
+  if (fidelitySamples.length === 0) {
+    // Every run clarified — a valid outcome (library-scope clarification), not a
+    // failure. No fidelity number to report.
+    console.log(`[CLARIFY] all ${RUNS} run(s) clarified — no fidelity sample. Not a failure.`);
+    console.log(`cleanup: DELETE FROM chat_conversations WHERE id IN (${cleanupIds.map((id) => `'${id}'`).join(", ")});`);
+    process.exit(0);
+  }
+
+  const med = median(fidelitySamples);
+  const min = Math.min(...fidelitySamples);
+  const max = Math.max(...fidelitySamples);
+  const pct = (v) => `${(v * 100).toFixed(1)}%`;
+  console.log(`median fidelity: ${pct(med)}  [min ${pct(min)} / max ${pct(max)} / spread ${((max - min) * 100).toFixed(1)}p]`);
+  console.log(`per-run fidelity: ${fidelitySamples.map(pct).join(", ")}`);
+  if (cleanupIds.length) {
+    console.log(`cleanup: DELETE FROM chat_conversations WHERE id IN (${cleanupIds.map((id) => `'${id}'`).join(", ")});`);
+  }
   process.exit(0);
 }
 

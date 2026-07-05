@@ -129,6 +129,8 @@ export const ADSORPTION_EXTRACTION_HINT = `\n\n=== 흡착(adsorption) 도메인 
 - **피팅 파라미터(parameter)** — 포화 용량 q_sat/q_max, Langmuir K_L, Freundlich K_F, 불균일지수 n, Henry 상수, 등임율적 흡착열(ΔH). 각각 **하나의 대표값**만 있습니다.
 - **원시 데이터(raw_data)** — 압력별 흡착량 q(P), 시계열 uptake q(t), 개별 등온선 점 (P, q).
 - **규칙: q_max·K_L 같은 파라미터 열에 압력별 q(P) 원시점을 채우지 마세요.** 피팅된 요약값과 원시 측정점은 서로 다릅니다.
+- **압력 범위별 세트를 각각 행으로.** 같은 물질·모델이라도 저압 피팅(예: ≤100 kPa)과 전 범위 피팅(예: ≤1000 kPa)은 **서로 다른 파라미터 세트**입니다. 한 세트만 고르지 말고 각 압력 범위 세트를 별개의 행으로 출력하세요.
+- **온도 범위에서 피팅된 파라미터(ΔH, 등임율적 흡착열, Arrhenius류 등)는 T 열에 단일 값 대신 범위를 "303–343" 형식으로 쓰고 cell_meta.condition에 "fitted over 303–343 K"를 기록하세요.** 온도의존 값을 null로 버리지 마세요.
 - 각 값이 측정된 온도·압력 범위가 있으면 cell_meta.condition에 기입하세요 (예: "at 298 K", "0-100 kPa").`;
 
 /**

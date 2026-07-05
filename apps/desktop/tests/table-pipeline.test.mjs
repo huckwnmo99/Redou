@@ -987,18 +987,28 @@ describe("runTableConversationPipeline", () => {
     assert.equal(result.hasTable, true);
     const tableInsert = inserts.find((entry) => entry.table === "chat_generated_tables");
     assert.equal(tableInsert.data.metadata.extractionMode, "per_paper");
-    // Semantic types preserved index-aligned to headers.
-    assert.deepEqual(tableInsert.data.metadata.columnSemanticTypes, ["condition", "parameter"]);
-    // Cell tuples aligned with rows; q_max tuple carries unit/condition/source_hint.
+    // Slice 09 (D-b): the mixed-condition q_max column is pivoted into a derived
+    // "측정 조건 (q_max)" column (inserted at index 2), so headers/rows/semantic types
+    // widen by one and every index stays aligned.
+    assert.deepEqual(tableInsert.data.headers, ["Adsorbent", "q_max", "측정 조건 (q_max)"]);
+    assert.deepEqual(tableInsert.data.metadata.columnSemanticTypes, ["condition", "parameter", "condition"]);
+    // Cell tuples aligned with the widened rows; q_max tuple (index 1) is unchanged.
     assert.equal(tableInsert.data.metadata.cellTuples.length, tableInsert.data.rows.length);
+    assert.equal(tableInsert.data.metadata.cellTuples[0].length, 3);
     assert.deepEqual(tableInsert.data.metadata.cellTuples[0][1], {
       unit: "mmol/g",
       condition: "full range 293 K",
       source_hint: "Table 3",
     });
-    // Two different conditions on the parameter column -> one condition conflict.
+    // Derived column carries each row's condition string as data + a tuple.
+    assert.equal(tableInsert.data.rows[0][2], "full range 293 K");
+    assert.equal(tableInsert.data.rows[1][2], "low pressure");
+    // Two different conditions on the parameter column -> one condition conflict, now
+    // also pointing at its derived column.
     assert.equal(tableInsert.data.metadata.conditionConflicts.length, 1);
     assert.equal(tableInsert.data.metadata.conditionConflicts[0].column, "q_max");
+    assert.equal(tableInsert.data.metadata.conditionConflicts[0].columnIndex, 1);
+    assert.equal(tableInsert.data.metadata.conditionConflicts[0].derivedColumnIndex, 2);
     assert.deepEqual(tableInsert.data.metadata.conditionConflicts[0].conditions, [
       "full range 293 K",
       "low pressure",

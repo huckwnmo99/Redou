@@ -130,6 +130,13 @@ export interface ConditionConflict {
   column: string;
   columnIndex: number;
   conditions: string[];
+  /**
+   * Index of the "measurement condition" column derived from this column's per-cell
+   * conditions (Phase 2.5 slice 09 D-b pivot). Present only when a derived column was
+   * inserted; lets the renderer badge the derived column as auto-generated. Absent when
+   * no pivot occurred (e.g. an explicit condition column already existed).
+   */
+  derivedColumnIndex?: number;
 }
 
 /** Column semantic type (Phase 1 D2). Index-aligned to the table headers. */

@@ -39,7 +39,11 @@ import {
 // slow local model (e.g. gemma4:31b) can finish a large paper. Must stay <= the inner
 // Ollama ollamaSignal default (300s, llm-chat.mjs); a larger value is cut off by the
 // inner timeout first. See docs/features/fix/20-per-paper-extraction-timeout-env.md.
-const PER_PAPER_TIMEOUT_MS = parseInt(process.env.REDOU_PER_PAPER_TIMEOUT_MS, 10) || 240000;
+// Slice 10-A: raised 240000 -> 300000 (fix 20's recommended upper bound, flush with
+// the inner ollamaSignal). Measured cause: the richer slice-08 output (all sets -> 37
+// rows) exceeded 240s and aborted whole papers ("This operation was aborted"). Still
+// env-overridable via REDOU_PER_PAPER_TIMEOUT_MS.
+const PER_PAPER_TIMEOUT_MS = parseInt(process.env.REDOU_PER_PAPER_TIMEOUT_MS, 10) || 300000;
 // Stage 3d Agentic NULL Recovery per-paper re-extraction timeout (small context).
 const NULL_RECOVERY_TIMEOUT_MS = parseInt(process.env.REDOU_NULL_RECOVERY_TIMEOUT_MS, 10) || 30000;
 

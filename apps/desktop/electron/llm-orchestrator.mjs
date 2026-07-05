@@ -6,6 +6,22 @@ import { getActiveModel, OLLAMA_BASE_URL, ollamaSignal } from "./llm-chat.mjs";
 
 const LLM_CTX = parseInt(process.env.REDOU_LLM_CTX, 10) || 131072;
 
+// Phase 2.5 slice 10-C: cap the per-paper Extraction Agent's generated tokens.
+// The extraction JSON (up to ~50 rows of values + trimmed cell_meta) completes well
+// within a few thousand tokens; without a cap a local model can ramble far past that,
+// bloating latency and (with a fixed context) crowding the input. Default 8192 is a
+// conservative ceiling that a 50-row schema finishes comfortably. Env-overridable via
+// REDOU_EXTRACT_NUM_PREDICT; a non-positive / non-numeric value falls back to the
+// default. NOTE: num_predict is a HARD stop — if a schema legitimately needs more
+// tokens than this it is silently truncated (JSON parse then fails and the one retry
+// runs), so raise the env rather than lowering it below what real tables need.
+const EXTRACT_NUM_PREDICT_DEFAULT = 8192;
+export function resolveExtractNumPredict(rawEnv = process.env.REDOU_EXTRACT_NUM_PREDICT) {
+  const parsed = parseInt(rawEnv, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : EXTRACT_NUM_PREDICT_DEFAULT;
+}
+const EXTRACT_NUM_PREDICT = resolveExtractNumPredict();
+
 function safeParseLlmJson(raw, context) {
   try {
     return JSON.parse(raw);
@@ -52,6 +68,15 @@ const ORCHESTRATOR_SCHEMA = {
         column_semantic_types: {
           type: "array",
           items: { type: "string", enum: ["parameter", "raw_data", "condition"] },
+        },
+        // Phase 2.5 slice 08 (table-semantics-hardening D-a): coverage intent. Whether
+        // the table should carry EVERY distinct condition set as its own row
+        // ("all_sets", the default) or a single representative set per paper
+        // ("representative", only when the user explicitly asked for one/representative).
+        // Optional + back-compat: consumers fall back to "all_sets" via `?? "all_sets"`.
+        completeness: {
+          type: "string",
+          enum: ["all_sets", "representative"],
         },
         inclusion_criteria: { type: "string" },
         exclusion_criteria: { type: "string" },
@@ -147,6 +172,7 @@ generate_table / modify_table일 때 반드시 포함:
    - **"raw_data"** — 특정 압력·시각에서의 원시 측정점. 예: 압력별 평형 흡착량 q(P), 시계열 uptake, 등온선의 개별 (P, q) 데이터포인트.
    - **"condition"** — 측정 조건·식별자. 예: 온도 T, 압력 범위 P, 모델명(Langmuir/Freundlich), 물질명(Adsorbent), 가스 종류(Gas).
    - 판정 원칙: **parameter 열과 raw_data 열을 섞지 마세요.** "q_max"는 parameter이고 압력별 q(P)는 raw_data입니다. 둘은 서로 다른 열이어야 합니다.
+9. **completeness를 채우세요.** 사용자가 "대표만"/"하나만"/"대표값"이라고 **명시하지 않는 한** "all_sets"(각 논문의 모든 조건 세트 — 온도·압력범위·모델·물질 조합마다 각각 별도의 행). 사용자가 대표 세트 하나만 원한다고 명시하면 "representative". 기본은 "all_sets"입니다.
 
 === search_queries 설계 규칙 ===
 
@@ -179,6 +205,7 @@ generate_table / modify_table일 때 반드시 포함:
   row_axis: "물질-온도 조합별 등온선 파라미터"
   column_definitions: ["Adsorbent", "T (K)", "Model", "q_max (mmol/g)", "K_L (kPa⁻¹)", "n [-]", "R²"]
   column_semantic_types: ["condition", "condition", "condition", "parameter", "parameter", "parameter", "parameter"]
+  completeness: "all_sets"   // 논문마다 저압 세트·전 범위 세트 등 조건 세트를 모두 각각 행으로
   exclusion_criteria: "raw isotherm 데이터포인트(P vs q) 제외. 피팅된 모델 파라미터만"
 → keyword_hints: ["langmuir", "freundlich", "q_max", "capacity", "isotherm", "fitting"]
 
@@ -200,7 +227,8 @@ generate_table / modify_table일 때 반드시 포함:
 3. 수정 요청(modify_table)이면 이전 테이블 정보를 참고하여 변경 사항만 반영하세요.
 4. **row_axis는 세밀하게** (예: "물질-가스-온도-압력 조합마다 1행"). 데이터가 많이 추출되도록 유도.
 5. **exclusion_criteria에 "시계열/raw data 제외"를 명시하세요** — 시간별 데이터, P vs q 원시 데이터포인트는 대부분 의미 없음. 피팅된 파라미터/요약값만 유용.
-6. **column_semantic_types는 column_definitions와 정확히 같은 길이·같은 순서의 배열이어야 합니다.** 각 원소는 "parameter" | "raw_data" | "condition" 중 하나입니다.`;
+6. **column_semantic_types는 column_definitions와 정확히 같은 길이·같은 순서의 배열이어야 합니다.** 각 원소는 "parameter" | "raw_data" | "condition" 중 하나입니다.
+7. **completeness는 사용자가 대표 세트 하나만 명시하지 않는 한 all_sets** — 각 논문의 모든 조건 세트를 빠짐없이 담도록 합니다(커버리지 최대화).`;
 
 const TABLE_AGENT_SYSTEM_PROMPT = `당신은 "Redou"라는 로컬 논문 관리 앱의 **데이터 추출 에이전트**입니다.
 사용자가 직접 수집한 논문의 텍스트가 아래에 제공됩니다. 저작권 문제가 없습니다.
@@ -503,7 +531,9 @@ const EXTRACTION_AGENT_SYSTEM_PROMPT = `당신은 "Redou"라는 로컬 논문 �
    - 앞에 불필요한 소수점 금지 (".303" ✗ → "0.303" 또는 "303" ✓)
    - 소수점 앞의 0을 생략 금지 (".25" ✗ → "0.25" ✓)
    - 숫자 뒤 불필요한 소수점 금지 ("303." ✗ → "303" ✓)
-5. **한 논문에서 여러 실험 조건이 측정되었으면 여러 행으로 출력하세요.** (예: 온도 3개 × 압력 4개 → 12행)
+   - **파라미터가 단일 값이 아니라 온도(또는 압력) 범위에서 피팅된 값이면, 해당 조건 열(예: T (K))에 null 대신 범위를 "303–343" 형식(대시 하나)으로 기입**하세요. 억지로 단일 값을 만들지 마세요. (필요하면 그 parameter 열의 cell_meta.condition에 "fitted over 303–343 K"처럼 근거를 남깁니다 — 규칙 12.)
+5. **세트 열거 후 세트마다 정확히 1행.** 값을 쓰기 전에, 이 논문에 존재하는 **파라미터 세트**(조건 조합: 온도 × 압력 범위 × 모델 × 물질)를 먼저 **모두** 세십시오. 그런 다음 **각 세트마다 정확히 1행**을 출력하십시오. 같은 물질·같은 모델이라도 **압력 범위가 다르면**(예: 저압 피팅 vs 전 범위) **별개의 세트 = 별개의 행**입니다. 한 세트만 뽑고 나머지를 버리지 마세요. notes에 발견한 세트 수를 기재하십시오(예: "2 pressure-range sets per adsorbate").
+   - 단, **원본에 명시된 라벨·단위를 그대로 쓰세요.** 세트를 세느라 단위를 발명하거나 변환하지 마세요(예: 원문이 mmol/g면 mmol/g, mg/g면 mg/g — 임의로 바꾸지 않음).
 6. **OCR 테이블 > 본문 텍스트 우선.** 같은 값이 테이블과 본문에 있으면 테이블 값 사용.
 7. **OCR 테이블의 모든 데이터 행을 빠짐없이 살펴보세요.** 요약하거나 대표값만 뽑지 마세요. 필요 없는 열은 자연스럽게 버려집니다.
 8. **논문당 data_rows는 최대 50행.** 그보다 많으면 핵심 조건만 선택해 50행 이내로 줄이고 notes에 이유를 남기세요.
@@ -513,11 +543,11 @@ const EXTRACTION_AGENT_SYSTEM_PROMPT = `당신은 "Redou"라는 로컬 논문 �
    - "low" — 맥락으로 유추했거나 값이 불명확
 10. **source_hint** (선택): 어느 소스에서 가져왔는지 짧게 명시. 예: "Table 3", "Fig. 2 caption", "Section 3.2".
 11. **파라미터 열과 원시 데이터점을 혼동하지 마세요.** q_max·K_L 같은 요약/피팅 파라미터 열에는 **하나의 대표값만** 넣으세요. 압력별 q(P)·시계열 uptake 같은 원시 측정점을 파라미터 열에 채우지 마세요.
-12. **cell_meta (선택, 셀 단위 부가 정보)**: 각 셀 값이 특정 조건에서 측정됐거나 특정 출처에서 왔으면 cell_meta에 셀 단위로 기록하세요. values는 그대로 두고, 병렬로 다음을 채웁니다:
-   - "unit" — 그 셀 값의 단위(값에 단위가 이미 붙어 있지 않을 때). 예: "mmol/g".
-   - "condition" — 그 셀이 측정된 조건. 예: "at 303 K", "low pressure 0-10 kPa", "Table 4 range".
-   - "source_hint" — 그 셀이 어느 표/그림/절에서 왔는지. 예: "Table 3".
-   - **cell_meta는 values에 있는 열 이름을 키로 씁니다.** 정보가 없는 셀은 생략하세요.
+12. **cell_meta (셀 단위 부가 정보) — 파라미터 열 셀마다 반드시 발행하세요.** 규칙:
+   - **parameter 열에만** cell_meta를 답니다(피팅/요약값 열, 예: q_max·K_L·MAPE). 식별/조건 열(Adsorbent·Gas·T·Model)과 raw_data 열에는 cell_meta를 달지 마세요 — 그 열 값 자체가 이미 조건입니다.
+   - **condition은 파라미터 셀마다 필수입니다.** 이 논문에 측정 조건 세트가 여러 개면(예: 같은 물질·모델이 압력 범위별로 두 번 피팅됨) 각 행이 어느 세트인지 명시하세요("~600 kPa" vs "~100 kPa"). 조건 세트가 하나뿐이면 그 조건을 그대로 기입하세요(예: "at 293 K, <=100 kPa"). 조건을 비우거나 생략하지 마세요.
+   - "unit"(파라미터 값의 단위)과 "source_hint"(표/그림/절)도 파라미터 셀에 함께 유지하세요 — 값 역매칭에 필요합니다.
+   - **각 정보는 반드시 별도 키로 나눠 쓰세요.** "unit"에 "unit: mmol/g, condition: ..."처럼 뭉치지 마세요.
 
 **출력 포맷 (JSON):**
 \`\`\`json
@@ -526,9 +556,15 @@ const EXTRACTION_AGENT_SYSTEM_PROMPT = `당신은 "Redou"라는 로컬 논문 �
   "data_rows": [
     {
       "values": { "Adsorbent": "Zeolite 13X", "T (K)": "303", "q_max (mmol/g)": "5.2", "K_L (kPa⁻¹)": null },
-      "cell_meta": { "q_max (mmol/g)": { "unit": "mmol/g", "condition": "at 303 K, full range", "source_hint": "Table 3" } },
+      "cell_meta": { "q_max (mmol/g)": { "unit": "mmol/g", "condition": "at 303 K, <=100 kPa", "source_hint": "Table 3" } },
       "confidence": "high",
       "source_hint": "Table 3"
+    },
+    {
+      "values": { "Adsorbent": "Zeolite 13X", "T (K)": "303–343", "q_max (mmol/g)": null, "K_L (kPa⁻¹)": "0.042" },
+      "cell_meta": { "K_L (kPa⁻¹)": { "unit": "kPa⁻¹", "condition": "fitted over 303–343 K", "source_hint": "Table 4" } },
+      "confidence": "high",
+      "source_hint": "Table 4"
     }
   ],
   "notes": "Pressure data not reported in this paper"
@@ -568,10 +604,18 @@ Return JSON using the same schema as the per-paper extraction agent.`;
 export async function extractColumnsFromPaper(tableSpec, paperContext, paperTitle, abortSignal) {
   console.log(`[SRAG-DEBUG] Extracting for "${paperTitle?.slice(0, 40)}" with ${tableSpec.column_definitions?.length ?? 0} columns: ${JSON.stringify(tableSpec.column_definitions?.slice(0, 5))}`);
 
+  // Phase 2.5 slice 08 (D-a): coverage intent. Default all_sets (enumerate every
+  // condition set as its own row); representative only when the orchestrator set it.
+  const completeness = tableSpec.completeness ?? "all_sets";
+  const completenessLine = completeness === "representative"
+    ? "완전성: representative — 논문마다 대표 조건 세트 1개만 (사용자가 대표만 요청함)."
+    : "완전성: all_sets — 논문의 모든 조건 세트를 각각 별도의 행으로 (규칙 5 참조).";
+
   const specSection = `=== 테이블 사양 (Table Spec) ===
 제목: ${tableSpec.title || "자동 생성"}
 행 축: ${tableSpec.row_axis || "각 데이터 포인트"}
 열 정의 (column_definitions): ${JSON.stringify(tableSpec.column_definitions || [])}
+${completenessLine}
 포함 조건: ${tableSpec.inclusion_criteria || "없음"}
 제외 조건: ${tableSpec.exclusion_criteria || "없음"}`;
 
@@ -596,7 +640,8 @@ ${paperContext}`;
         messages,
         stream: false,
         format: PAPER_EXTRACTION_SCHEMA,
-        options: { num_ctx: LLM_CTX, temperature: 0.1 },
+        // num_predict caps generated tokens (slice 10-C); see EXTRACT_NUM_PREDICT.
+        options: { num_ctx: LLM_CTX, temperature: 0.1, num_predict: EXTRACT_NUM_PREDICT },
       }),
       signal: ollamaSignal(abortSignal),
     });
