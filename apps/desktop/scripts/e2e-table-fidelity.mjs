@@ -23,6 +23,18 @@
 //                    against just that subset of golden cells (see the fixture's
 //                    scopeVocabulary), avoiding an unfair penalty from cells the
 //                    query never asked for.
+//   REDOU_E2E_METRIC optional metric label, comma-separated (see the fixture's
+//                    metricVocabulary: "capacity" = q_m saturation capacity,
+//                    "accuracy" = MAPE error). Independent axis from scope, ANDed
+//                    with it. DEFAULT: "capacity" (slice 12) — the default query
+//                    asks for adsorption capacity, so the MAPE (accuracy) golden
+//                    cells it never requested are excluded and stop counting as
+//                    missing. To opt back into MAPE grading set
+//                    REDOU_E2E_METRIC=accuracy (or capacity,accuracy). Set
+//                    REDOU_E2E_METRIC=all to grade EVERY metric (no metric filter)
+//                    — this is how the pre-slice-12 whole-fixture score is produced.
+//                    (Note: an empty value falls back to the "capacity" default, so
+//                    use "all" to explicitly disable the filter.)
 //
 // A run that ends in clarify / no-data (the pipeline returns hasTable:false and
 // persists an assistant message instead of a table) is reported as [CLARIFY],
@@ -30,9 +42,11 @@
 // from the fidelity sample. If every run clarifies, the script still exits 0.
 //
 // Usage (from apps/desktop):
-//   node scripts/e2e-table-fidelity.mjs
+//   node scripts/e2e-table-fidelity.mjs                                   # metric defaults to capacity
 //   REDOU_E2E_RUNS=3 node scripts/e2e-table-fidelity.mjs
 //   REDOU_E2E_RUNS=3 REDOU_E2E_SCOPE=low_pressure node scripts/e2e-table-fidelity.mjs
+//   REDOU_E2E_RUNS=3 REDOU_E2E_METRIC=accuracy node scripts/e2e-table-fidelity.mjs  # grade MAPE
+//   REDOU_E2E_RUNS=3 REDOU_E2E_METRIC=all node scripts/e2e-table-fidelity.mjs       # whole-fixture (pre-slice-12)
 // ============================================================================
 import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
@@ -71,6 +85,27 @@ const SCOPE = (process.env.REDOU_E2E_SCOPE ?? "")
   .map((label) => label.trim())
   .filter(Boolean);
 const SCOPE_OPTION = SCOPE.length > 0 ? { scope: SCOPE } : {};
+
+// Metric axis (slice 12): the default query asks for adsorption CAPACITY (q_m), so
+// the accuracy (MAPE) golden cells it never requested must NOT count as missing.
+// Parsed like SCOPE (comma-separated) but DEFAULTS to "capacity" when unset — the
+// scorer ANDs metric with scope, so a capacity-only default excludes MAPE cells.
+// Escape hatches: REDOU_E2E_METRIC=all disables the metric filter (whole-fixture,
+// pre-slice-12 behavior); an empty value is treated as "unset" and falls back to
+// the capacity default (so "" and "all" are distinct — "" keeps the filter).
+const METRIC_RAW = (process.env.REDOU_E2E_METRIC ?? "")
+  .split(",")
+  .map((label) => label.trim())
+  .filter(Boolean);
+const METRIC = METRIC_RAW.length === 0 ? ["capacity"] : METRIC_RAW;
+// "all" => grade every metric (no filter). Otherwise pass the requested labels.
+const METRIC_FILTER_OFF = METRIC.length === 1 && METRIC[0].toLowerCase() === "all";
+const METRIC_OPTION = METRIC_FILTER_OFF ? {} : { metric: METRIC };
+
+// Combined grading options handed to the fidelity scorer: scope and metric are
+// independent axes ANDed inside evaluateTableFidelityFixture.
+const GRADING_OPTIONS = { ...SCOPE_OPTION, ...METRIC_OPTION };
+const METRIC_LABEL = METRIC_FILTER_OFF ? "all (filter off)" : METRIC.join(",");
 
 const SUPABASE_URL = process.env.REDOU_SUPABASE_URL ?? "http://127.0.0.1:55321";
 const SUPABASE_SERVICE_KEY = process.env.REDOU_SUPABASE_SERVICE_KEY ?? "";
@@ -261,14 +296,17 @@ async function runOnce(runIndex) {
 
   // ---- table_fidelity scoring against the hand-verified ground truth ----
   // All papers are asked for in one merged table, so the same persisted table is
-  // scored against each paper's ground-truth block. SCOPE_OPTION (if set) grades
-  // only the golden-cell subset the query targeted.
+  // scored against each paper's ground-truth block. GRADING_OPTIONS (scope AND
+  // metric) grades only the golden-cell subset the query targeted — metric defaults
+  // to capacity (slice 12) so the default capacity query is not penalized for the
+  // MAPE accuracy cells it never asked for.
   const groundTruth = await loadFidelityGroundTruth(GROUND_TRUTH_FIXTURE);
-  const result = evaluateTableFidelityFixture(groundTruth, () => table, SCOPE_OPTION);
+  const result = evaluateTableFidelityFixture(groundTruth, () => table, GRADING_OPTIONS);
 
   console.log(`\n===== TABLE FIDELITY REPORT${runLabel} =====`);
   console.log(`fixture: ${result.fixture} (${result.schemaVersion})`);
   if (result.scope) console.log(`scope: ${result.scope.join(", ")} (grading golden subset)`);
+  console.log(`metric: ${METRIC_LABEL} (grading golden subset)`);
   console.log(`overall fidelity: ${(result.overall.fidelity * 100).toFixed(1)}% (${result.overall.matched}/${result.overall.total})`);
   console.log(`overall misattribution: ${result.overall.misattribution} | fabrication: ${result.overall.fabrication}`);
   for (const report of result.reports) {
@@ -290,7 +328,7 @@ async function runOnce(runIndex) {
 
 async function main() {
   console.log(`${ts()} [E2E] LLM model: ${getActiveModel()}`);
-  console.log(`${ts()} [E2E] protocol: RUNS=${RUNS}${SCOPE.length ? ` SCOPE=${SCOPE.join(",")}` : ""}`);
+  console.log(`${ts()} [E2E] protocol: RUNS=${RUNS}${SCOPE.length ? ` SCOPE=${SCOPE.join(",")}` : ""} METRIC=${METRIC_LABEL}`);
 
   const fidelitySamples = [];
   let clarifyCount = 0;
@@ -308,6 +346,7 @@ async function main() {
 
   console.log(`\n===== PROTOCOL SUMMARY (RUNS=${RUNS}) =====`);
   if (SCOPE.length) console.log(`scope: ${SCOPE.join(", ")}`);
+  console.log(`metric: ${METRIC_LABEL}`);
   console.log(`fidelity samples: ${fidelitySamples.length} | clarify/no-data: ${clarifyCount}`);
 
   if (fidelitySamples.length === 0) {

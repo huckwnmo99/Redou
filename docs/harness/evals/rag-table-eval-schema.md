@@ -161,8 +161,9 @@ reports **scores** so it can grade extraction changes and Phase 3 A/B swaps
 Runner: `evaluateTableFidelityCase(groundTruthBlock, tableRow, options?)` and
 `evaluateTableFidelityFixture(groundTruth, tableByPaperId, options?)` in
 `apps/desktop/tests/integration/support/eval-runner.mjs`. The optional third
-`options.scope` argument restricts grading to a golden-cell subset (see
-"Query-scoped grading" below); omitting it keeps the whole-fixture scoring
+`options` argument has **two independent axes** — `options.scope` and
+`options.metric` — each restricting grading to a golden-cell subset (see
+"Query-scoped grading" below); omitting both keeps the whole-fixture scoring
 bit-for-bit (backward-compatible).
 
 Ground-truth fixture schema `table-fidelity-v0`
@@ -194,12 +195,13 @@ Cell fields:
 | `value` | string | Exact expected value; compared after `normalizeEvalString` + citation-tag strip. |
 | `unit` / `condition` | string? | Documentation + condition disambiguation (which pressure range / temperature the value belongs to). |
 | `scope` | string? | Optional scenario label (from the fixture's `scopeVocabulary`) used for query-scoped grading — see below. Current values: `full_range` (≤1000 / ~600 kPa) and `low_pressure` (≤100 / ~100 kPa). |
+| `metric` | string? | Optional quantity-kind label (from the fixture's `metricVocabulary`), an **independent axis** from `scope`, used for query-scoped grading — see below. Current values: `capacity` (saturation capacity q_m) and `accuracy` (MAPE error). |
 | `sourceTable` | string? | Provenance (`Table 3` / `Table 4`) for auditability. |
 
-The fixture may also carry a top-level `scopeVocabulary: string[]` enumerating
-the scope labels its cells use. All scope fields are optional and
-backward-compatible: a fixture with no scope tags validates and scores exactly
-as before.
+The fixture may also carry top-level `scopeVocabulary: string[]` and
+`metricVocabulary: string[]` enumerating the scope / metric labels its cells use.
+All scope and metric fields are optional and backward-compatible: a fixture with
+no scope/metric tags validates and scores exactly as before.
 
 Report axes (per paper block):
 
@@ -218,16 +220,25 @@ Report axes (per paper block):
 - **missing** `{count, cells}` — ground-truth cells with no matching value at all.
 
 Each case report also carries `scoped: { requested, matchedCells, applicable }`
-describing the scope filter that was applied (`requested` is `null` when no scope
-was requested).
+and `metricScoped: { requested, matchedCells, applicable }` describing the scope
+and metric filters that were applied (`requested` is `null` when that axis was not
+requested). `applicable` on both reflects the **combined (AND)** result, so a block
+with no cell passing both filters is marked not-applicable and excluded from the
+overall.
 
-### Query-scoped grading (`options.scope`)
+### Query-scoped grading (`options.scope` / `options.metric`)
 
-When a query targets one scenario (e.g. "low pressure only") and the pipeline
-correctly extracts just that subset, grading against the **whole** fixture
-under-scores it (a faithful low-pressure table looks ~50% because the full-range
-golden cells it never asked for count as missing). `options.scope`
-(`string | string[]`) fixes this:
+Two independent axes restrict grading to the golden-cell subset a query actually
+asked for. `scope` filters by **scenario** (pressure range); `metric` filters by
+**quantity kind** (capacity vs accuracy). They are ANDed: a cell is graded only
+when it passes both. Omitting an axis leaves it unfiltered; omitting both grades
+every cell (legacy behavior).
+
+**`options.scope`** — When a query targets one scenario (e.g. "low pressure
+only") and the pipeline correctly extracts just that subset, grading against the
+**whole** fixture under-scores it (a faithful low-pressure table looks ~50%
+because the full-range golden cells it never asked for count as missing).
+`options.scope` (`string | string[]`) fixes this:
 
 - `evaluateTableFidelityCase(gt, row, { scope: "low_pressure" })` filters
   `groundTruthCells` to cells whose `scope` label is in the requested set, then
@@ -241,6 +252,27 @@ golden cells it never asked for count as missing). `options.scope`
   to 0%. `overall.applicablePapers` reports how many blocks were counted.
 - Omitting `options` (or passing `{}`) grades every cell — identical to the
   legacy two-argument call.
+
+**`options.metric`** (slice 12) — The default library query asks for adsorption
+**capacity** (q_m), so the **accuracy** (MAPE) golden cells it never requested
+must not count as `missing` (before slice 12 they capped paper-2 fidelity at ~50%
+in every run). `options.metric` (`string | string[]`, values from
+`metricVocabulary`) filters the same way as `scope`, on an independent axis:
+
+- `evaluateTableFidelityCase(gt, row, { metric: "capacity" })` grades only the
+  capacity cells; `{ metric: "accuracy" }` grades only the MAPE cells; a metric
+  array unions the labels. Combined with `scope` (`{ scope: "low_pressure",
+  metric: "capacity" }`) grades only the cells that are **both** low-pressure and
+  capacity.
+- The live `e2e-table-fidelity.mjs` **defaults its metric to `capacity`**
+  (via `REDOU_E2E_METRIC`, default `"capacity"`) so the default capacity query is
+  graded in-scope. Set `REDOU_E2E_METRIC=accuracy` to opt into MAPE grading, or
+  `REDOU_E2E_METRIC=all` to disable the metric filter (the pre-slice-12
+  whole-fixture score). Because of this default, a **new capacity-only baseline**
+  is not comparable to older MAPE-inclusive numbers.
+- Backward-compatible: cells with no `metric` field are graded when no metric is
+  requested; when a metric IS requested, an untagged cell simply does not match
+  the filter (so it is excluded, never a false `missing`).
 
 Scoring is non-binary by design (ADR 0007: "Future runners may report scores
 separately from pass/fail"). A regression gate (e.g. fidelity must not drop) is

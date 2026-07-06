@@ -80,7 +80,10 @@ Phase 3 tool A/B.
    contain NUL bytes).
 2. Read off the parameter, unit, and condition (pressure range / temperature)
    for each cell. Record `paperId`, `identity` (row tokens, **not** the
-   condition), `column`, `value`, `unit?`, `condition?`, `sourceTable`.
+   condition), `column`, `value`, `unit?`, `condition?`, `sourceTable`. Tag each
+   cell's `scope?` (scenario, e.g. `full_range`/`low_pressure`) and `metric?`
+   (quantity kind, e.g. `capacity`/`accuracy`) so query-scoped grading can grade
+   the subset a query asked for (list them in `scopeVocabulary`/`metricVocabulary`).
 3. Mark inherently condition-mixed columns (same parameter reported under two
    conditions, e.g. `q_m` in both `<=1000 kPa` Table 3 and `<=100 kPa` Table 4)
    in `conditionMixedColumns` so `conflictHandling` can be scored.
@@ -106,6 +109,14 @@ cannot judge a before/after change):
 - `REDOU_E2E_SCOPE` — optional scope label (e.g. `low_pressure`, comma-separated
   for several). When the query targets one scenario, grades against just that
   golden subset (see the schema doc's "Query-scoped grading").
+- `REDOU_E2E_METRIC` — quantity-kind label(s), comma-separated (`capacity` = q_m
+  saturation capacity, `accuracy` = MAPE error). Independent axis from scope,
+  ANDed with it. **Defaults to `capacity`** (slice 12): the default library query
+  asks for adsorption capacity, so the MAPE cells it never requested are excluded
+  and stop counting as missing. Set `REDOU_E2E_METRIC=accuracy` to grade MAPE, or
+  `REDOU_E2E_METRIC=all` to disable the filter (whole-fixture, pre-slice-12
+  score). Because the default changed, a capacity-only baseline is **not
+  comparable** to older MAPE-inclusive fidelity numbers — record a fresh one.
 
 A run that ends in **clarify / no-data** (the pipeline returns `hasTable:false`
 and persists an assistant message instead of a table) is reported as `[CLARIFY]`

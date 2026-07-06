@@ -14,6 +14,7 @@ import {
   uniqueStrings,
 } from "./agentic-null-recovery.mjs";
 import { buildAdsorptionPromptHint } from "./adsorption-domain.mjs";
+import { snapColumnsToParsedHeaders } from "./column-grounding.mjs";
 import { sanitizeColumnNames } from "./extraction-utils.mjs";
 import {
   backMatchCell,
@@ -80,7 +81,45 @@ function requireStage3dFn(fn, name) {
   return fn;
 }
 
-async function loadTableSetup({ supabase, conversationId, ownerId }) {
+// Slice 11 branch 1: pull each paper's attested source-table column headers so the
+// orchestrator can be told "use these metric names verbatim, do not invent a similar
+// metric" (the MAPE->R2 prescription). Reuses parseAllHtmlTablesFn (code, no LLM) on
+// the already-stored summary_text HTML; only headers are kept (rows are dropped here).
+// This is intentionally NOT reused by Stage 3a: setup parses ALL library papers before
+// the spec exists, whereas 3a parses only the RAG subset with a different figure load —
+// bridging them would cost more wiring than a code HTML re-parse (LLM cost is what the
+// slice budgets to zero, and both paths stay at zero LLM calls). Capped so a huge
+// library cannot bloat the prompt (MAX_ATTESTED_* below).
+const MAX_ATTESTED_HEADERS_PER_PAPER = 24;
+const MAX_ATTESTED_HEADER_LEN = 60;
+function collectAttestedColumns(summaryTexts, parseAllHtmlTablesFn) {
+  if (typeof parseAllHtmlTablesFn !== "function") return [];
+  const seen = new Set();
+  const out = [];
+  for (const summaryText of summaryTexts) {
+    if (!summaryText || summaryText.length <= 30) continue;
+    let tables;
+    try {
+      tables = parseAllHtmlTablesFn(summaryText);
+    } catch {
+      continue;
+    }
+    for (const table of tables ?? []) {
+      for (const header of table?.headers ?? []) {
+        const name = String(header ?? "").trim();
+        if (!name || name.length > MAX_ATTESTED_HEADER_LEN) continue;
+        const key = name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(name);
+        if (out.length >= MAX_ATTESTED_HEADERS_PER_PAPER) return out;
+      }
+    }
+  }
+  return out;
+}
+
+async function loadTableSetup({ supabase, conversationId, ownerId, parseAllHtmlTablesFn }) {
   if (!supabase) throw new TypeError("runTableConversationPipeline requires supabase");
 
   const { data: allPapers } = await supabase
@@ -94,16 +133,21 @@ async function loadTableSetup({ supabase, conversationId, ownerId }) {
   if (paperIdsForCaptions.length > 0) {
     const { data } = await supabase
       .from("figures")
-      .select("paper_id, figure_no, caption")
+      .select("paper_id, figure_no, caption, summary_text")
       .eq("item_type", "table")
       .in("paper_id", paperIdsForCaptions);
     tableFigsForOrchestrator = data ?? [];
   }
 
   const captionsByPaperId = new Map();
+  const summaryTextsByPaperId = new Map();
   for (const figure of tableFigsForOrchestrator ?? []) {
     if (!captionsByPaperId.has(figure.paper_id)) captionsByPaperId.set(figure.paper_id, []);
     captionsByPaperId.get(figure.paper_id).push({ figureNo: figure.figure_no, caption: figure.caption });
+    if (figure.summary_text) {
+      if (!summaryTextsByPaperId.has(figure.paper_id)) summaryTextsByPaperId.set(figure.paper_id, []);
+      summaryTextsByPaperId.get(figure.paper_id).push(figure.summary_text);
+    }
   }
 
   const paperList = (allPapers ?? []).map((paper) => ({
@@ -113,6 +157,7 @@ async function loadTableSetup({ supabase, conversationId, ownerId }) {
       : "",
     year: paper.publication_year ?? 0,
     tableCaptions: captionsByPaperId.get(paper.id) ?? [],
+    attestedColumns: collectAttestedColumns(summaryTextsByPaperId.get(paper.id) ?? [], parseAllHtmlTablesFn),
   }));
 
   const { data: prevTables } = await supabase
@@ -950,6 +995,7 @@ async function persistTableReport({
   cellTuples,
   columnSemanticTypes,
   conditionConflicts,
+  columnGrounding,
   abortSignal,
   emitComplete,
   unwrapSingleFn,
@@ -978,6 +1024,10 @@ async function persistTableReport({
     cellTuples: Array.isArray(cellTuples) ? cellTuples : null,
     columnSemanticTypes: Array.isArray(columnSemanticTypes) ? columnSemanticTypes : null,
     conditionConflicts: Array.isArray(conditionConflicts) ? conditionConflicts : [],
+    // Slice 11 branch 2: per-column grounding flags from snapColumnsToParsedHeaders
+    // (grounded?/snappedFrom? against the parsed source headers). Deterministic; empty
+    // array when the snap had no vocabulary or plan.table_spec had no columns.
+    columnGrounding: Array.isArray(columnGrounding) ? columnGrounding : [],
     nullSummary,
     agenticRecovery,
     tableSpecAdherence,
@@ -1253,7 +1303,7 @@ export async function runTableConversationPipeline({
   }
 
   const setup = paperList === undefined || previousTable === undefined
-    ? await loadTableSetup({ supabase, conversationId, ownerId })
+    ? await loadTableSetup({ supabase, conversationId, ownerId, parseAllHtmlTablesFn })
     : { paperList, previousTable };
   throwIfChatAborted(abortSignal);
 
@@ -1303,6 +1353,22 @@ export async function runTableConversationPipeline({
     parseAllHtmlTablesFn,
     extractMatrixFromHtmlFn,
   });
+
+  // Slice 11 branch 2 (deterministic backstop): snap spec column names to the source
+  // table's own header wording BEFORE extraction so the Extraction Agent fills against
+  // the attested spelling (conservative — strong single-match only, never fuzzy rename).
+  // Runs here because parsedMatrices (real headers) exist only after Stage 3a. Mutating
+  // plan.table_spec.column_definitions is what carries the snap into runPerPaperExtraction
+  // (it reads plan.table_spec) and thus into the final table. Grounding flags persist for
+  // visibility (branch-1 misses that this string match cannot fix are surfaced, not hidden).
+  const columnGrounding = snapColumnsToParsedHeaders({
+    columnDefinitions: plan.table_spec?.column_definitions,
+    parsedMatrices: parsedContext.parsedMatrices,
+  });
+  if (plan.table_spec && columnGrounding.snappedCount > 0) {
+    plan.table_spec.column_definitions = columnGrounding.columns;
+    console.log(`[Chat] Column grounding: snapped ${columnGrounding.snappedCount} column name(s) to parsed headers`);
+  }
 
   const extractionContext = await runPerPaperExtraction({
     plan,
@@ -1364,6 +1430,7 @@ export async function runTableConversationPipeline({
     cellTuples: stage3dContext.cellTuples,
     columnSemanticTypes: stage3dContext.columnSemanticTypes,
     conditionConflicts: stage3dContext.conditionConflicts,
+    columnGrounding: columnGrounding.grounding,
     abortSignal,
     emitComplete,
     unwrapSingleFn,

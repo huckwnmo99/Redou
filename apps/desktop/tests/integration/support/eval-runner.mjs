@@ -218,10 +218,26 @@ function normalizeScopeRequest(scope) {
   return cleaned.length === 0 ? null : new Set(cleaned);
 }
 
-// options.scope (optional): grade only ground-truth cells whose `scope` label is
-// in the requested set. Omitting options keeps the current whole-fixture scoring
-// bit-for-bit. `scoped` in the return describes the filter and whether it left
-// any cells to grade (applicable) so the fixture aggregator can skip N/A blocks.
+// Same shape/mechanics as normalizeScopeRequest but for the independent `metric`
+// axis (capacity q_m vs accuracy MAPE). null means "no metric requested" → grade
+// every cell (current behavior). scope and metric are combined with AND: a cell
+// is graded only when it passes both filters, so an accuracy metric never earns
+// credit against a capacity-only query and vice versa (slice 12: MAPE cells the
+// default capacity query never asked for stop counting as missing).
+function normalizeMetricRequest(metric) {
+  if (metric === undefined || metric === null) return null;
+  const list = Array.isArray(metric) ? metric : [metric];
+  const cleaned = list.map((value) => String(value ?? "").trim()).filter(Boolean);
+  return cleaned.length === 0 ? null : new Set(cleaned);
+}
+
+// options.scope / options.metric (both optional, independent axes): grade only
+// ground-truth cells whose `scope` label is in options.scope AND whose `metric`
+// label is in options.metric. Omitting an option leaves that axis unfiltered;
+// omitting both keeps the current whole-fixture scoring bit-for-bit. `scoped`
+// (scope axis) and `metricScoped` (metric axis) in the return each describe their
+// filter and whether it left any cells to grade; `applicable` reflects the
+// combined (AND) result so the fixture aggregator can skip N/A blocks.
 export function evaluateTableFidelityCase(groundTruth, tableRow, options = {}) {
   const paperId = groundTruth?.paperId ?? null;
   const headers = tableRow?.headers ?? [];
@@ -230,14 +246,29 @@ export function evaluateTableFidelityCase(groundTruth, tableRow, options = {}) {
   const allGroundTruthCells = groundTruth?.groundTruthCells ?? [];
 
   const requestedScope = normalizeScopeRequest(options?.scope);
-  const groundTruthCells =
-    requestedScope === null
-      ? allGroundTruthCells
-      : allGroundTruthCells.filter((cell) => requestedScope.has(cell.scope));
+  const requestedMetric = normalizeMetricRequest(options?.metric);
+  // AND the two independent filters: a cell is graded only when it passes scope
+  // AND metric. Either filter being null (unrequested) passes that axis for all.
+  const groundTruthCells = allGroundTruthCells.filter(
+    (cell) =>
+      (requestedScope === null || requestedScope.has(cell.scope)) &&
+      (requestedMetric === null || requestedMetric.has(cell.metric)),
+  );
   const scoped = {
     requested: requestedScope === null ? null : [...requestedScope],
     matchedCells: groundTruthCells.length,
-    applicable: requestedScope === null ? true : groundTruthCells.length > 0,
+    applicable:
+      requestedScope === null && requestedMetric === null
+        ? true
+        : groundTruthCells.length > 0,
+  };
+  const metricScoped = {
+    requested: requestedMetric === null ? null : [...requestedMetric],
+    matchedCells: groundTruthCells.length,
+    applicable:
+      requestedScope === null && requestedMetric === null
+        ? true
+        : groundTruthCells.length > 0,
   };
 
   const groundTruthValues = new Set(
@@ -340,6 +371,7 @@ export function evaluateTableFidelityCase(groundTruth, tableRow, options = {}) {
     mode: "table_fidelity",
     paperId,
     scoped,
+    metricScoped,
     fidelity: {
       matched: matchedCells.length,
       total: fidelityTotal,
@@ -383,6 +415,14 @@ export function assertFidelityGroundTruthShape(groundTruth) {
       assert.equal(typeof label, "string", "scopeVocabulary entries must be strings");
     }
   }
+  // metricVocabulary is optional (backward-compatible), mirroring scopeVocabulary;
+  // when present it must be a string[] enumerating the metric labels cells may carry.
+  if (groundTruth.metricVocabulary !== undefined) {
+    assert.ok(Array.isArray(groundTruth.metricVocabulary), "metricVocabulary must be a string[]");
+    for (const label of groundTruth.metricVocabulary) {
+      assert.equal(typeof label, "string", "metricVocabulary entries must be strings");
+    }
+  }
   for (const paper of groundTruth.papers) {
     assert.equal(typeof paper.paperId, "string", "paper.paperId is required");
     assert.ok(Array.isArray(paper.groundTruthCells), `${paper.paperId}: groundTruthCells[] is required`);
@@ -393,6 +433,10 @@ export function assertFidelityGroundTruthShape(groundTruth) {
       // scope is optional; when present it must be a string (free-form label).
       if (cell.scope !== undefined) {
         assert.equal(typeof cell.scope, "string", `${paper.paperId}: cell.scope must be a string when present`);
+      }
+      // metric is optional (independent axis from scope); when present it must be a string.
+      if (cell.metric !== undefined) {
+        assert.equal(typeof cell.metric, "string", `${paper.paperId}: cell.metric must be a string when present`);
       }
     }
   }
