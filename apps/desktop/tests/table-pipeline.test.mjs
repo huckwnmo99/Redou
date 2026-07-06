@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { runTableConversationPipeline } from "../electron/chat/table-pipeline.mjs";
+import { parseAllHtmlTables } from "../electron/html-table-parser.mjs";
 
 function createAbortError(message = "Aborted") {
   const err = new Error(message);
@@ -183,6 +184,9 @@ describe("runTableConversationPipeline", () => {
       authors: "Kim, Lee",
       year: 2024,
       tableCaptions: [{ figureNo: "Table 1", caption: "Baseline table" }],
+      // Slice 11 branch 1: attested column headers parsed from summary_text. This
+      // fixture's figure has no summary_text, so the attested list is empty.
+      attestedColumns: [],
     }]);
     assert.deepEqual(orchestratorInput.previousTable, {
       table_title: "Previous",
@@ -1621,5 +1625,168 @@ describe("runTableConversationPipeline", () => {
     assert.deepEqual(extractCalls, ["Abort Paper 1", "Abort Paper 2"]);
     assert.equal(inserts.filter((entry) => entry.table === "chat_messages").length, 0);
     assert.equal(inserts.filter((entry) => entry.table === "chat_generated_tables").length, 0);
+  });
+
+  // Slice 11: column-name grounding — branch 1 (attested vocabulary injected into the
+  // orchestrator) + branch 2 (deterministic snap wired between Stage 3a parsing and
+  // per-paper extraction, snapped names reach extraction + final table, grounding
+  // flags persisted).
+  describe("column-name grounding (slice 11)", () => {
+    const SUMMARY_HTML =
+      "<table><thead><tr><th>Adsorbent</th><th>MAPE</th></tr></thead>" +
+      "<tbody><tr><td>Zeolite</td><td>2.1</td></tr><tr><td>MOF</td><td>3.4</td></tr></tbody></table>";
+
+    function makeGroundingSupabase(overrides = {}) {
+      return createRecordingSupabase({
+        papers: [{
+          id: "paper-1",
+          title: "Paper One",
+          authors: [{ family: "Kim" }],
+          publication_year: 2024,
+        }],
+        figures: [{
+          paper_id: "paper-1",
+          figure_no: "Table 1",
+          caption: "Error metrics",
+          item_type: "table",
+          summary_text: SUMMARY_HTML,
+        }],
+        ...overrides,
+      });
+    }
+
+    it("injects attested source-table headers into the orchestrator paperList", async () => {
+      const { supabase } = makeGroundingSupabase();
+      let orchestratorInput;
+
+      await runTableConversationPipeline({
+        supabase,
+        emitStatus: () => {},
+        abortSignal: new AbortController().signal,
+        conversationId: "conv-attest",
+        ownerId: "user-1",
+        history: [{ role: "user", content: "compare error metrics", message_type: "text" }],
+        parseAllHtmlTablesFn: parseAllHtmlTables,
+        generateOrchestratorPlanFn: async (history, paperList) => {
+          orchestratorInput = { paperList };
+          // Bail to clarify so we only exercise setup (attested vocabulary build).
+          return { action: "clarify", clarification_response: "which metric?" };
+        },
+        runMultiQueryRagFn: async () => ({ chunks: [], figures: [] }),
+        ...createStage3cDeps(),
+      });
+
+      assert.deepEqual(orchestratorInput.paperList[0].attestedColumns, ["Adsorbent", "MAPE"]);
+    });
+
+    it("snaps a mis-cased spec column to the attested wording and reaches extraction + final table", async () => {
+      const { supabase, inserts } = makeGroundingSupabase();
+      let extractionSpecColumns;
+
+      const result = await runTableConversationPipeline({
+        supabase,
+        emitStatus: () => {},
+        abortSignal: new AbortController().signal,
+        conversationId: "conv-snap",
+        ownerId: "user-1",
+        ownerPaperIds: ["paper-1"],
+        history: [{ role: "user", content: "compare error metrics", message_type: "text" }],
+        parseAllHtmlTablesFn: parseAllHtmlTables,
+        generateOrchestratorPlanFn: async () => ({
+          action: "generate_table",
+          keyword_hints: [],
+          search_queries: [{ query: "error metrics", intent: "primary" }],
+          // Spec invents "mape" (wrong case) — should snap to attested "MAPE".
+          table_spec: {
+            title: "Error Metrics",
+            row_axis: "Adsorbent",
+            column_definitions: ["Adsorbent", "mape"],
+          },
+        }),
+        runMultiQueryRagFn: async () => ({
+          chunks: [{ chunk_id: "chunk-1", paper_id: "paper-1", text: "error metrics text" }],
+          figures: [{
+            paper_id: "paper-1",
+            figure_no: "Table 1",
+            caption: "Error metrics",
+            item_type: "table",
+            summary_text: SUMMARY_HTML,
+          }],
+        }),
+        extractColumnsFromPaperFn: async (tableSpec, _ctx, paperTitle) => {
+          extractionSpecColumns = tableSpec.column_definitions;
+          return {
+            paper_title: paperTitle,
+            data_rows: [{ values: { Adsorbent: "Zeolite", MAPE: "2.1" } }],
+          };
+        },
+        ...createStage3dDeps(),
+      });
+
+      assert.equal(result.hasTable, true);
+      // Branch 2: the snapped source wording ("MAPE") reaches the per-paper extractor.
+      assert.deepEqual(extractionSpecColumns, ["Adsorbent", "MAPE"]);
+      // ...and the final persisted table headers carry it (not the spec's "mape").
+      const tableInsert = inserts.find((e) => e.table === "chat_generated_tables");
+      assert.ok(tableInsert);
+      assert.ok(tableInsert.data.headers.includes("MAPE"));
+      assert.ok(!tableInsert.data.headers.includes("mape"));
+    });
+
+    it("persists per-column grounding flags (strong snap + not-grounded invention)", async () => {
+      const { supabase, inserts } = makeGroundingSupabase();
+
+      await runTableConversationPipeline({
+        supabase,
+        emitStatus: () => {},
+        abortSignal: new AbortController().signal,
+        conversationId: "conv-persist",
+        ownerId: "user-1",
+        ownerPaperIds: ["paper-1"],
+        history: [{ role: "user", content: "compare error metrics", message_type: "text" }],
+        parseAllHtmlTablesFn: parseAllHtmlTables,
+        generateOrchestratorPlanFn: async () => ({
+          action: "generate_table",
+          keyword_hints: [],
+          search_queries: [{ query: "error metrics", intent: "primary" }],
+          // "mape" -> snaps to "MAPE" (grounded); "R2" is a real invention (not grounded).
+          table_spec: {
+            title: "Error Metrics",
+            row_axis: "Adsorbent",
+            column_definitions: ["Adsorbent", "mape", "R2"],
+          },
+        }),
+        runMultiQueryRagFn: async () => ({
+          chunks: [{ chunk_id: "chunk-1", paper_id: "paper-1", text: "error metrics text" }],
+          figures: [{
+            paper_id: "paper-1",
+            figure_no: "Table 1",
+            caption: "Error metrics",
+            item_type: "table",
+            summary_text: SUMMARY_HTML,
+          }],
+        }),
+        extractColumnsFromPaperFn: async (_tableSpec, _ctx, paperTitle) => ({
+          paper_title: paperTitle,
+          data_rows: [{ values: { Adsorbent: "Zeolite", MAPE: "2.1" } }],
+        }),
+        ...createStage3dDeps(),
+      });
+
+      const tableInsert = inserts.find((e) => e.table === "chat_generated_tables");
+      assert.ok(tableInsert);
+      const grounding = tableInsert.data.metadata.columnGrounding;
+      assert.ok(Array.isArray(grounding));
+      // "mape" strong single-match -> grounded + snappedFrom recorded.
+      assert.deepEqual(
+        grounding.find((g) => g.column === "MAPE"),
+        { column: "MAPE", grounded: true, snappedFrom: "mape" },
+      );
+      // "R2" absent from attested headers -> weak, not grounded, not snapped (visibility).
+      assert.deepEqual(
+        grounding.find((g) => g.column === "R2"),
+        { column: "R2", grounded: false },
+      );
+    });
   });
 });

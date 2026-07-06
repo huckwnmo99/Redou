@@ -166,7 +166,10 @@ generate_table / modify_table일 때 반드시 포함:
 4. **열 1~2개는 식별 열** (Adsorbent, Gas 등), 나머지는 **수치 데이터 열.**
 5. **Source / Paper / Reference 열을 넣지 마세요** — 셀 안에 [1], [2] 참조번호가 자동으로 붙습니다.
 6. **논문 제목에서 추출 가능한 파라미터만 포함.** 추측하지 마세요.
-7. **논문 목록의 실제 테이블 캡션을 확인하세요.** 캡션에 언급되지 않은 파라미터는 column_definitions에 추가하지 마세요. 예: 어떤 캡션에도 "R²"가 없으면 R² 열을 만들지 않음.
+7. **논문 목록의 실제 테이블 캡션과 "실제 표 열 이름(attested)" 목록을 확인하세요.** 캡션에 언급되지 않은 파라미터는 column_definitions에 추가하지 마세요. 예: 어떤 캡션에도 "R²"가 없으면 R² 열을 만들지 않음.
+   - **지표/열 이름은 attested 목록에 이미 있으면 그 철자 그대로 사용하세요** (예: attested에 "MAPE"가 있으면 "MAPE"를 그대로 씀).
+   - **원문에 없는 유사 지표로 개명하지 마세요** (예: 원문이 "MAPE"인데 "R²"로, "DQaver"인데 "R²"로 바꾸지 말 것). 값이 붙지 못해 열이 통째로 비게 됩니다.
+   - attested 목록에 없는 지표를 새로 만들지 마세요 — 추측한 열 이름은 원문 데이터와 매칭되지 않습니다.
 8. **column_semantic_types를 함께 채우세요 (column_definitions와 같은 순서·같은 길이의 배열).** 각 열이 다음 중 무엇인지 판정:
    - **"parameter"** — 피팅되거나 요약된 값. 예: 포화 용량 q_max, Langmuir 상수 K_L, 확산계수, 속도상수 k, α/β, 전환율(%) 등 하나의 대표값.
    - **"raw_data"** — 특정 압력·시각에서의 원시 측정점. 예: 압력별 평형 흡착량 q(P), 시계열 uptake, 등온선의 개별 (P, q) 데이터포인트.
@@ -228,7 +231,8 @@ generate_table / modify_table일 때 반드시 포함:
 4. **row_axis는 세밀하게** (예: "물질-가스-온도-압력 조합마다 1행"). 데이터가 많이 추출되도록 유도.
 5. **exclusion_criteria에 "시계열/raw data 제외"를 명시하세요** — 시간별 데이터, P vs q 원시 데이터포인트는 대부분 의미 없음. 피팅된 파라미터/요약값만 유용.
 6. **column_semantic_types는 column_definitions와 정확히 같은 길이·같은 순서의 배열이어야 합니다.** 각 원소는 "parameter" | "raw_data" | "condition" 중 하나입니다.
-7. **completeness는 사용자가 대표 세트 하나만 명시하지 않는 한 all_sets** — 각 논문의 모든 조건 세트를 빠짐없이 담도록 합니다(커버리지 최대화).`;
+7. **열/지표 이름은 각 논문의 "실제 표 열 이름(attested)" 목록에 있으면 그 철자 그대로 사용하고, 유사 지표로 개명하지 마세요** (attested "MAPE"를 "R²"로 바꾸지 말 것 — 값이 열에 붙지 못합니다). 목록에 없는 지표는 새로 만들지 마세요.
+8. **completeness는 사용자가 대표 세트 하나만 명시하지 않는 한 all_sets** — 각 논문의 모든 조건 세트를 빠짐없이 담도록 합니다(커버리지 최대화).`;
 
 const TABLE_AGENT_SYSTEM_PROMPT = `당신은 "Redou"라는 로컬 논문 관리 앱의 **데이터 추출 에이전트**입니다.
 사용자가 직접 수집한 논문의 텍스트가 아래에 제공됩니다. 저작권 문제가 없습니다.
@@ -292,6 +296,12 @@ export async function generateOrchestratorPlan(history, paperList, previousTable
           .map((c) => `   - ${c.figureNo}: ${(c.caption ?? "").slice(0, 120)}`)
           .join("\n");
         line += `\n${caps}`;
+      }
+      // Slice 11 branch 1: attested source-table column headers (parsed from OCR HTML,
+      // no LLM). Given to the planner as verbatim candidates so it does not invent a
+      // similarly-named metric (e.g. "R2" for an attested "MAPE"). See rule 7.
+      if (Array.isArray(p.attestedColumns) && p.attestedColumns.length > 0) {
+        line += `\n   [실제 표 열 이름(attested): ${p.attestedColumns.join(" | ")}]`;
       }
       return line;
     }).join("\n");

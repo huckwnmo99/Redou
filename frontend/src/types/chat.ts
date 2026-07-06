@@ -143,6 +143,21 @@ export interface ConditionConflict {
 export type ColumnSemanticType = "parameter" | "raw_data" | "condition";
 
 /**
+ * Per-column grounding flag from snapColumnsToParsedHeaders (Phase 2.5 slice 11 branch
+ * 2), stored in `chat_generated_tables.metadata.columnGrounding`. Deterministic snap of
+ * spec column names to the source table's own header wording: `grounded` is whether the
+ * name matched a parsed source header at all; `snappedFrom` holds the original spec
+ * spelling when a strong single-match rewrote it to the source wording. Absent on tables
+ * generated before this slice; empty array when there was no header vocabulary to snap
+ * against or the spec had no columns.
+ */
+export interface ColumnGrounding {
+  column: string;
+  grounded: boolean;
+  snappedFrom?: string;
+}
+
+/**
  * Contents of `chat_generated_tables.metadata` (JSONB). Only the fields consumed
  * by the renderer are typed here; the column may hold additional diagnostic keys.
  */
@@ -156,6 +171,8 @@ export interface ChatTableMetadata {
   columnSemanticTypes?: (ColumnSemanticType | string | null)[] | null;
   /** Columns where differently-conditioned data was merged (Phase 1 D1). */
   conditionConflicts?: ConditionConflict[];
+  /** Per-column grounding flags from the spec-name snap (Phase 2.5 slice 11 branch 2). */
+  columnGrounding?: ColumnGrounding[];
   [key: string]: unknown;
 }
 
