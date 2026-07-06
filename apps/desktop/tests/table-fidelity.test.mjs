@@ -431,3 +431,176 @@ describe("fidelity fixture scope backward-compat", () => {
     assert.throws(() => assertFidelityGroundTruthShape(badVocab));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Slice 12: metric axis (capacity q_m vs accuracy MAPE). The default query asks
+// for adsorption capacity, so the MAPE (accuracy) golden cells it never requested
+// must NOT count as missing. metric is an independent axis from scope, ANDed with
+// it. The real fixture's paper-2 block carries 8 capacity (q_m) cells + 8 accuracy
+// (MAPE) cells, all matched by FAITHFUL_PAPER2_TABLE (both columns, right
+// conditions), which makes it the natural fixture for the metric filter.
+// ---------------------------------------------------------------------------
+
+// The real fixture's paper-2 ground truth (8 q_m + 8 MAPE, with metric labels),
+// loaded once so the metric tests read the same tags the E2E script grades against.
+async function loadPaper2GroundTruth() {
+  const groundTruth = await loadFidelityGroundTruth("adsorption-groundtruth-v0.json");
+  return groundTruth.papers.find((paper) => paper.paperId === "5e0f399d-8996-4387-9200-2dafa58658bc");
+}
+
+// Synthetic paper carrying both metrics with explicit metric tags AND scope tags,
+// so scope∩metric (AND) combination can be exercised on a small, readable block.
+// q_m cells = capacity, MAPE cells = accuracy; ~600 kPa = full_range, ~100 kPa = low_pressure.
+const PAPER2_GROUND_TRUTH_METRIC = {
+  paperId: "5e0f399d-8996-4387-9200-2dafa58658bc",
+  conditionMixedColumns: [{ column: "q_m" }],
+  groundTruthCells: [
+    { identity: ["Ethane", "DSL"], column: "q_m", value: "2.400", condition: "~600 kPa", metric: "capacity", scope: "full_range" },
+    { identity: ["Ethane", "DSL"], column: "q_m", value: "2.328", condition: "~100 kPa", metric: "capacity", scope: "low_pressure" },
+    { identity: ["Ethane", "DSL"], column: "MAPE", value: "16.585", condition: "~600 kPa", metric: "accuracy", scope: "full_range" },
+    { identity: ["Ethane", "DSL"], column: "MAPE", value: "8.242", condition: "~100 kPa", metric: "accuracy", scope: "low_pressure" },
+  ],
+};
+
+// Legacy paper with NO metric field anywhere (pre-slice-12 fixture shape). Used to
+// prove metric filtering is backward-compatible: an unrequested metric axis leaves
+// every cell graded, and even a requested metric leaves untagged cells ungraded
+// only via the AND rule (a cell with no metric never matches a metric filter).
+const PAPER2_GROUND_TRUTH_NO_METRIC = {
+  paperId: "5e0f399d-8996-4387-9200-2dafa58658bc",
+  conditionMixedColumns: [{ column: "q_m" }],
+  groundTruthCells: [
+    { identity: ["Ethane", "DSL"], column: "q_m", value: "2.400", condition: "~600 kPa" },
+    { identity: ["Ethane", "DSL"], column: "q_m", value: "2.328", condition: "~100 kPa" },
+  ],
+};
+
+describe("evaluateTableFidelityCase — metric axis (slice 12)", () => {
+  it("with metric=capacity excludes the accuracy (MAPE) cells (default query is not penalized)", async () => {
+    const paper2 = await loadPaper2GroundTruth();
+    // 8 capacity + 8 accuracy = 16 total; capacity filter grades only the 8 q_m cells.
+    const report = evaluateTableFidelityCase(paper2, FAITHFUL_PAPER2_TABLE, { metric: "capacity" });
+
+    assert.equal(report.fidelity.total, 8);
+    assert.equal(report.fidelity.matched, 8);
+    assert.equal(report.fidelity.score, 1);
+    assert.equal(report.missing.count, 0);
+    assert.deepEqual(report.metricScoped.requested, ["capacity"]);
+    assert.equal(report.metricScoped.matchedCells, 8);
+    assert.equal(report.metricScoped.applicable, true);
+  });
+
+  it("with metric=accuracy grades the MAPE cells (opt-in)", async () => {
+    const paper2 = await loadPaper2GroundTruth();
+    const report = evaluateTableFidelityCase(paper2, FAITHFUL_PAPER2_TABLE, { metric: "accuracy" });
+
+    // The faithful table carries the MAPE column with the right values/conditions,
+    // so the 8 accuracy cells all match when the query opts into them.
+    assert.equal(report.fidelity.total, 8);
+    assert.equal(report.fidelity.matched, 8);
+    assert.deepEqual(report.metricScoped.requested, ["accuracy"]);
+    assert.equal(report.metricScoped.matchedCells, 8);
+  });
+
+  it("accepts a metric array and unions the requested labels (capacity,accuracy == whole block)", async () => {
+    const paper2 = await loadPaper2GroundTruth();
+    const report = evaluateTableFidelityCase(paper2, FAITHFUL_PAPER2_TABLE, {
+      metric: ["capacity", "accuracy"],
+    });
+
+    assert.equal(report.fidelity.total, 16);
+    assert.equal(report.fidelity.matched, 16);
+    assert.equal(report.metricScoped.matchedCells, 16);
+  });
+
+  it("without a metric option grades every cell — including accuracy (all == no filter, regression)", async () => {
+    const paper2 = await loadPaper2GroundTruth();
+    // No options and an empty options object must both grade the whole 16-cell block
+    // (this is what REDOU_E2E_METRIC=all reproduces at the script layer).
+    const legacy = evaluateTableFidelityCase(paper2, FAITHFUL_PAPER2_TABLE);
+    const withEmptyOptions = evaluateTableFidelityCase(paper2, FAITHFUL_PAPER2_TABLE, {});
+
+    assert.equal(legacy.fidelity.total, 16);
+    assert.equal(legacy.fidelity.matched, 16);
+    assert.equal(legacy.metricScoped.requested, null);
+    assert.equal(legacy.metricScoped.applicable, true);
+    assert.deepEqual(withEmptyOptions.fidelity, legacy.fidelity);
+  });
+
+  it("ANDs scope and metric: only cells passing BOTH filters are graded", () => {
+    // full_range ∩ capacity picks exactly the 1 cell that is both (q_m ~600 kPa);
+    // the other 3 cells fail one axis each, so they are excluded, not missing.
+    const report = evaluateTableFidelityCase(PAPER2_GROUND_TRUTH_METRIC, FAITHFUL_PAPER2_TABLE, {
+      scope: "full_range",
+      metric: "capacity",
+    });
+
+    assert.equal(report.fidelity.total, 1);
+    assert.equal(report.fidelity.matched, 1);
+    assert.equal(report.missing.count, 0);
+    assert.deepEqual(report.scoped.requested, ["full_range"]);
+    assert.deepEqual(report.metricScoped.requested, ["capacity"]);
+    assert.equal(report.scoped.applicable, true);
+    assert.equal(report.metricScoped.applicable, true);
+  });
+
+  it("scope∩metric with no cell satisfying both is not applicable (excluded, not 0%)", () => {
+    // low_pressure ∩ a nonexistent metric leaves the intersection empty, so the block
+    // is marked not-applicable (excluded from the overall) rather than scored 0%.
+    const report = evaluateTableFidelityCase(PAPER2_GROUND_TRUTH_METRIC, FAITHFUL_PAPER2_TABLE, {
+      scope: "low_pressure",
+      metric: "nonexistent",
+    });
+
+    assert.equal(report.fidelity.total, 0);
+    assert.equal(report.metricScoped.applicable, false);
+    assert.equal(report.scoped.applicable, false);
+  });
+
+  it("is backward-compatible with cells that carry no metric field", () => {
+    // No metric requested -> the untagged cells are all graded (legacy behavior).
+    const unfiltered = evaluateTableFidelityCase(PAPER2_GROUND_TRUTH_NO_METRIC, FAITHFUL_PAPER2_TABLE);
+    assert.equal(unfiltered.fidelity.total, 2);
+    assert.equal(unfiltered.fidelity.matched, 2);
+    assert.equal(unfiltered.metricScoped.requested, null);
+
+    // A metric IS requested but the cells have no metric field -> the AND rule leaves
+    // no cell matching, so the block is not applicable (never a false "missing").
+    const filtered = evaluateTableFidelityCase(PAPER2_GROUND_TRUTH_NO_METRIC, FAITHFUL_PAPER2_TABLE, {
+      metric: "capacity",
+    });
+    assert.equal(filtered.fidelity.total, 0);
+    assert.equal(filtered.metricScoped.applicable, false);
+    assert.equal(filtered.missing.count, 0);
+  });
+});
+
+describe("evaluateTableFidelityFixture — metric axis (slice 12)", () => {
+  it("restricts the overall total to the requested metric subset (capacity excludes MAPE)", async () => {
+    const groundTruth = await loadFidelityGroundTruth("adsorption-groundtruth-v0.json");
+    // Grade only paper 2 (faithful table); paper 1 gets an empty table.
+    const result = evaluateTableFidelityFixture(
+      groundTruth,
+      (paperId) => (paperId === "5e0f399d-8996-4387-9200-2dafa58658bc" ? FAITHFUL_PAPER2_TABLE : { headers: [], rows: [] }),
+      { metric: "capacity" },
+    );
+
+    // Paper1 = 27 capacity cells, Paper2 = 8 capacity cells (its 8 MAPE cells are
+    // excluded). Whole-fixture total would be 43; capacity-only is 35.
+    assert.equal(result.overall.total, 35);
+    const paper2Report = result.reports.find(
+      (report) => report.paperId === "5e0f399d-8996-4387-9200-2dafa58658bc",
+    );
+    assert.equal(paper2Report.fidelity.total, 8);
+    assert.equal(paper2Report.fidelity.matched, 8);
+  });
+
+  it("grades every metric when metric is omitted (whole 43-cell fixture, regression)", async () => {
+    const groundTruth = await loadFidelityGroundTruth("adsorption-groundtruth-v0.json");
+    const result = evaluateTableFidelityFixture(
+      groundTruth,
+      (paperId) => (paperId === "5e0f399d-8996-4387-9200-2dafa58658bc" ? FAITHFUL_PAPER2_TABLE : { headers: [], rows: [] }),
+    );
+    assert.equal(result.overall.total, 43);
+  });
+});

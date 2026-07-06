@@ -1,5 +1,5 @@
 # LLM 모듈
-> 하네스 버전: v1.28 | 최종 갱신: 2026-07-04
+> 하네스 버전: v1.29 | 최종 갱신: 2026-07-05
 
 ## 개요
 Ollama 기반 LLM 채팅 스트리밍, 비교 테이블 생성 오케스트레이션, Q&A 응답, Granite Guardian 검증을 담당한다. 사용자가 Settings에서 모델을 변경할 수 있다.
@@ -232,4 +232,21 @@ Stage 4 검증(`scheduleGuardianVerification`)을 **결정적 코드 역매칭 �
 
 - **10-B (eval)**: fidelity 채점기의 conflictHandling이 `conditionConflicts` 등재 **또는** 파생 조건 열의 행별 채움율로 크레딧 (`eval-runner.mjs` — 빈 pivot 0점, `CONDITION_CREDIT_THRESHOLD`=0.5).
 - **10-C (추출 출력 계약)**: cell_meta는 **parameter 열에만** 발행하되 그 셀의 `condition`은 **필수**(unit·source_hint 동반 — 역매칭에 필요). 생성 상한 `num_predict` = `REDOU_EXTRACT_NUM_PREDICT`(기본 8192, invalid→기본 폴백; HARD-stop이라 절단 리스크는 코드 주석 참조).
-- **10-D (열 이름 접지)**: `chat/column-grounding.mjs`(순수 함수)만 존재 — **파이프라인 미배선(데드코드)**. 배선·persist는 후속 라운드(MAPE 스펙 어휘 제약과 병행) 예정.
+- **10-D (열 이름 접지)**: `chat/column-grounding.mjs`(순수 함수)만 존재 — **파이프라인 미배선(데드코드)**. 배선·persist는 후속 라운드(MAPE 스펙 어휘 제약과 병행) 예정. → **슬라이스 11에서 배선 완료**(아래).
+
+## Phase 2.5 슬라이스 11 계약 — 열 이름 접지 (2026-07-05)
+
+10-D 데드코드 배선 + 스펙 어휘 제약을 한 슬라이스로. 오케스트레이터가 원문 "MAPE"를 "R²"로 발명해 골든 셀이 열 이름으로 못 붙던 잔여 천장(논문2 MAPE 8셀)을 이중 방어. **스테이지·LLM 호출 증가 0**(HTML 파싱은 코드)·외부 라이브러리 0·`CURRENT_EXTRACTION_VERSION`/DB/IPC 무변경(채팅 경로, metadata JSONB 재사용).
+
+### 갈래 2 — 결정적 스냅 배선 (`chat/table-pipeline.mjs`, `chat/column-grounding.mjs` 소비)
+- `snapColumnsToParsedHeaders`(순수 함수, 무수정)를 파이프라인 본체 **파싱 직후~추출 직전**(`parseTableMatrices` ↔ `runPerPaperExtraction` 사이)에 배선. 스펙 열 이름을 Stage 3a `parsedMatrices`의 원문 헤더에 스냅 — **정규화 완전일치 단일 매치만 교체**(약일치·애매·부재는 무교체 + `grounded:false`; fuzzy 개명 절대 없음, 모듈 계약 유지).
+- 스냅 반영 경로: `snappedCount > 0`이면 `plan.table_spec.column_definitions`를 스냅 결과로 교체 → `runPerPaperExtraction`이 `plan.table_spec`을 읽으므로 추출이 **원문 열명으로 채우고 최종 표까지 전파**(별도 배선 없음).
+- persist: `persistTableReport`가 `metadata.columnGrounding`(=`snapColumnsToParsedHeaders`의 `grounding` 배열, 원소 `{column, grounded, snappedFrom?}`) 저장. 어휘 없거나 스펙 열 없으면 빈 배열. 타입 `frontend/src/types/chat.ts` `ColumnGrounding` + `ChatTableMetadata.columnGrounding?`(옵셔널, any 0). 프론트 배지는 범위 밖(metadata까지).
+
+### 갈래 1 — 스펙 어휘 제약 (`chat/table-pipeline.mjs` setup, `llm-orchestrator.mjs` 프롬프트)
+- `loadTableSetup`이 `figures.summary_text`(HTML)도 select → 신규 순수 헬퍼 `collectAttestedColumns(summaryTexts, parseAllHtmlTablesFn)`가 기존 `parseAllHtmlTables`로 파싱해 **원문 열 헤더만** 추출(중복 제거·논문당 `MAX_ATTESTED_HEADERS_PER_PAPER`=24·`MAX_ATTESTED_HEADER_LEN`=60 상한) → `paperList[].attestedColumns`. 호출부에서 `parseAllHtmlTablesFn` DI 전달(부재 시 `[]` fail-soft).
+- `generateOrchestratorPlan`: paperList 렌더에 `[실제 표 열 이름(attested): ...]` 줄(캡션과 병렬). `ORCHESTRATOR_SYSTEM_PROMPT` column_definitions 규칙 7에 "attested에 있으면 철자 그대로·유사 지표 개명 금지(MAPE→R² 금지)·목록에 없는 지표 발명 금지" 서브불릿 + 말미 규칙 목록에 동일 취지 규칙 7 신설(기존 completeness 규칙은 8로 이동).
+- **파싱 중복 결정**: setup 파싱(라이브러리 전체, 스펙 생성 전)과 Stage 3a 파싱(RAG 서브셋, 스펙 후)은 대상 집합·figure 로드 구조가 달라 **재사용 배선하지 않고 각자 파싱**. 비용 기준이 LLM 호출인데 둘 다 코드 파싱(LLM 0)이라 재파싱 비용이 작음. 경량 파서 신설도 배제(기존 `parseAllHtmlTables` 재호출로 헤더만 취함). Stage 3a 완전 무변경.
+
+### 검증
+- `node --test` **198/198**(회귀 0 + 신규 10): `column-grounding.test.mjs`(순수 함수 — 강일치 교체/약일치 무교체/애매 무교체/빈 어휘 no-op/undefined 방어/vocab 빌드) + `table-pipeline.test.mjs` 통합(어휘 주입·스냅이 추출+최종 표 반영·columnGrounding persist[강일치 snap + R² not-grounded]). MAPE 회복·무회귀는 오케스트레이터 RUNS=3 측정 몫(13분 E2E는 미실행).
