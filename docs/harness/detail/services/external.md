@@ -1,8 +1,8 @@
 # 외부 서비스
-> 하네스 버전: v1.3 | 최종 갱신: 2026-07-04
+> 하네스 버전: v1.4 | 최종 갱신: 2026-07-06
 
 ## 개요
-Redou가 의존하는 로컬 서비스 6개(프로덕션) + docling 표-파싱 사이드카 1개(**측정 전용·비상시**, tool-ab-adoption 슬라이스 02). 모두 Docker 또는 로컬 프로세스로 실행. 인터넷 불필요 (HuggingFace 모델 초기 다운로드 제외).
+Redou가 의존하는 로컬 서비스 6개(프로덕션) + 측정 전용 사이드카 2개(**측정 전용·비상시**, tool-ab-adoption): docling 표-파싱(슬라이스 02) + LangExtract Stage-3b 추출(슬라이스 04). 모두 Docker 또는 로컬 프로세스로 실행. 인터넷 불필요 (HuggingFace 모델 초기 다운로드 제외).
 
 ## 서비스 상세
 
@@ -90,6 +90,21 @@ Redou가 의존하는 로컬 서비스 6개(프로덕션) + docling 표-파싱 �
 | 코드 참조 | docling-client.mjs (isDoclingAvailable/parsePdfDocling), scripts/ab-docling-tables.mjs (5축 A/B + 게이트) |
 | 비고 | GPU 1장을 ocr-server/MinerU가 점유 중이라 기본 CPU 실행. A/B 기간에만 기동 후 해제 |
 
+### 8. LangExtract Stage-3b 추출 사이드카 (측정 전용 · 비상시, tool-ab-adoption 슬라이스 04)
+| 항목 | 값 |
+|------|------|
+| 상태 | **측정 전용** — 현 Stage 3b(SRAG) vs LangExtract 추출 A/B에만 사용. **프로덕션 채팅/추출 파이프라인 무배선**(main.mjs·chat/* 미참조). 채택은 슬라이스 05 게이트 결과에 따름 |
+| 포트 | 8012 |
+| URL | `http://localhost:8012` (REDOU_LANGEXTRACT_URL) |
+| 이미지 | 로컬 빌드 `langextract-stage3b-sidecar:latest` (`apps/langextract-server/Dockerfile.langextract`, **python:3.11-slim — CUDA·torch 없음**, langextract>=1.6,<2). LangExtract 모델 무동봉(원격 Ollama 호출)이라 이미지 극경량 |
+| API | `POST /extract` (JSON: text + prompt_description + few-shot examples[] + model_id?) → `{ extractions:[{property,value,unit,condition,extraction_class,extraction_text,char_start,char_end,alignment_status}], grounded_extractions, ... }` (각 추출물에 **원문 char offset** = grounding) |
+| Health check | `isLangExtractAvailable()` — `GET /health` (langextract 버전·Ollama URL·import_error; status:"error"면 down) |
+| LLM 백엔드 | **Ollama**(상시 11434 재사용, 신규 모델 다운로드 0). `REDOU_LANGEXTRACT_OLLAMA_URL`=host.docker.internal:11434, `REDOU_LANGEXTRACT_MODEL`=gemma4:31b(01 A/B 기준선 동일). `lx.extract(model_url=..., fence_output=False, use_schema_constraints=False)` |
+| 실행 | `docker compose -f apps/langextract-server/compose.langextract.yaml up -d langextract`. **별도 compose 파일**(compose.mineru.yaml·compose.docling.yaml·docker-compose.yml 무침범), **GPU 예약 없음**(모델은 Ollama에서 실행), `extra_hosts: host-gateway`(Linux 정합), `restart:no` A/B 임시 |
+| 용도 | LangExtract 추출(물성+조건+char_offset)을 현 SRAG와 fidelity·grounding으로 대조(도입 판단). char_offset→청크 매핑으로 D3 provenance 이득 정량화 |
+| 코드 참조 | langextract-client.mjs (isLangExtractAvailable/extractLangExtract + 흡착 few-shot 스키마 + buildChunkSpans/mapOffsetToChunk grounding), scripts/ab-langextract.mjs (fidelity+grounding A/B + 게이트) |
+| 비고 | LangExtract 1.x API 드리프트(model_url↔base_url, char_interval↔flat) getattr/try-except 방어. A/B 기간에만 기동 후 해제 |
+
 ## 환경변수 요약
 | 변수 | 기본값 | 서비스 |
 |------|--------|--------|
@@ -102,6 +117,9 @@ Redou가 의존하는 로컬 서비스 6개(프로덕션) + docling 표-파싱 �
 | `REDOU_MINERU_URL` | `http://localhost:8001` | MinerU |
 | `REDOU_GROBID_URL` | `http://localhost:8070` | GROBID |
 | `REDOU_DOCLING_URL` | `http://localhost:8011` | docling 사이드카 (측정 전용) |
+| `REDOU_LANGEXTRACT_URL` | `http://localhost:8012` | LangExtract 사이드카 (측정 전용) |
+| `REDOU_LANGEXTRACT_OLLAMA_URL` | `http://host.docker.internal:11434` | LangExtract → Ollama 백엔드 (컨테이너 내) |
+| `REDOU_LANGEXTRACT_MODEL` | `gemma4:31b` | LangExtract 추출 모델 (Ollama) |
 | `REDOU_RENDERER_URL` | `http://127.0.0.1:4173` | 프론트엔드 |
 
 ## 서비스 가용��� 확인 (코드 기반)
@@ -114,10 +132,11 @@ Redou가 의존하는 로컬 서비스 6개(프로덕션) + docling 표-파싱 �
 | `isMineruAvailable()` | mineru-client.mjs:22 | MinerU |
 | `isGrobidAvailable()` | grobid-client.mjs:21 | GROBID |
 | `isDoclingAvailable()` | docling-client.mjs | docling 사이드카 (측정 전용) |
+| `isLangExtractAvailable()` | langextract-client.mjs | LangExtract 사이드카 (측정 전용) |
 
 ## 의존성
 - 필수: Supabase (데이터 저장), vLLM (임베딩), MinerU (V2 PDF 파이프라인)
-- 강력 권장: Ollama (채��/OCR)
+- 강력 권장: Ollama (채팅/OCR)
 - 선택: GROBID (메타데이터 품질 향상)
 - 보류/미사용: UniMERNet (현재 V2 PDF 파이프라인 호출자 없음)
-- 측정 전용(비상시): docling 사이드카 (tool-ab-adoption 슬라이스 02 A/B 기간에만 기동, 프로덕션 무배선)
+- 측정 전용(비상시): docling 사이드카(슬라이스 02, 표 파싱 A/B) + LangExtract 사이드카(슬라이스 04, Stage-3b 추출 A/B) — tool-ab-adoption A/B 기간에만 기동, 프로덕션 무배선
