@@ -1,0 +1,46 @@
+# LangExtract Stage-3b sidecar — TEMPORARY, A/B-only (tool-ab-adoption slice 04).
+#
+# Kept in a SEPARATE compose file (does not touch compose.mineru.yaml,
+# compose.docling.yaml, or docker-compose.yml). Spin up only for the
+# current-SRAG-vs-LangExtract A/B, tear down after. Adoption / always-on is
+# decided by slice 05, not here.
+#
+# No GPU reservation: LangExtract is model-free and calls the ALREADY-RUNNING
+# Ollama (11434) on the host — the model runs there, this container is just the
+# extraction orchestrator. host.docker.internal reaches the host Ollama on
+# Docker Desktop; extra_hosts adds host-gateway so it also works on Linux.
+#
+# Build + run (from apps/langextract-server):
+#   docker compose -f compose.langextract.yaml build langextract
+#   docker compose -f compose.langextract.yaml up -d langextract
+#
+# Point at a different Ollama / model:
+#   REDOU_LANGEXTRACT_OLLAMA_URL=http://host.docker.internal:11434 \
+#   REDOU_LANGEXTRACT_MODEL=gemma4:31b \
+#   docker compose -f compose.langextract.yaml up -d langextract
+#
+# Health: curl -f http://localhost:8012/health
+services:
+  langextract:
+    build:
+      context: .
+      dockerfile: Dockerfile.langextract
+    image: langextract-stage3b-sidecar:latest
+    container_name: redou-langextract
+    ports:
+      - "8012:8012"
+    environment:
+      # Reuse the always-on host Ollama (no new model download). gemma4:31b is the
+      # slice-01 A/B baseline LLM — keep it identical for a fair comparison.
+      REDOU_LANGEXTRACT_OLLAMA_URL: "${REDOU_LANGEXTRACT_OLLAMA_URL:-http://host.docker.internal:11434}"
+      REDOU_LANGEXTRACT_MODEL: "${REDOU_LANGEXTRACT_MODEL:-gemma4:31b}"
+    extra_hosts:
+      # Lets host.docker.internal resolve the host on Linux too (native on Docker Desktop).
+      - "host.docker.internal:host-gateway"
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8012/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

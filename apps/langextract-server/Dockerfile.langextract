@@ -1,0 +1,23 @@
+# LangExtract Stage-3b sidecar (tool-ab-adoption slice 04).
+# UNLIKE docling/ocr-server this needs NO CUDA and NO torch: LangExtract ships no
+# model weights (~150KB wheel) and calls a remote Ollama model instead. So we use
+# a plain python-slim base — the image is small and builds in seconds.
+# MEASUREMENT-ONLY: spun up only for the current-SRAG-vs-LangExtract A/B.
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# curl for the healthcheck; no system GL/torch deps needed (model-free wheel).
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# LangExtract + FastAPI stack (no torch/CUDA — see requirements.txt).
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the sidecar server.
+COPY langextract-server.py .
+
+EXPOSE 8012
+
+CMD ["uvicorn", "langextract-server:app", "--host", "0.0.0.0", "--port", "8012"]

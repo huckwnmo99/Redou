@@ -1,0 +1,6 @@
+# LangExtract Stage-3b sidecar (tool-ab-adoption slice 04, measurement-only).
+# LangExtract is MODEL-FREE (~150KB wheel, no torch/CUDA): it calls a remote
+# Ollama model, so this image stays tiny (no GPU base, unlike docling/ocr-server).
+langextract>=1.6,<2
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
